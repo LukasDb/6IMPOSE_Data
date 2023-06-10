@@ -11,9 +11,9 @@ class Scene:
 
         # setup settings
         bpy.context.scene.render.engine = 'CYCLES'
-        bpy.context.scene.cycles.device = 'GPU'
+        #bpy.context.scene.cycles.device = 'GPU'
         bpy.context.scene.cycles.use_denoising = True
-        bpy.context.scene.cycles.denoiser = 'OPTIX'
+        #bpy.context.scene.cycles.denoiser = 'OPTIX'
         bpy.context.scene.cycles.samples = 64
         bpy.context.scene.cycles.caustics_reflective = False
         bpy.context.scene.cycles.caustics_refractive = False
@@ -23,6 +23,10 @@ class Scene:
         bpy.context.scene.render.resolution_percentage = 100
         bpy.context.scene.render.use_persistent_data = True
         bpy.context.scene.view_layers[0].cycles.use_denoising = True
+        my_light = Light(name="MyLight", type='POINT', energy=2.0, location=(0, 0, 0))
+        my_light.create()
+        
+
 
         # setup output settings
         
@@ -38,5 +42,7 @@ class Scene:
     def __exit__(self, exc_type, exc_value, traceback):
         pass
     
-    def render(self):
-        bpy.ops.render.render(write_still=False)
+    def render(self,filepath):
+        bpy.context.scene.render.filepath = filepath
+        bpy.ops.render.render(write_still=True)
+   	
