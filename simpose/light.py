@@ -1,5 +1,6 @@
 import bpy
 from .placeable import Placeable
+import logging
 
 
 class Light(Placeable):
@@ -20,4 +21,5 @@ class Light(Placeable):
         super().__init__(bl_object=self.light_object)
 
     def set_energy(self, energy):
+        logging.info(f"Setting energy of light {self.name} to {energy}")
         self.light_data.energy = energy

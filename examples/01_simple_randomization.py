@@ -1,9 +1,10 @@
 import simpose as sp
 from pathlib import Path
 import logging
+import numpy as np
 from tqdm import tqdm, trange
 
-logging.basicConfig(level=logging.WARN)
+logging.basicConfig(level=logging.INFO)
 
 scene = sp.Scene()
 
@@ -15,15 +16,17 @@ with scene:
         object_id=1,
     )
     cam = sp.Camera("Camera")
-    sp.Object.add_material(duck)
-
     light = sp.Light("Light", type="POINT", energy=100.0)
-    light.set_location((1.0, 1.0, -0.2))
+
+
+duck.add_material()
+light.set_location((1.0, 1.0, -0.2))
 
 
 for i in trange(10):
     sp.random.randomize_rotation(duck)
     sp.random.randomize_in_camera_frustum(duck, cam, (0.3, 1.0), (0.9, 0.9))
+    light.set_energy(np.random.uniform(10, 200))
     # Render the scene
 
     scene.render(

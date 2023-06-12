@@ -34,6 +34,6 @@ def randomize_in_camera_frustum(
 
     subject.set_location(pos)
     logging.info(
-        f"randomize_in_camera_frustum: {subject} randomzied to {pos} ({np.rad2deg(yaw)}°, {np.rad2deg(pitch)}°, {r})with camera fov {2*np.rad2deg(hfov)} {2*np.rad2deg(vfov)}"
+        f"randomize_in_camera_frustum: {subject} randomzied to {pos}"
     )
     return np.array([x, y, z])
