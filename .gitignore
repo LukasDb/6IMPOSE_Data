@@ -2,6 +2,9 @@ meshes/**
 output/**
 render/**
 .vscode/**
+*.blend
+*.blend1
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
