@@ -1,5 +1,7 @@
 meshes/**
 output/**
+render/**
+.vscode/**
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

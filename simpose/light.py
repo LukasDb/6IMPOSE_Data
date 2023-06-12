@@ -1,27 +1,23 @@
-
-
-
 import bpy
+from .placeable import Placeable
 
-class Light:
-    def __init__(self, name, type='POINT', energy=1.0, location=(0, 0, 0)):
+
+class Light(Placeable):
+    def __init__(self, name, type="POINT", energy=1.0):
         self.name = name
         self.type = type
         self.energy = energy
-        self.location = location
-        self.light_data = None
-        self.light_object = None
-        
-    def create(self):
-        # Create a new light data block
-        self.light_data = bpy.data.lights.new(name=self.name, type=self.type)
 
-        # Create a new light object and link it to the scene
-        self.light_object = bpy.data.objects.new(name=self.name, object_data=self.light_data)
+        self.light_data = bpy.data.lights.new(name=self.name, type=self.type)
+        self.light_data.energy = self.energy
+
+        self.light_object = bpy.data.objects.new(
+            name=self.name, object_data=self.light_data
+        )
+        self.light_object.name = name
         bpy.context.collection.objects.link(self.light_object)
 
-        # Set the light object's location
-        self.light_object.location = self.location
+        super().__init__(bl_object=self.light_object)
 
-        # Set light properties
-        self.light_data.energy = self.energy
+    def set_energy(self, energy):
+        self.light_data.energy = energy

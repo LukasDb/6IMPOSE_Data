@@ -58,10 +58,6 @@ class PrincipledBSDFMaterial(Material):
         return self._object_material, self._bsdf_node
 
 
-# Alias for backward compatibility
-PrinsipledBSDFMaterial = PrincipledBSDFMaterial
-
-
 class GlossyBSDFMaterial(Material):
     """A class which manages the parameters of GlossyBSDF Blender material.
     Full docs: https://docs.blender.org/manual/en/latest/render/shader_nodes/shader/glossy.html

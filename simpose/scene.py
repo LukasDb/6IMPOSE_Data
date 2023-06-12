@@ -3,6 +3,12 @@ from simpose.camera import Camera
 from simpose.light import Light
 from simpose.object import Object
 import bpy
+import sys
+import io
+import os
+import logging
+from .redirect_stdout import redirect_stdout
+
 
 class Scene:
     def __init__(self) -> None:
@@ -10,10 +16,10 @@ class Scene:
         bpy.context.window.scene = self._bl_scene
 
         # setup settings
-        bpy.context.scene.render.engine = 'CYCLES'
-        #bpy.context.scene.cycles.device = 'GPU'
+        bpy.context.scene.render.engine = "CYCLES"
+        # bpy.context.scene.cycles.device = 'GPU'
         bpy.context.scene.cycles.use_denoising = True
-        #bpy.context.scene.cycles.denoiser = 'OPTIX'
+        # bpy.context.scene.cycles.denoiser = 'OPTIX'
         bpy.context.scene.cycles.samples = 64
         bpy.context.scene.cycles.caustics_reflective = False
         bpy.context.scene.cycles.caustics_refractive = False
@@ -23,26 +29,19 @@ class Scene:
         bpy.context.scene.render.resolution_percentage = 100
         bpy.context.scene.render.use_persistent_data = True
         bpy.context.scene.view_layers[0].cycles.use_denoising = True
-        my_light = Light(name="MyLight", type='POINT', energy=2.0, location=(0, 0, 0))
-        my_light.create()
-        
-
-
-        # setup output settings
-        
-
 
     def export_blend(self, filepath):
-        bpy.ops.wm.save_as_mainfile(filepath=filepath)
+        with redirect_stdout():
+            bpy.ops.wm.save_as_mainfile(filepath=filepath)
 
     def __enter__(self):
         bpy.context.window.scene = self._bl_scene
         return self
-    
+
     def __exit__(self, exc_type, exc_value, traceback):
         pass
-    
-    def render(self,filepath):
+
+    def render(self, filepath):
         bpy.context.scene.render.filepath = filepath
-        bpy.ops.render.render(write_still=True)
-   	
+        with redirect_stdout():
+            bpy.ops.render.render(write_still=True)
