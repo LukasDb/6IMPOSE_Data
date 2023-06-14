@@ -24,11 +24,16 @@ class Object(Placeable):
 
     def add_material(self):
         # Create the material instance
-        material = PrincipledBSDFMaterial(metallic=0.5, roughness=0.2)
+        material = PrincipledBSDFMaterial()
         # Create the Blender material and shader node
         blender_material, shader_node = material.create_material(name="MyMaterial")
-        self._bl_object.data.materials.clear()  # Clear existing materials if needed
         self._bl_object.data.materials.append(blender_material)
-
+    def set_metallic_value(self,value):
+        self._bl_object.data.materials[1].metallic = value
+        
+    def set_roughness_value(self,value):
+        self._bl_object.data.materials[1].roughness = value
+        
+    
     def __str__(self) -> str:
         return f"Object(id={self.object_id}, name={self._bl_object.name})"
