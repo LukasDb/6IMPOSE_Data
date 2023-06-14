@@ -21,7 +21,7 @@ with scene:
 
 duck.add_material()
 light.set_location((1.0, 1.0, -0.2))
-
+#duck.set_metallic_value(0.5)
 
 for i in trange(10):
     sp.random.randomize_rotation(duck)
@@ -30,7 +30,7 @@ for i in trange(10):
     # Render the scene
 
     scene.render(
-        f"render/render_{i}.png"
+        f"render_metal1/render_metal1_{i}.png"
     )  # Save the rendered image to the specified file path
 
 # export Scene as .blend file, so we can open it in Blender and check results
