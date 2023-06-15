@@ -19,9 +19,10 @@ with scene:
     light = sp.Light("Light", type="POINT", energy=100.0)
 
 
-duck.add_material()
+
 light.set_location((1.0, 1.0, -0.2))
-#duck.set_metallic_value(0.5)
+duck.set_metallic_value(1.0)
+duck.set_roughness_value(0.4)
 
 for i in trange(10):
     sp.random.randomize_rotation(duck)
