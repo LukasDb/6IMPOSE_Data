@@ -30,18 +30,20 @@ class Object(Placeable):
         blender_material, shader_node = material.create_material(name="MyMaterial")
         self._bl_object.data.materials.append(blender_material)
         self.node = shader_node
-        
-    
-    
-    def set_metallic_value(self,value):
+
+    def set_metallic_value(self, value):
         self._bl_object.data.materials[0].metallic = value
-        principled_bsdf = self._bl_object.data.materials[0].node_tree.nodes["Principled BSDF"]
+        principled_bsdf = self._bl_object.data.materials[0].node_tree.nodes[
+            "Principled BSDF"
+        ]
         principled_bsdf.inputs["Metallic"].default_value = value
-        
-    def set_roughness_value(self,value):
+
+    def set_roughness_value(self, value):
         self._bl_object.data.materials[0].roughness = value
-        principled_bsdf = self._bl_object.data.materials[0].node_tree.nodes["Principled BSDF"]
+        principled_bsdf = self._bl_object.data.materials[0].node_tree.nodes[
+            "Principled BSDF"
+        ]
         principled_bsdf.inputs["Roughness"].default_value = value
-    
+
     def __str__(self) -> str:
         return f"Object(id={self.object_id}, name={self._bl_object.name})"

@@ -3,6 +3,7 @@ from simpose.camera import Camera
 from simpose.light import Light
 from simpose.object import Object
 import bpy
+import numpy as np
 import sys
 import io
 import os
@@ -28,7 +29,23 @@ class Scene:
         bpy.context.scene.render.resolution_y = 480
         bpy.context.scene.render.resolution_percentage = 100
         bpy.context.scene.render.use_persistent_data = True
+        self.resolution = np.array([640, 480])
         bpy.context.scene.view_layers[0].cycles.use_denoising = True
+
+        self._setup_compositor()
+
+    def render(self, filepath):
+        bpy.context.scene.render.filepath = filepath
+        with redirect_stdout():
+            bpy.ops.render.render(write_still=True)
+
+    def set_background(self, filepath):
+        # get composition node_tree
+        img = bpy.data.images.load(filepath)
+        self.bg_image_node.image = img
+        scale_to_fit = np.max(self.resolution / np.array(img.size))
+        self.bg_transform.inputs[4].default_value = scale_to_fit
+        logging.info(f"Set background to {filepath}")
 
     def export_blend(self, filepath):
         with redirect_stdout():
@@ -41,7 +58,21 @@ class Scene:
     def __exit__(self, exc_type, exc_value, traceback):
         pass
 
-    def render(self, filepath):
-        bpy.context.scene.render.filepath = filepath
-        with redirect_stdout():
-            bpy.ops.render.render(write_still=True)
+    def _setup_compositor(self):
+        bpy.context.scene.use_nodes = True
+        bpy.context.scene.render.film_transparent = True
+        tree = bpy.context.scene.node_tree
+        # create a alpha node to overlay the rendered image over the background image
+        alpha_over = tree.nodes.new("CompositorNodeAlphaOver")
+        self.bg_image_node = bg_image_node = tree.nodes.new("CompositorNodeImage")
+
+        # create a transform node to scale the background image to fit the render resolution
+        self.bg_transform = transform = tree.nodes.new("CompositorNodeTransform")
+        transform.filter_type = "BILINEAR"
+        
+        # link the nodes
+        tree.links.new(bg_image_node.outputs[0], transform.inputs[0])
+        tree.links.new(transform.outputs[0], alpha_over.inputs[1])
+        tree.links.new(tree.nodes["Render Layers"].outputs[0], alpha_over.inputs[2])
+        tree.links.new(alpha_over.outputs[0], tree.nodes["Composite"].inputs[0])
+        tree.links.new(tree.nodes["Render Layers"].outputs[1], alpha_over.inputs[0])

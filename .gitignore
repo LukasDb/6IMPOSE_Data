@@ -4,6 +4,7 @@ render/**
 .vscode/**
 *.blend
 *.blend1
+backgrounds/**
 
 
 # Byte-compiled / optimized / DLL files
