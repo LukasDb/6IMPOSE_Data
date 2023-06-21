@@ -25,6 +25,7 @@ with scene:
 
     bg = "//" + str(np.random.choice(list(Path("backgrounds").glob("*.jpg"))))
     scene.set_background(bg)
+    
 
 light.set_location((1.0, 1.0, -0.2))
 light2.set_location((-1.0, -1.0, -0.2))
@@ -38,10 +39,7 @@ for i in trange(10):
         sp.random.randomize_in_camera_frustum(j, cam, (0.3, 1.0), (0.9, 0.9))
     light.set_energy(np.random.uniform(10, 200))
     # Render the scene
-
-    scene.render(
-        f"render/render_{i}.png"
-    )  # Save the rendered image to the specified file path
-
+    scene.render(i)  # Save the rendered image to the specified file path
+    
 # export Scene as .blend file, so we can open it in Blender and check results
 scene.export_blend(str(Path("scene.blend").resolve()))
