@@ -34,9 +34,11 @@ class Scene:
         self.Tree = None
         self.rgbnode = None
         self.depthnode = None
+        self.segmentNode = None
         self._setup_compositor()
 
     def render(self, i):
+        self.segmentNode.file_slots[0].path = f"segment_{i}_"
         self.rgbnode.file_slots[0].path = f"rgb_{i}_"
         self.depthnode.file_slots[0].path = f"depth_{i}_"
         bpy.context.scene.render.filepath = f"render/rgb_images/render_{i}.png"
@@ -70,7 +72,7 @@ class Scene:
         bpy.context.view_layer.use_pass_z = True
         
 
-        #bpy.context.view_layer.use_pass_object_index = True
+        bpy.context.view_layer.use_pass_object_index = True
 
         bpy.context.view_layer.use_pass_combined = True
 
@@ -103,6 +105,15 @@ class Scene:
         depth_output_node.format.file_format = "PNG"
         self.depthnode = depth_output_node
         tree.links.new(self.Tree.nodes["Render Layers"].outputs["Depth"], depth_output_node.inputs["Image"])
+        
+        #id_mask_node = tree.nodes.new('CompositorNodeIDMask')
+        segmentation_output_node = tree.nodes.new('CompositorNodeOutputFile')
+        segmentation_output_node.base_path = "render/segmentation_images/"
+        segmentation_output_node.format.file_format = "OPEN_EXR"
+        self.segmentNode = segmentation_output_node
+        
+        tree.links.new(self.Tree.nodes["Render Layers"].outputs['IndexOB'], segmentation_output_node.inputs['Image'])
+        #tree.links.new(id_mask_node.outputs['IndexMA'], segmentation_output_node.inputs['Image'])
 
        
 
