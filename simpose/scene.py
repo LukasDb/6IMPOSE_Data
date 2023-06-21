@@ -31,7 +31,7 @@ class Scene:
         bpy.context.scene.render.use_persistent_data = True
         self.resolution = np.array([640, 480])
         bpy.context.scene.view_layers[0].cycles.use_denoising = True
-
+        self.Tree = None
         self._setup_compositor()
 
     def render(self, filepath):
@@ -62,6 +62,15 @@ class Scene:
         bpy.context.scene.use_nodes = True
         bpy.context.scene.render.film_transparent = True
         tree = bpy.context.scene.node_tree
+        
+        self.Tree = tree
+        bpy.context.view_layer.use_pass_z = True
+        
+
+        bpy.context.view_layer.use_pass_object_index = True
+
+        bpy.context.view_layer.use_pass_combined = True
+
         # create a alpha node to overlay the rendered image over the background image
         alpha_over = tree.nodes.new("CompositorNodeAlphaOver")
         self.bg_image_node = bg_image_node = tree.nodes.new("CompositorNodeImage")
@@ -70,9 +79,64 @@ class Scene:
         self.bg_transform = transform = tree.nodes.new("CompositorNodeTransform")
         transform.filter_type = "BILINEAR"
         
+    
         # link the nodes
         tree.links.new(bg_image_node.outputs[0], transform.inputs[0])
         tree.links.new(transform.outputs[0], alpha_over.inputs[1])
         tree.links.new(tree.nodes["Render Layers"].outputs[0], alpha_over.inputs[2])
         tree.links.new(alpha_over.outputs[0], tree.nodes["Composite"].inputs[0])
         tree.links.new(tree.nodes["Render Layers"].outputs[1], alpha_over.inputs[0])
+
+        # RGB image output
+        rgb_output_node = tree.nodes.new("CompositorNodeOutputFile")
+        rgb_output_node.base_path = "render/rgb/"
+        rgb_output_node.format.file_format = "PNG"
+        rgb_output_node.file_slots[0].path = "rgb_####"
+        tree.links.new(self.Tree.nodes["Render Layers"].outputs["Image"], rgb_output_node.inputs["Image"])
+
+        # Depth image output
+        depth_output_node = tree.nodes.new("CompositorNodeOutputFile")
+        depth_output_node.base_path = "render/depth_images/"
+        depth_output_node.format.file_format = "OPEN_EXR"
+        depth_output_node.file_slots[0].path = "depth_####"
+        tree.links.new(self.Tree.nodes["Render Layers"].outputs["Depth"], depth_output_node.inputs["Image"])
+
+        # Mask image output
+        mask_output_node = tree.nodes.new("CompositorNodeOutputFile")
+        mask_output_node.base_path = "render/mask_images/"
+        mask_output_node.format.file_format = "PNG"
+        mask_output_node.file_slots[0].path = "mask_####"  # Use '####' to represent frame number
+
+
+        # Create a Math node to convert the IndexOB pass to a mask
+        math_node = self.Tree.nodes.new("CompositorNodeMath")
+        math_node.operation = "GREATER_THAN"
+        math_node.inputs[1].default_value = 0
+
+        # Link the nodes
+        tree.links.new(self.Tree.nodes["Render Layers"].outputs["IndexOB"], math_node.inputs[0])
+        tree.links.new(math_node.outputs[0], mask_output_node.inputs["Image"])     
+        
+        
+
+
+    
+
+
+
+
+        
+
+
+
+
+
+
+       
+
+
+
+        
+
+
+
