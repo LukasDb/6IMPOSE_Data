@@ -1,5 +1,4 @@
 import bpy
-from .materials.common import PrincipledBSDFMaterial
 import mathutils
 import math
 from scipy.spatial.transform import Rotation as R
