@@ -40,6 +40,7 @@ for i in trange(10):
     light.set_energy(np.random.uniform(10, 200))
     # Render the scene
     scene.render(i)  # Save the rendered image to the specified file path
+print(cam.get_calibration_matrix_K_from_blender())
     
 # export Scene as .blend file, so we can open it in Blender and check results
 scene.export_blend(str(Path("scene.blend").resolve()))
