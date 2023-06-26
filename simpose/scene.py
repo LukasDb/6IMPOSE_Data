@@ -7,10 +7,11 @@ import numpy as np
 import sys
 import io
 import os
+from pathlib import Path
+import json,time
 import logging
 from .redirect_stdout import redirect_stdout
-
-
+import mathutils
 class Scene:
     def __init__(self) -> None:
         self._bl_scene = bpy.data.scenes.new("6impose Scene")
@@ -18,9 +19,10 @@ class Scene:
 
         # setup settings
         bpy.context.scene.render.engine = "CYCLES"
-        self._setup_rendering_device()
-        bpy.context.scene.cycles.samples = 64
+        # bpy.context.scene.cycles.device = 'GPU'
         bpy.context.scene.cycles.use_denoising = True
+        # bpy.context.scene.cycles.denoiser = 'OPTIX'
+        bpy.context.scene.cycles.samples = 64
         bpy.context.scene.cycles.caustics_reflective = False
         bpy.context.scene.cycles.caustics_refractive = False
         bpy.context.scene.cycles.use_auto_tile = False
@@ -29,6 +31,7 @@ class Scene:
         bpy.context.scene.render.resolution_percentage = 100
         bpy.context.scene.render.use_persistent_data = True
         self.resolution = np.array([640, 480])
+        bpy.context.scene.view_layers[0].cycles.use_denoising = True
 
         self.rgbnode = None
         self.depthnode = None
@@ -49,7 +52,7 @@ class Scene:
         self.bg_image_node.image = img
         scale_to_fit = np.max(self.resolution / np.array(img.size))
         self.bg_transform.inputs[4].default_value = scale_to_fit
-        logging.debug(f"Set background to {filepath}")
+        logging.info(f"Set background to {filepath}")
 
     def export_blend(self, filepath):
         with redirect_stdout():
@@ -119,39 +122,35 @@ class Scene:
         
         tree.links.new(tree.nodes["Render Layers"].outputs['IndexOB'], segmentation_output_node.inputs['Image'])
         #tree.links.new(id_mask_node.outputs['IndexMA'], segmentation_output_node.inputs['Image'])
-
-    def _setup_rendering_device(self):
-        bpy.context.scene.cycles.device = 'GPU'
-        pref = bpy.context.preferences.addons["cycles"].preferences
-        pref.get_devices()
-
-        for dev in pref.devices:
-            dev.use = False
-
-        device_types = list({x.type for x in pref.devices})
-        priority_list = ['OPTIX', 'HIP', 'ONEAPI', 'CUDA']
-
-        chosen_type = "NONE"
-
-        for type in priority_list:
-            if type in device_types:
-                chosen_type = type
-                break
-
-        # Set GPU rendering mode to detected one
-        pref.compute_device_type = chosen_type
         
-        chosen_type_device = "CPU" if chosen_type == "NONE" else chosen_type
-        available_devices = [x for x in pref.devices if x.type == chosen_type_device]
+          
+    def generate_data(self, data_dir,objs,cam,i):
+        self.render(i)
+        
 
-        selected_devices = [0] # TODO parametrize this
-        for i, dev in enumerate(available_devices):
-            if i in selected_devices:
-                dev.use = True
+        obj_list = [{
+                'object id': obj.object_id,
+                'name': obj.get_name(),
+                'pos': list(obj.get_position()),
+                'rotation': list(obj.get_rotation()),
+            }
+            for obj in objs]
+        
+        cam_pos = cam.get_position()
+        cam_rot = cam.get_rotation()
+        meta_dict= {
+            'cam_rotation': [cam_rot.w, cam_rot.x, cam_rot.y, cam_rot.z],
+            'cam_location':list(cam_pos),
+            'objs': list(obj_list)
+            }
+        if not os.path.isdir(os.path.join(data_dir)):
+            os.makedirs(os.path.join(data_dir))
+        with open(os.path.join(data_dir, f"gt_{i:05}.json"), 'w') as F:
+            json.dump(meta_dict, F, indent=2)
 
-        logging.info(f"Available devices: {available_devices}")
+            
+        
+    
+    
 
-        if chosen_type == 'OPTIX':
-            bpy.context.scene.cycles.denoiser = 'OPTIX'
-        else:
-            bpy.context.scene.cycles.denoiser = 'OPENIMAGEDENOISE'
+        
