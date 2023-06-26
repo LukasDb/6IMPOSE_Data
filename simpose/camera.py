@@ -15,6 +15,12 @@ class Camera(Placeable):
     def __str__(self) -> str:
         return f"Camera(name={self._bl_object.name})"
     
+    def get_position(self):
+        return self._bl_object.location
+    
+    def get_rotation(self):
+        return self._bl_object.rotation_euler.to_quaternion()
+    
     def get_calibration_matrix_K_from_blender(self):
         # always assume square pixels
 
@@ -43,3 +49,19 @@ class Camera(Placeable):
             (    0  , alpha_v, v_0),
             (    0  , 0,        1 )))
         return K
+    
+    # def create_camera(self,intrinsic_matrix,resolution_x,resolution_y):
+    #     # Create a new camera object
+    #     camera_data = bpy.data.cameras.new("CustomCamera")
+    #     camera_object = bpy.data.objects.new("CustomCamera", camera_data)
+    #     bpy.context.collection.objects.link(camera_object)
+        
+    #     # Set the camera resolution
+    #     bpy.context.scene.render.resolution_x = resolution_x
+    #     bpy.context.scene.render.resolution_y = resolution_y
+        
+    #     # Set the camera matrix transform
+    #     camera_object.matrix_world = intrinsic_matrix.to_4x4()  # Set the intrinsic matrix as the camera transform
+        
+    #     camera_object.data.lens_unit = 'FOV'  # Set the lens unit to Field of View
+    #     camera_object.data.angle = 2 * atan(intrinsic_matrix[][0] / (2 * intrinsic_matrix[0][0]))  # Set the field of view angle
