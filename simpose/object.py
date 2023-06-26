@@ -35,6 +35,15 @@ class Object(Placeable):
 
     def set_roughness_value(self, value):
         self.shader_node.inputs["Roughness"].default_value = value
+        
+    def get_name(self) -> str:
+        return self._bl_object.name
+
+    def get_position(self) -> mathutils.Vector:
+        return self._bl_object.location
+
+    def get_rotation(self) -> mathutils.Euler:
+        return self._bl_object.rotation_euler
 
     def __str__(self) -> str:
         return f"Object(id={self.object_id}, name={self._bl_object.name})"
