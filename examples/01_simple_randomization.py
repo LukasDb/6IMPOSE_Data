@@ -17,8 +17,8 @@ with scene:
             object_id=i,
         )
         obj.append(new)
-        new.set_metallic_value(0.0)
-        new.set_roughness_value(0.1)
+        new.set_metallic_value(1.0)
+        new.set_roughness_value(0.5)
     cam = sp.Camera("Camera")
     light = sp.Light("Light", type="POINT", energy=100.0)
     light2 = sp.Light("Light2", type="POINT", energy=100.0)
@@ -39,7 +39,7 @@ for i in trange(10):
         sp.random.randomize_in_camera_frustum(j, cam, (0.3, 1.0), (0.9, 0.9))
     light.set_energy(np.random.uniform(10, 200))
     # Render the scene
-    scene.render(i)  # Save the rendered image to the specified file path
+    scene.generate_data("render/gt/",obj,cam,i)  # Save the rendered image to the specified file path
 print(cam.get_calibration_matrix_K_from_blender())
     
 # export Scene as .blend file, so we can open it in Blender and check results
