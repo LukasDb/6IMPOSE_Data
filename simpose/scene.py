@@ -21,7 +21,7 @@ class Scene:
         bpy.context.scene.render.engine = "CYCLES"
         # bpy.context.scene.cycles.device = 'GPU'
         bpy.context.scene.cycles.use_denoising = True
-        # bpy.context.scene.cycles.denoiser = 'OPTIX'
+        #bpy.context.scene.cycles.denoiser = 'OPTIX'
         bpy.context.scene.cycles.samples = 64
         bpy.context.scene.cycles.caustics_reflective = False
         bpy.context.scene.cycles.caustics_refractive = False
@@ -132,17 +132,17 @@ class Scene:
         obj_list = [{
                 'name': obj.get_name(),
                 'object id': obj.object_id,
-                'pos': list(obj.get_position()),
-                'rotation': [obj.get_rotation().w, obj.get_rotation().x, obj.get_rotation().y, obj.get_rotation().z]
+                'pos': list(obj.location),
+                'rotation': list(obj.rotation.as_quat()),
             }
             for obj in objs]
         
-        cam_pos = cam.get_position()
-        cam_rot = cam.get_rotation()
+        cam_pos = cam.location
+        cam_rot = cam.rotation
         cam_matrix = cam.get_calibration_matrix_K_from_blender()
         
         meta_dict= {
-            'cam_rotation': [cam_rot.w, cam_rot.x, cam_rot.y, cam_rot.z],
+            'cam_rotation': list(cam_rot.as_quat()),
             'cam_location':list(cam_pos),
             'cam_matrix': np.array(cam_matrix).tolist(),
             'objs': list(obj_list)
