@@ -43,7 +43,7 @@ class Object(Placeable):
         return self._bl_object.location
 
     def get_rotation(self) -> mathutils.Euler:
-        return self._bl_object.rotation_euler
+        return self._bl_object.rotation_quaternion
 
     def __str__(self) -> str:
         return f"Object(id={self.object_id}, name={self._bl_object.name})"
