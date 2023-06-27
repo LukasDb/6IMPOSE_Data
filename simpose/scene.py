@@ -127,20 +127,24 @@ class Scene:
     def generate_data(self, data_dir,objs,cam,i):
         self.render(i)
         
+        
 
         obj_list = [{
-                'object id': obj.object_id,
                 'name': obj.get_name(),
+                'object id': obj.object_id,
                 'pos': list(obj.get_position()),
-                'rotation': list(obj.get_rotation()),
+                'rotation': [obj.get_rotation().w, obj.get_rotation().x, obj.get_rotation().y, obj.get_rotation().z]
             }
             for obj in objs]
         
         cam_pos = cam.get_position()
         cam_rot = cam.get_rotation()
+        cam_matrix = cam.get_calibration_matrix_K_from_blender()
+        
         meta_dict= {
             'cam_rotation': [cam_rot.w, cam_rot.x, cam_rot.y, cam_rot.z],
             'cam_location':list(cam_pos),
+            'cam_matrix': np.array(cam_matrix).tolist(),
             'objs': list(obj_list)
             }
         if not os.path.isdir(os.path.join(data_dir)):
