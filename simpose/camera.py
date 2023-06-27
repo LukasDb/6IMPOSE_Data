@@ -15,11 +15,6 @@ class Camera(Placeable):
     def __str__(self) -> str:
         return f"Camera(name={self._bl_object.name})"
     
-    def get_position(self):
-        return self._bl_object.location
-    
-    def get_rotation(self):
-        return self._bl_object.rotation_euler.to_quaternion()
     
     def get_calibration_matrix_K_from_blender(self):
         # always assume square pixels
