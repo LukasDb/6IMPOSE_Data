@@ -25,7 +25,7 @@ def main():
                 shot = json.load(F)
             cam_quat = shot['cam_rotation']
             cam_matrix = np.array(shot['cam_matrix'])
-            cam_rot = R.from_quat([*cam_quat[1:], cam_quat[0]]).as_matrix()
+            cam_rot = R.from_quat(cam_quat).as_matrix()
             cam_pos = np.array(shot['cam_location'])
 
             objs = shot['objs']
@@ -46,7 +46,7 @@ def main():
             for obj in objs:                
                 obj_pos = np.array(obj['pos'])
                 quat = obj['rotation']
-                obj_rot = R.from_quat([*quat[1:], quat[0]]).as_matrix() # w, x, y, z -> x, y, z, w
+                obj_rot = R.from_quat(quat).as_matrix() # w, x, y, z -> x, y, z, w
 
                 t = cam_rot.T @ (obj_pos - cam_pos)
                 RotM = cam_rot.T @ obj_rot
