@@ -37,6 +37,44 @@ class Scene:
         self.depthnode = None
         self.segmentNode = None
         self._setup_compositor()
+        self._setup_rendering_device()
+        
+    def _setup_rendering_device(self):
+        bpy.context.scene.cycles.device = 'GPU'
+        pref = bpy.context.preferences.addons["cycles"].preferences
+        pref.get_devices()
+
+        for dev in pref.devices:
+            dev.use = False
+
+
+        device_types = list({x.type for x in pref.devices})
+        priority_list = ['OPTIX', 'HIP', 'ONEAPI', 'CUDA']
+
+        chosen_type = "NONE"
+
+        for type in priority_list:
+            if type in device_types:
+                chosen_type = type
+                break
+
+        # Set GPU rendering mode to detected one
+        pref.compute_device_type = chosen_type
+
+        chosen_type_device = "CPU" if chosen_type == "NONE" else chosen_type
+        available_devices = [x for x in pref.devices if x.type == chosen_type_device]
+
+        selected_devices = [0] # TODO parametrize this
+        for i, dev in enumerate(available_devices):
+            if i in selected_devices:
+                dev.use = True
+
+        logging.info(f"Available devices: {available_devices}")
+
+        if chosen_type == 'OPTIX':
+            bpy.context.scene.cycles.denoiser = 'OPTIX'
+        else:
+            bpy.context.scene.cycles.denoiser = 'OPENIMAGEDENOISE'
 
     def render(self, i):
         bpy.context.scene.frame_set(i) # this sets the suffix for file names
