@@ -12,10 +12,14 @@ import json,time
 import logging
 from .redirect_stdout import redirect_stdout
 import mathutils
+from typing import List
+
 class Scene:
     def __init__(self) -> None:
         self._bl_scene = bpy.data.scenes.new("6impose Scene")
         bpy.context.window.scene = self._bl_scene
+
+        self._bl_scene["id_counter"] = 1 # 0 is reserved for background
 
         # setup settings
         bpy.context.scene.render.engine = "CYCLES"
@@ -159,16 +163,13 @@ class Scene:
         self.segmentNode = segmentation_output_node
         
         tree.links.new(tree.nodes["Render Layers"].outputs['IndexOB'], segmentation_output_node.inputs['Image'])
-        #tree.links.new(id_mask_node.outputs['IndexMA'], segmentation_output_node.inputs['Image'])
         
           
-    def generate_data(self, data_dir,objs,cam,i):
+    def generate_data(self, data_dir,objs: List[Object],cam,i):
         self.render(i)
         
-        
-
         obj_list = [{
-                'name': obj.get_name(),
+                'class': obj.get_class(),
                 'object id': obj.object_id,
                 'pos': list(obj.location),
                 'rotation': list(obj.rotation.as_quat()),
