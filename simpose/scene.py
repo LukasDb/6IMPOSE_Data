@@ -106,7 +106,7 @@ class Scene:
 
 
         device_types = list({x.type for x in pref.devices})
-        priority_list = ['OPTIX', 'HIP', 'ONEAPI', 'CUDA']
+        priority_list = ['OPTIX', 'HIP', 'METAL', 'ONEAPI', 'CUDA']
 
         chosen_type = "NONE"
 
@@ -114,7 +114,8 @@ class Scene:
             if type in device_types:
                 chosen_type = type
                 break
-
+            
+        logging.info("Rendering device: " + chosen_type)
         # Set GPU rendering mode to detected one
         pref.compute_device_type = chosen_type
 

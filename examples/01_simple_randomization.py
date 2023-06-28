@@ -4,13 +4,14 @@ import logging
 import numpy as np
 from tqdm import tqdm, trange
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARN)
 
 scene = sp.Scene()
 
 writer = sp.Writer(scene, Path("output_01"))
 
 rand_lights = sp.LightRandomizer(
+    scene,
     no_of_lights_range=(2, 5),
     energy_range=(100, 500),
     color_range=(0.9, 1.0),
