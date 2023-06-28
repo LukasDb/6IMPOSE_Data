@@ -8,47 +8,51 @@ logging.basicConfig(level=logging.WARN)
 
 scene = sp.Scene()
 
-# use context manager to explicitly specify the blender scene, where the objects are created
-obj = []
-with scene:
-    obj_path = Path("meshes/cpsduck/cpsduck.obj")
-    duck = sp.Object.from_obj(str(obj_path.resolve()))
-    obj.append(duck)
-    duck.set_metallic_value(0.0)
-    duck.set_roughness_value(0.5)
+writer = sp.Writer(scene, Path("output_02"))
 
-    obj_path = Path("meshes/wrench_13/wrench_13.obj")
-    wrench = sp.Object.from_obj(str(obj_path.resolve()))
-    obj.append(wrench)
-    wrench.set_metallic_value(1.0)
-    wrench.set_roughness_value(0.1)
+rand_lights = sp.LightRandomizer(
+    scene,
+    no_of_lights_range=(2, 5),
+    energy_range=(100, 500),
+    color_range=(0.9, 1.0),
+    distance_range=(3.0, 10.0)
+)
 
-    for i in range(50):
-        obj.append(duck.copy(linked=True))
+rand_scene = sp.SceneRandomizer(
+    scene=scene,
+    backgrounds_dir=Path("backgrounds")
+)
 
-    cam = sp.Camera("Camera")
-    light = sp.Light("Light", type="POINT", energy=100.0)
-    light2 = sp.Light("Light2", type="POINT", energy=100.0)
+rand_obj = sp.ObjectRandomizer(
+    r_range = (0.3, 1.0)
+)
 
-    random = sp.Random
-    bg = random.random_background()
-    scene.set_background(bg)
-    
+cam = scene.create_camera("Camera")
 
-light.set_location((1.0, 1.0, -0.2))
-light2.set_location((-1.0, -1.0, -0.2))
+obj_path = Path("meshes/cpsduck/cpsduck.obj")
+duck = scene.create_from_obj(obj_path)
+duck.set_metallic_value(0.0)
+duck.set_roughness_value(0.5)
+rand_obj.add(duck)
 
+obj_path = Path("meshes/wrench_13/wrench_13.obj")
+wrench = scene.create_from_obj(obj_path)
+wrench.set_metallic_value(1.0)
+wrench.set_roughness_value(0.1)
+rand_obj.add(wrench)
+
+for i in range(50):
+    duck_copy = scene.create_copy(duck, linked=True)
+    rand_obj.add(duck_copy)
+
+scene.export_blend(str(Path("scene.blend").resolve()))
 
 for i in trange(10):
-    bg = random.random_background()
-    scene.set_background(bg)
-    for j in obj:
-        random.randomize_rotation(j)
-        random.randomize_in_camera_frustum(j, cam, (0.3, 1.0), (0.9, 0.9))
-
-    random.randomize_lighting((3,6),cam,(1.0,3.0),(40,100))
-
-    scene.generate_data("render/gt/",obj,cam,i)  # Save the rendered image to the specified file path
+    rand_scene.randomize_background()
+    rand_lights.randomize_lighting_around_cam(cam)
+    rand_obj.randomize_in_camera_frustum(cam)
+    rand_obj.randomize_orientation()
+    writer.generate_data(i)  # Save the rendered image to the specified file path
 
 print(cam.get_calibration_matrix_K_from_blender())
     

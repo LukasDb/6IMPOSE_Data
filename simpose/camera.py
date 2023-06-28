@@ -4,13 +4,29 @@ from .placeable import Placeable
 import mathutils 
 
 class Camera(Placeable):
-    def __init__(self, name: str):
+    """ This is just a functional wrapper around the blender object.
+    It is not meant to be instantiated directly. Use the factory methods of 
+        simpose.Scene instead
+    It has no internal state, everything is delegated to the blender object.
+    """
+    def __init__(self, bl_cam):
+        super().__init__(bl_object=bl_cam)
+        bpy.context.scene.camera = bl_cam
+
+    @staticmethod
+    def create(name: str):
         bpy.ops.object.camera_add()
         bl_cam = bpy.context.selected_objects[0]
         bl_cam.name = name
-        super().__init__(bl_object=bl_cam)
-        self.data = bl_cam.data  # Set the 'data' attribute to the camera's data
-        bpy.context.scene.camera = bl_cam
+        return Camera(bl_cam)
+    
+    @property
+    def name(self) -> str:
+        return self._bl_object.name
+    
+    @property
+    def data(self):
+        return self._bl_object.data
 
     def __str__(self) -> str:
         return f"Camera(name={self._bl_object.name})"

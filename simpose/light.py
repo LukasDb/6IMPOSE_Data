@@ -4,42 +4,51 @@ import logging
 import numpy as np
 import math
 from mathutils import Vector
+
+
 class Light(Placeable):
-    def __init__(self, name, type="POINT", energy=1.0):
-        self.name = name
-        self.type = type
-        self.energy = energy
+    """ This is just a functional wrapper around the blender object.
+    It is not meant to be instantiated directly. Use the factory methods of 
+        simpose.Scene instead
+    It has no internal state, everything is delegated to the blender object.
+    """
+    def __init__(self, bl_light):
+        super().__init__(bl_object=bl_light)
 
-        self.light_data = bpy.data.lights.new(name=self.name, type=self.type)
-        self.light_data.energy = self.energy
+    @staticmethod
+    def create(name: str, energy, type="POINT"):
+        light_data = bpy.data.lights.new(name=name, type=type)
+        light_data.energy = energy
 
-        self.light_object = bpy.data.objects.new(
-            name=self.name, object_data=self.light_data
+        bl_light = bpy.data.objects.new(
+            name=name, object_data=light_data
         )
-        self.light_object.name = name
-        bpy.context.collection.objects.link(self.light_object)
-
-        super().__init__(bl_object=self.light_object)
-
-    def set_energy(self, energy):
-        logging.info(f"Setting energy of light {self.name} to {energy}")
-        self.light_data.energy = energy
-        
-    def randomize_position_rel_to_camera(self, cam,d_lights):
-
-        r = np.random.uniform(d_lights[0], d_lights[1])
-        
-        elev = np.random.uniform(-np.pi*0.75, np.pi*0.75)
-        yaw = np.random.uniform(np.pi/4, 7./4*np.pi)
-        
-        x = math.sin(yaw) * math.cos(elev) * r
-        z = math.cos(yaw) * math.cos(elev) * r
-        y = math.sin(elev) * r
-        
-        cam_pos = cam.location
-        cam_rot = cam.rotation
-        pos = (cam_rot.as_matrix() @ Vector((x, y, z))) + cam_pos
-        return pos
+        bl_light.name = name
+        return Light(bl_light)
     
-    def set_color(self, color):
+
+    @property
+    def light_data(self):
+        return self._bl_object.data
+    
+
+    @property
+    def energy(self):
+        return self.light_data.energy
+
+    @energy.setter
+    def energy(self, energy):
+        logging.info(f"Setting energy of light {self._bl_object.name} to {energy}")
+        self.light_data.energy = energy
+    
+    @property
+    def color(self):
+        return self.light_data.color
+    
+    @color.setter
+    def color(self, color):
+        logging.info(f"Setting color of light {self._bl_object.name} to {color}")
         self.light_data.color = color
+
+
+    

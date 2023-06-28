@@ -5,6 +5,8 @@ render/**
 *.blend
 *.blend1
 backgrounds/**
+backgrounds
+output_*
 
 
 # Byte-compiled / optimized / DLL files
