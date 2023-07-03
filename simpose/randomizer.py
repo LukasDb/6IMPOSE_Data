@@ -9,21 +9,29 @@ from scipy.spatial.transform import Rotation as R
 from .placeable import Placeable
 from typing import List, Tuple
 
+
 class Randomizer:
     def __init__(self) -> None:
-        self._subjects = []
+        pass
+
+
+class ObjectRandomizer(Randomizer):
+    def __init__(
+        self,
+        scene,
+        *,
+        r_range,
+        yp_limit=(0.9, 0.9),
+    ) -> None:
+        super().__init__()
+        self._r_range = r_range
+        self._yp_limit = yp_limit
+        self._subjects: List[simpose.Object] = []
 
     def add(self, object):
         self._subjects.append(object)
 
-
-class ObjectRandomizer(Randomizer):
-    def __init__(self, r_range, yp_limit=(0.9, 0.9),) -> None:
-        super().__init__()
-        self._r_range = r_range
-        self._yp_limit = yp_limit
-
-    def randomize_in_camera_frustum(self,cam: simpose.Camera):
+    def randomize_pose_in_camera_view(self, cam: simpose.Camera):
         render = bpy.context.scene.render
 
         aspect_ratio = render.resolution_x / render.resolution_y
@@ -35,6 +43,7 @@ class ObjectRandomizer(Randomizer):
         r_range = self._r_range
         yp_limit = self._yp_limit
 
+        self._randomize_orientation()
         for subject in self._subjects:
             r = np.random.uniform(r_range[0], r_range[1])
             yaw = yp_limit[0] * np.random.uniform(-hfov, hfov)
@@ -50,23 +59,22 @@ class ObjectRandomizer(Randomizer):
             pos = np.array([x, y, z]) @ cam_rot.as_matrix() + np.array(cam_origin)
 
             subject.set_location(pos)
-            logging.info(
-                f"randomize_in_camera_frustum: {subject} randomzied to {pos}"
-            )
-    
-    def randomize_orientation(self):
+            logging.info(f"randomize_in_camera_frustum: {subject} randomzied to {pos}")
+
+    def _randomize_orientation(self):
         for subject in self._subjects:
             subject.set_rotation(R.random())
 
-
-class LightRandomizer(Randomizer):    
-    def __init__(self, 
-                 scene: simpose.Scene,
-                 no_of_lights_range: Tuple[int, int],
-                 energy_range: Tuple[int, int],
-                 color_range: Tuple[float, float],
-                 distance_range: Tuple[float, float]
-                 ):
+class LightRandomizer(Randomizer):
+    def __init__(
+        self,
+        scene: simpose.Scene,
+        *,
+        no_of_lights_range: Tuple[int, int],
+        energy_range: Tuple[int, int],
+        color_range: Tuple[float, float],
+        distance_range: Tuple[float, float],
+    ):
         super().__init__()
         self._scene = scene
         self._no_of_lights_range = no_of_lights_range
@@ -74,12 +82,11 @@ class LightRandomizer(Randomizer):
         self._color_range = color_range
         self._distance_range = distance_range
 
-
     def randomize_lighting_around_cam(self, cam: simpose.Camera):
         for key in bpy.data.lights:
             bpy.data.lights.remove(key, do_unlink=True)
-                
-        n_lights  = np.random.randint(*self._no_of_lights_range)
+
+        n_lights = np.random.randint(*self._no_of_lights_range)
         for i in range(n_lights):
             energy = np.random.uniform(*self._energy_range)
             light = self._scene.create_light(f"Light_{i}", type="POINT", energy=energy)
@@ -88,10 +95,9 @@ class LightRandomizer(Randomizer):
             light.set_location(pos)
             light.color = np.random.uniform(*self._color_range, size=(3,))
 
-
     def _get_random_position_rel_to_camera(self, cam: simpose.Camera):
         dist = np.random.uniform(*self._distance_range)
-        dir = R.random().as_matrix() @ np.array([0,0,1])
+        dir = R.random().as_matrix() @ np.array([0, 0, 1])
         offset = dist * dir
         cam_pos = cam.location
         pos = offset + cam_pos
@@ -99,7 +105,9 @@ class LightRandomizer(Randomizer):
 
 
 class SceneRandomizer(Randomizer):
-    def __init__(self, scene: simpose.Scene, backgrounds_dir: Path= Path("backgrounds")) -> None:
+    def __init__(
+        self, scene: simpose.Scene, *, backgrounds_dir: Path = Path("backgrounds")
+    ) -> None:
         super().__init__()
         self._scene: simpose.Scene = scene
         self._backgrounds_dir: Path = backgrounds_dir
@@ -108,4 +116,3 @@ class SceneRandomizer(Randomizer):
     def randomize_background(self):
         bg = "//" + str(np.random.choice(self._backgrounds))
         self._scene.set_background(bg)
-    

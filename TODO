@@ -33,45 +33,6 @@ CHANGES:
 │  │  │  ├─ 00000000.json       | contains list[{'obj_id', 'cam_R_m2c', cam_T_m2c', 'bbox_loose', 'bbox_tight', 'visib_fract'}]
 ```
 
-## TODO
-Data Generation:
-- [ ] Scene Setup:
-    - [ ] Import objects
-        - [ ] .obj files -> Meshes
-        - [ ] Create PBR materials
-        - [ ] Define semantics
-    - [ ] Import backgrounds
-        - [ ] Load from folder
-    - [ ] Setup rendering settings
-        - [ ] Cycles settings: num samples, num bounces…
-        - [ ] Configure GPUs and backend
-        - [ ] Configure parallel workers
-- [ ] Rendering Loop
-    - [ ] Randomize objects
-        - [ ] Texture
-        - [ ] position&rotation
-        - [ ] Mesh (scaling, deformation... other ideas)
-    - [ ] Randomize Background (from images, or other? depth?)
-    - [ ] Randomize lights
-        - [ ] Strength, Color, position, number, type
-    - [ ] Render to file
-        - [ ] RGB, RGB_R
-        - [ ] Depth
-        - [ ] Segmentation masks (visible and full)
-        - [ ] 6DPoses
-        - [ ] Bounding Boxes (tight and loose)
-        - [ ] Albedo
-    - [ ] Save metadata:
-        - [ ] Statistics, number of datapoints…
-        - [ ] Camera parameters, intrinsics
-- [ ] Write a Dataloader for CVDE
-    - high performant (for training)
-    - Choose which data
-    - [ ] Visualizer: preview generated data
-        - [ ] RGB, RGB_R, Depth, Semantics
-        - [ ] Pointcloud
-        - [ ] Annotations
-
 ### Links
 - possible file format for saving data:
 https://arrow.apache.org/docs/python/parquet.html
