@@ -35,9 +35,6 @@ class Scene:
         self.resolution = np.array([640, 480])
         bpy.context.scene.view_layers[0].cycles.use_denoising = True
 
-        self.rgbnode = None
-        self.depthnode = None
-        self.segmentNode = None
         self.output_dir = Path("output")
         self._setup_compositor()
         self._setup_rendering_device()
@@ -51,7 +48,7 @@ class Scene:
 
     def set_output_path(self, output_dir: Path):
         self.output_dir = output_dir
-        self._setup_compositor()
+        self.output_node.base_path = str((self.output_dir).resolve())
 
     def get_cameras(self) -> List[Camera]:
         return [
@@ -185,36 +182,34 @@ class Scene:
         tree.links.new(invert_alpha.outputs[0], alpha_over.inputs[0])
 
         # RGB image output
-        output_node = tree.nodes.new("CompositorNodeOutputFile")
-        output_node.base_path = str((self.output_dir).resolve())
-        output_node.inputs.remove(output_node.inputs[0])
+        self.output_node = output = tree.nodes.new("CompositorNodeOutputFile")
+        output.base_path = str((self.output_dir).resolve())
+        output.inputs.remove(output.inputs[0])
 
         # RGB output
-        output_node.file_slots.new("rgb")
-        output_node.file_slots[0].path = "rgb/rgb_"
-        output_node.file_slots[0].use_node_format = False
-        output_node.file_slots[0].format.color_mode = "RGB"
-        output_node.file_slots[0].format.file_format = "PNG"
-        tree.links.new(alpha_over.outputs[0], output_node.inputs["rgb"])
+        output.file_slots.new("rgb")
+        output.file_slots[0].path = "rgb/rgb_"
+        output.file_slots[0].use_node_format = False
+        output.file_slots[0].format.color_mode = "RGB"
+        output.file_slots[0].format.file_format = "PNG"
+        tree.links.new(alpha_over.outputs[0], output.inputs["rgb"])
 
         # Depth output
-        output_node.file_slots.new("depth")
-        output_node.file_slots[1].path = "depth/depth_"
-        output_node.file_slots[1].use_node_format = False
-        output_node.file_slots[1].format.color_mode = "RGB"
-        output_node.file_slots[1].format.file_format = "OPEN_EXR"
-        output_node.file_slots[1].format.exr_codec = "ZIP"
-        output_node.file_slots[1].format.color_depth = "16"
-        tree.links.new(render_layers.outputs["Depth"], output_node.inputs["depth"])
+        output.file_slots.new("depth")
+        output.file_slots[1].path = "depth/depth_"
+        output.file_slots[1].use_node_format = False
+        output.file_slots[1].format.color_mode = "RGB"
+        output.file_slots[1].format.file_format = "OPEN_EXR"
+        output.file_slots[1].format.exr_codec = "ZIP"
+        output.file_slots[1].format.color_depth = "16"
+        tree.links.new(render_layers.outputs["Depth"], output.inputs["depth"])
 
         # Object index output
-        output_node.file_slots.new("object_index")
-        output_node.file_slots[2].path = "segmentation/segmentation_"
-        output_node.file_slots[2].use_node_format = False
-        output_node.file_slots[2].format.color_mode = "RGB"
-        output_node.file_slots[2].format.file_format = "OPEN_EXR"
-        output_node.file_slots[2].format.exr_codec = "ZIPS"  # lossless
-        output_node.file_slots[2].format.color_depth = "16"
-        tree.links.new(
-            render_layers.outputs["IndexOB"], output_node.inputs["object_index"]
-        )
+        ret_val = output.file_slots.new("object_index")
+        output.file_slots[2].path = "segmentation/segmentation_"
+        output.file_slots[2].use_node_format = False
+        output.file_slots[2].format.color_mode = "RGB"
+        output.file_slots[2].format.file_format = "OPEN_EXR"
+        output.file_slots[2].format.exr_codec = "ZIPS"  # lossless
+        output.file_slots[2].format.color_depth = "16"
+        tree.links.new(render_layers.outputs["IndexOB"], output.inputs["object_index"])
