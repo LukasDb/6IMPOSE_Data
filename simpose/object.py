@@ -12,32 +12,33 @@ from pathlib import Path
 
 
 class Object(Placeable):
-    """ This is just a functional wrapper around the blender object.
-    It is not meant to be instantiated directly. Use the factory methods of 
+    """This is just a functional wrapper around the blender object.
+    It is not meant to be instantiated directly. Use the factory methods of
         simpose.Scene instead
     It has no internal state, everything is delegated to the blender object.
     """
+
     def __init__(self, bl_object) -> None:
         super().__init__(bl_object)
 
     @property
-    def material(self)->Material:
+    def material(self) -> Material:
         return self._bl_object.data.materials[0]
-    
+
     @property
-    def shader_node(self)->ShaderNodeBsdfPrincipled:
+    def shader_node(self) -> ShaderNodeBsdfPrincipled:
         return self.material.node_tree.nodes["Principled BSDF"]
-        
+
     @staticmethod
     def from_obj(filepath: Path, object_id):
         # clear selection
-        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
             bpy.ops.wm.obj_import(filepath=str(filepath.resolve()))
         bl_object = bpy.context.selected_objects[0]
         bl_object.pass_index = object_id
         return Object(bl_object)
-    
+
     @property
     def object_id(self):
         return self._bl_object.pass_index
@@ -47,13 +48,12 @@ class Object(Placeable):
 
     def set_roughness_value(self, value):
         self.shader_node.inputs["Roughness"].default_value = value
-        
+
     def get_name(self) -> str:
         return self._bl_object.name
-    
+
     def get_class(self) -> str:
         return re.match("([\w]+)(.[0-9])*", self.get_name()).group(1)
-    
+
     def __str__(self) -> str:
         return f"Object( name={self.get_name()}, class={self.get_class()}"
-    
