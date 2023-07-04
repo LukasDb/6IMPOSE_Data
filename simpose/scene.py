@@ -6,12 +6,12 @@ import bpy
 import numpy as np
 import logging
 from .redirect_stdout import redirect_stdout
-from typing import List
+from typing import List, Tuple
 from pathlib import Path
 
 
 class Scene:
-    def __init__(self) -> None:
+    def __init__(self, img_h: int = 480, img_w: int = 640) -> None:
         self._bl_scene = bpy.data.scenes.new("6impose Scene")
         bpy.context.window.scene = self._bl_scene
         self.__id_counter = 0  # never access
@@ -28,11 +28,11 @@ class Scene:
         bpy.context.scene.cycles.caustics_reflective = False
         bpy.context.scene.cycles.caustics_refractive = False
         bpy.context.scene.cycles.use_auto_tile = False
-        bpy.context.scene.render.resolution_x = 640
-        bpy.context.scene.render.resolution_y = 480
+        bpy.context.scene.render.resolution_x = img_w
+        bpy.context.scene.render.resolution_y = img_h
         bpy.context.scene.render.resolution_percentage = 100
         bpy.context.scene.render.use_persistent_data = True
-        self.resolution = np.array([640, 480])
+        self.resolution = np.array([img_w, img_h])
         bpy.context.scene.view_layers[0].cycles.use_denoising = True
 
         self.output_dir = Path("output")
@@ -68,8 +68,17 @@ class Scene:
             Object(x) for x in self._bl_scene.collection.children["Objects"].objects
         ]
 
-    def create_from_obj(self, obj_path: Path) -> Object:
-        obj = Object.from_obj(obj_path, self.get_new_object_id())
+    def create_from_obj(
+        self,
+        obj_path: Path,
+        add_physics: bool = False,
+        mass: float = 1,
+        friction: float = 0.5,
+        restitution: float = 0.5,
+    ) -> Object:
+        obj = Object.from_obj(
+            obj_path, self.get_new_object_id(), add_physics, mass, friction, restitution
+        )
         # move to "Objects" collection
         bpy.context.scene.collection.objects.unlink(obj._bl_object)
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
@@ -87,10 +96,13 @@ class Scene:
         bl_object.pass_index = self.get_new_object_id()
         return Object(bl_object)
 
-    def create_light(self, light_name: str, energy=float, type="POINT") -> Light:
+    def create_light(self, light_name: str, energy: float, type="POINT") -> Light:
         light = Light.create(light_name, energy, type)
         bpy.data.collections["Lights"].objects.link(light._bl_object)
         return light
+
+    def set_gravity(self, gravity: Tuple[float, float, float]):
+        bpy.context.scene.gravity = gravity
 
     def _setup_rendering_device(self):
         bpy.context.scene.cycles.device = "GPU"

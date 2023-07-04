@@ -30,13 +30,36 @@ class Object(Placeable):
         return self.material.node_tree.nodes["Principled BSDF"]
 
     @staticmethod
-    def from_obj(filepath: Path, object_id):
+    def from_obj(
+        filepath: Path,
+        object_id,
+        add_physics: bool = False,
+        mass: float = 1,
+        friction: float = 0.5,
+        restitution: float = 0.5,
+        mesh_collision: bool = False,
+    ):
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
             bpy.ops.wm.obj_import(filepath=str(filepath.resolve()))
         bl_object = bpy.context.selected_objects[0]
+
         bl_object.pass_index = object_id
+
+        if add_physics:
+            # add active rigid body
+            bpy.ops.rigidbody.object_add(type="ACTIVE")
+            # change to mesh collision
+            if mesh_collision:
+                bpy.context.object.rigid_body.collision_shape = "MESH"
+            # set mass
+            bpy.context.object.rigid_body.mass = mass
+            # set friction
+            bpy.context.object.rigid_body.friction = friction
+            # set restitution
+            bpy.context.object.rigid_body.restitution = restitution
+
         return Object(bl_object)
 
     @property
