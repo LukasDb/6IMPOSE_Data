@@ -3,3 +3,4 @@ bpy==3.5
 fake-bpy-module-latest
 scipy
 click
+opencv-python

@@ -42,20 +42,18 @@ class Object(Placeable):
         bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
             bpy.ops.wm.obj_import(filepath=str(filepath.resolve()))
-        bl_object = bpy.context.selected_objects[0]
+        try:
+            bl_object = bpy.context.selected_objects[0]
+        except IndexError:
+            raise RuntimeError(f"Could not import {filepath}")
 
 
         if add_physics:
-            # add active rigid body
             bpy.ops.rigidbody.object_add(type="ACTIVE")
-            # change to mesh collision
             if mesh_collision:
                 bpy.context.object.rigid_body.collision_shape = "MESH"
-            # set mass
             bpy.context.object.rigid_body.mass = mass
-            # set friction
             bpy.context.object.rigid_body.friction = friction
-            # set restitution
             bpy.context.object.rigid_body.restitution = restitution
 
         return Object(bl_object)
@@ -77,4 +75,4 @@ class Object(Placeable):
         return re.match("([\w]+)(.[0-9])*", self.get_name()).group(1)
 
     def __str__(self) -> str:
-        return f"Object( name={self.get_name()}, class={self.get_class()}"
+        return f"Object(name={self.get_name()}, class={self.get_class()}"

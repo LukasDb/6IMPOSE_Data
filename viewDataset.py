@@ -6,17 +6,16 @@ import numpy as np
 import cv2
 from scipy.spatial.transform import Rotation as R
 import click
+from pathlib import Path
 
 
 @click.command()
 @click.argument("img_dir", type=click.Path(exists=True))
 def main(img_dir):
     idxs = [
-        int(x.split("_")[1].split(".")[0])
-        for x in os.listdir(os.path.join(img_dir, "rgb"))
+        int(x.stem.split("_")[1])
+        for x in Path(img_dir+"/rgb").glob("*.png") # will be problematic with stereo
     ]
-
-    np.random.shuffle(idxs)
 
     cls_ids = {
         "cpsduck": 1,
@@ -85,13 +84,13 @@ def main(img_dir):
                 bbox = obj["bbox_visib"]
                 # bbox_size = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
                 # "visib_fract": visib_fract,
-
-                if obj["visib_fract"] > 0.75:
+                if obj["visib_fract"] > 0.1:
                     cv2.rectangle(
                         bgr,
                         (bbox[0], bbox[1]),
                         (bbox[2], bbox[3]),
                         color=cls_colors[cls],
+                        thickness = 2
                     )
 
                 obj_pos = np.array(obj["pos"])

@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 class Scene:
-    def __init__(self, img_h: int = 480, img_w: int = 640) -> None:
+    def __init__(self, img_h: int = 480, img_w: int = 640, use_stereo:bool=False) -> None:
         self._bl_scene = bpy.data.scenes.new("6impose Scene")
         bpy.context.window.scene = self._bl_scene
         self.__id_counter = 0  # never access
@@ -20,7 +20,9 @@ class Scene:
         self._bl_scene.collection.children.link(bpy.data.collections.new("Lights"))
         self._bl_scene.collection.children.link(bpy.data.collections.new("Cameras"))
         self._bl_scene.collection.children.link(bpy.data.collections.new("Objects"))
-
+        
+        bpy.context.scene.render.use_multiview = use_stereo
+        
         # setup settings
         bpy.context.scene.render.engine = "CYCLES"
         bpy.context.scene.cycles.use_denoising = True
@@ -169,7 +171,6 @@ class Scene:
         bpy.context.view_layer.use_pass_z = True
         bpy.context.view_layer.use_pass_object_index = True
         bpy.context.view_layer.use_pass_combined = True
-        bpy.context.scene.render.use_multiview = True
         tree = bpy.context.scene.node_tree
 
         # clear node tree
