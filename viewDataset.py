@@ -84,7 +84,7 @@ def main(img_dir):
                 bbox = obj["bbox_visib"]
                 # bbox_size = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
                 # "visib_fract": visib_fract,
-                if obj["visib_fract"] > 0.1:
+                if obj["visib_fract"] > 0.5:
                     cv2.rectangle(
                         bgr,
                         (bbox[0], bbox[1]),

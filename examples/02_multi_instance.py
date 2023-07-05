@@ -13,8 +13,8 @@ writer = sp.Writer(scene, Path("output_02"))
 rand_lights = sp.LightRandomizer(
     scene,
     no_of_lights_range=(3, 6),
-    energy_range=(200, 700),
-    color_range=(0.9, 1.0),
+    energy_range=(300, 1000),
+    color_range=(0.8, 1.0),
     distance_range=(3.0, 10.0),
 )
 

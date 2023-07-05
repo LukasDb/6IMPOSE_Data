@@ -2,10 +2,10 @@ from typing import Dict
 from simpose.camera import Camera
 from simpose.light import Light
 from simpose.object import Object
+from .redirect_stdout import redirect_stdout
 import bpy
 import numpy as np
 import logging
-from .redirect_stdout import redirect_stdout
 from typing import List, Tuple
 from pathlib import Path
 
@@ -68,6 +68,10 @@ class Scene:
         
         bpy.context.view_layer.use_pass_z = False
         
+        # connect renderlayer directly to output node
+        tree = bpy.context.scene.node_tree
+        tree.links.new(self.render_layers.outputs[0], self.output_node.inputs["rgb"])
+        
         self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0 # all visible masks
         output = self.output_node
         output.file_slots[0].path = "mask/mask_"
@@ -96,16 +100,6 @@ class Scene:
     def set_output_path(self, output_dir: Path):
         self.output_dir = output_dir
         self.output_node.base_path = str((self.output_dir).resolve())
-
-    def set_mask_object(self, obj_id: int | None):
-        if obj_id is None:
-            self.output_node.file_slots[2].path = "mask/mask_"
-            bpy.context.view_layer.use_pass_z = True
-            bpy.context.view_layer.use_pass_combined = True
-        else:
-            self.output_node.file_slots[2].path = f"mask/mask_{obj_id:04d}_"
-            bpy.context.view_layer.use_pass_z = False
-            bpy.context.view_layer.use_pass_combined = False
 
     def get_cameras(self) -> List[Camera]:
         return [
