@@ -32,7 +32,6 @@ class Object(Placeable):
     @staticmethod
     def from_obj(
         filepath: Path,
-        object_id,
         add_physics: bool = False,
         mass: float = 1,
         friction: float = 0.5,
@@ -45,7 +44,6 @@ class Object(Placeable):
             bpy.ops.wm.obj_import(filepath=str(filepath.resolve()))
         bl_object = bpy.context.selected_objects[0]
 
-        bl_object.pass_index = object_id
 
         if add_physics:
             # add active rigid body

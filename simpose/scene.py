@@ -50,6 +50,16 @@ class Scene:
         self.output_dir = output_dir
         self.output_node.base_path = str((self.output_dir).resolve())
 
+    def set_mask_object(self, obj_id: int | None):
+        if obj_id is None:
+            self.output_node.file_slots[2].path = "mask/mask_"
+            bpy.context.view_layer.use_pass_z = True
+            bpy.context.view_layer.use_pass_combined = True
+        else:
+            self.output_node.file_slots[2].path = f"mask/mask_{obj_id:04d}_"
+            bpy.context.view_layer.use_pass_z = False
+            bpy.context.view_layer.use_pass_combined = False
+
     def get_cameras(self) -> List[Camera]:
         return [
             Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects
@@ -64,9 +74,9 @@ class Scene:
         return cam
 
     def get_objects(self) -> List[Object]:
-        return [
-            Object(x) for x in self._bl_scene.collection.children["Objects"].objects
-        ]
+        return list(
+            [Object(x) for x in self._bl_scene.collection.children["Objects"].objects]
+        )
 
     def create_from_obj(
         self,
@@ -76,9 +86,9 @@ class Scene:
         friction: float = 0.5,
         restitution: float = 0.5,
     ) -> Object:
-        obj = Object.from_obj(
-            obj_path, self.get_new_object_id(), add_physics, mass, friction, restitution
-        )
+        obj = Object.from_obj(obj_path, add_physics, mass, friction, restitution)
+
+        obj._bl_object.pass_index = self.get_new_object_id()
         # move to "Objects" collection
         bpy.context.scene.collection.objects.unlink(obj._bl_object)
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
@@ -218,7 +228,7 @@ class Scene:
 
         # Object index output
         ret_val = output.file_slots.new("object_index")
-        output.file_slots[2].path = "segmentation/segmentation_"
+        output.file_slots[2].path = "mask/mask_"
         output.file_slots[2].use_node_format = False
         output.file_slots[2].format.color_mode = "RGB"
         output.file_slots[2].format.file_format = "OPEN_EXR"

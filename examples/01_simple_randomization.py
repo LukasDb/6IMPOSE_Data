@@ -12,8 +12,8 @@ writer = sp.Writer(scene, Path("output_01"))
 
 rand_lights = sp.LightRandomizer(
     scene,
-    no_of_lights_range=(2, 5),
-    energy_range=(100, 500),
+    no_of_lights_range=(3, 6),
+    energy_range=(200, 700),
     color_range=(0.9, 1.0),
     distance_range=(3.0, 10.0),
 )
@@ -30,7 +30,7 @@ for obj_path in Path("meshes").glob("*/*.obj"):
 cam = scene.create_camera("Camera")
 
 
-for i in trange(10):
+for i in trange(10):    
     rand_scene.randomize_background()
     rand_lights.randomize_lighting_around_cam(cam)
     rand_obj.randomize_pose_in_camera_view(cam)
