@@ -22,24 +22,9 @@ class Writer:
 
         # for each object, deactivate all but one and render mask
         objs = self._scene.get_objects()
-        for obj in objs:
-            obj._bl_object.hide_render = False
-            obj._bl_object.hide_viewport = False
-            for obj2 in objs:
-                if obj2 != obj:
-                    obj2._bl_object.hide_render = True
-                    obj2._bl_object.hide_viewport = True
-            self._scene.set_mask_object(obj.object_id)
-            with redirect_stdout():
-                bpy.ops.render.render(write_still=False)
-
-        for obj in objs:
-            obj._bl_object.hide_render = False
-        self._scene.set_mask_object(None)
-        # write rgb, depth, etc
-        with redirect_stdout():
-            bpy.ops.render.render(write_still=False)
-
+        self._scene.render_rgb_and_depth()
+        self._scene.render_masks()
+        
         mask = cv2.imread(
             str(Path(self._output_dir, "mask", f"mask_{dataset_index:04}.exr")),
             cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
@@ -50,6 +35,7 @@ class Writer:
             cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
         )[..., 0]
         depth[depth > 100.0] = 0.0
+
 
         obj_list = []
         for obj in objs:
@@ -65,9 +51,9 @@ class Writer:
             )[..., 0]
 
             bbox_visib = self._get_bbox(mask, obj.object_id)
-            bbox_obj = self._get_bbox(obj_mask, obj.object_id)
+            bbox_obj = self._get_bbox(obj_mask, 1)
 
-            px_count_all = np.count_nonzero(obj_mask == obj.object_id)
+            px_count_all = np.count_nonzero(obj_mask == 1)
             px_count_visib = np.count_nonzero(mask == obj.object_id)
             px_count_valid = np.count_nonzero(depth[mask == obj.object_id])
             visib_fract = px_count_visib / px_count_all
