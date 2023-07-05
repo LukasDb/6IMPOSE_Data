@@ -159,7 +159,7 @@ class Scene:
         bpy.context.view_layer.use_pass_z = True
         bpy.context.view_layer.use_pass_object_index = True
         bpy.context.view_layer.use_pass_combined = True
-
+        bpy.context.scene.render.use_multiview = True
         tree = bpy.context.scene.node_tree
 
         # clear node tree
