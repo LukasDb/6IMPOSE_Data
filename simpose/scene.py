@@ -2,32 +2,33 @@ from typing import Dict
 from simpose.camera import Camera
 from simpose.light import Light
 from simpose.object import Object
+from .redirect_stdout import redirect_stdout
 import bpy
 import numpy as np
 import logging
-from .redirect_stdout import redirect_stdout
 from typing import List, Tuple
 from pathlib import Path
 
 
 class Scene:
-    def __init__(self, img_h: int = 480, img_w: int = 640) -> None:
+    def __init__(
+        self, img_h: int = 480, img_w: int = 640, use_stereo: bool = False
+    ) -> None:
         self._bl_scene = bpy.data.scenes.new("6impose Scene")
         bpy.context.window.scene = self._bl_scene
-        self.__id_counter = 0  # never access
+        self.__id_counter = 0  # never directly access
+
+        # add new custom integer property to view layer, called 'index'
+        self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0
 
         # create a lights collection
         self._bl_scene.collection.children.link(bpy.data.collections.new("Lights"))
         self._bl_scene.collection.children.link(bpy.data.collections.new("Cameras"))
         self._bl_scene.collection.children.link(bpy.data.collections.new("Objects"))
 
+        bpy.context.scene.render.use_multiview = use_stereo
+
         # setup settings
-        bpy.context.scene.render.engine = "CYCLES"
-        bpy.context.scene.cycles.use_denoising = True
-        bpy.context.scene.cycles.samples = 64
-        bpy.context.scene.cycles.caustics_reflective = False
-        bpy.context.scene.cycles.caustics_refractive = False
-        bpy.context.scene.cycles.use_auto_tile = False
         bpy.context.scene.render.resolution_x = img_w
         bpy.context.scene.render.resolution_y = img_h
         bpy.context.scene.render.resolution_percentage = 100
@@ -38,6 +39,56 @@ class Scene:
         self.output_dir = Path("output")
         self._setup_compositor()
         self._setup_rendering_device()
+
+    def render_rgb_and_depth(self):
+        bpy.context.scene.render.engine = "CYCLES"
+        bpy.context.scene.cycles.use_denoising = True
+        bpy.context.scene.cycles.samples = 64
+        bpy.context.scene.cycles.caustics_reflective = False
+        bpy.context.scene.cycles.caustics_refractive = False
+        bpy.context.scene.cycles.use_auto_tile = False
+
+        bpy.context.view_layer.use_pass_z = True
+
+        tree = bpy.context.scene.node_tree
+        output = self.output_node
+        output.file_slots[0].path = "rgb/rgb_"
+        output.file_slots[0].use_node_format = False
+        output.file_slots[0].format.color_mode = "RGB"
+        output.file_slots[0].format.file_format = "PNG"
+        tree.links.new(self.rgb_out.outputs[0], output.inputs["rgb"])
+
+        with redirect_stdout():
+            bpy.ops.render.render(write_still=False)
+
+    def render_masks(self):
+        bpy.context.scene.render.engine = "BLENDER_EEVEE"
+        self._bl_scene.eevee.taa_render_samples = 1
+        self._bl_scene.eevee.taa_samples = 1
+        
+        bpy.context.view_layer.use_pass_z = False
+        
+        # connect renderlayer directly to output node
+        tree = bpy.context.scene.node_tree
+        tree.links.new(self.render_layers.outputs[0], self.output_node.inputs["rgb"])
+        
+        self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0 # all visible masks
+        output = self.output_node
+        output.file_slots[0].path = "mask/mask_"
+        output.file_slots[0].use_node_format = False
+        output.file_slots[0].format.color_mode = "RGB"
+        output.file_slots[0].format.file_format = "OPEN_EXR"
+        output.file_slots[0].format.exr_codec = "ZIPS"  # lossless
+        output.file_slots[0].format.color_depth = "16"
+        with redirect_stdout():
+            bpy.ops.render.render(write_still=False)
+            
+        for i in range(len(self.get_objects())):
+            self._bl_scene.view_layers["ViewLayer"]["object_index"] = i + 1
+            output.file_slots[0].path = f"mask/mask_{i+1:04d}_"
+            with redirect_stdout():
+                bpy.ops.render.render(write_still=False)
+            
 
     def get_new_object_id(self) -> int:
         self.__id_counter += 1
@@ -64,9 +115,9 @@ class Scene:
         return cam
 
     def get_objects(self) -> List[Object]:
-        return [
-            Object(x) for x in self._bl_scene.collection.children["Objects"].objects
-        ]
+        return list(
+            [Object(x) for x in self._bl_scene.collection.children["Objects"].objects]
+        )
 
     def create_from_obj(
         self,
@@ -76,9 +127,9 @@ class Scene:
         friction: float = 0.5,
         restitution: float = 0.5,
     ) -> Object:
-        obj = Object.from_obj(
-            obj_path, self.get_new_object_id(), add_physics, mass, friction, restitution
-        )
+        obj = Object.from_obj(obj_path, add_physics, mass, friction, restitution)
+
+        obj._bl_object.pass_index = self.get_new_object_id()
         # move to "Objects" collection
         bpy.context.scene.collection.objects.unlink(obj._bl_object)
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
@@ -157,9 +208,7 @@ class Scene:
         bpy.context.scene.use_nodes = True
         bpy.context.scene.render.film_transparent = True
         bpy.context.view_layer.use_pass_z = True
-        bpy.context.view_layer.use_pass_object_index = True
         bpy.context.view_layer.use_pass_combined = True
-        bpy.context.scene.render.use_multiview = True
         tree = bpy.context.scene.node_tree
 
         # clear node tree
@@ -167,10 +216,10 @@ class Scene:
             tree.nodes.remove(node)
 
         # add render layers node
-        render_layers = tree.nodes.new("CompositorNodeRLayers")
+        self.render_layers = render_layers = tree.nodes.new("CompositorNodeRLayers")
 
         # create a alpha node to overlay the rendered image over the background image
-        alpha_over = tree.nodes.new("CompositorNodeAlphaOver")
+        self.rgb_out = alpha_over = tree.nodes.new("CompositorNodeAlphaOver")
         self.bg_image_node = bg_image_node = tree.nodes.new("CompositorNodeImage")
 
         # create a transform node to scale the background image to fit the render resolution
@@ -216,12 +265,12 @@ class Scene:
         output.file_slots[1].format.color_depth = "16"
         tree.links.new(render_layers.outputs["Depth"], output.inputs["depth"])
 
-        # Object index output
-        ret_val = output.file_slots.new("object_index")
-        output.file_slots[2].path = "segmentation/segmentation_"
-        output.file_slots[2].use_node_format = False
-        output.file_slots[2].format.color_mode = "RGB"
-        output.file_slots[2].format.file_format = "OPEN_EXR"
-        output.file_slots[2].format.exr_codec = "ZIPS"  # lossless
-        output.file_slots[2].format.color_depth = "16"
-        tree.links.new(render_layers.outputs["IndexOB"], output.inputs["object_index"])
+        # # Object index output
+        # ret_val = output.file_slots.new("object_index")
+        # output.file_slots[2].path = "mask/mask_"
+        # output.file_slots[2].use_node_format = False
+        # output.file_slots[2].format.color_mode = "RGB"
+        # output.file_slots[2].format.file_format = "OPEN_EXR"
+        # output.file_slots[2].format.exr_codec = "ZIPS"  # lossless
+        # output.file_slots[2].format.color_depth = "16"
+        # tree.links.new(render_layers.outputs["IndexOB"], output.inputs["object_index"])
