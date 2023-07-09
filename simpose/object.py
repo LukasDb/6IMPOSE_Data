@@ -9,7 +9,7 @@ import logging
 from .redirect_stdout import redirect_stdout
 import re
 from pathlib import Path
-
+import numpy as np
 
 class Object(Placeable):
     """This is just a functional wrapper around the blender object.
@@ -119,3 +119,9 @@ class Object(Placeable):
 
     def __str__(self) -> str:
         return f"Object(name={self.get_name()}, class={self.get_class()}"
+    
+
+    
+
+   
+
