@@ -8,7 +8,7 @@ import logging
 from scipy.spatial.transform import Rotation as R
 from .placeable import Placeable
 from typing import List, Tuple
-
+import random
 
 class Randomizer:
     def __init__(self) -> None:
@@ -32,6 +32,7 @@ class ObjectRandomizer(Randomizer):
         self._subjects.append(object)
 
     def randomize_pose_in_camera_view(self, cam: simpose.Camera):
+        
         render = bpy.context.scene.render
 
         aspect_ratio = render.resolution_x / render.resolution_y
@@ -57,13 +58,42 @@ class ObjectRandomizer(Randomizer):
             cam_rot = cam.rotation
 
             pos = np.array([x, y, z]) @ cam_rot.as_matrix() + np.array(cam_origin)
-
+            print("pos ",pos)
             subject.set_location(pos)
+            
             logging.info(f"randomize_in_camera_frustum: {subject} randomzied to {pos}")
 
     def _randomize_orientation(self):
         for subject in self._subjects:
             subject.set_rotation(R.random())
+            
+    def randomize_appearance(self, metallic_range: Tuple[float,float],roughness_range: Tuple[float,float]):
+        for subject in self._subjects:
+            metallic_value = np.random.uniform(metallic_range[0],metallic_range[1])
+            subject.set_metallic_value(metallic_value)
+            roughness_value = np.random.uniform(roughness_range[0],roughness_range[1])
+            subject.set_roughness_value(roughness_value)
+            
+    def randomize_geometry(self, scale_range: Tuple[float,float], rotation_range: Tuple[float,float]):
+        for subject in self._subjects:
+            obj = subject._bl_object
+            
+            # Access the object's mesh data
+            mesh = obj.data
+            
+            
+            # Apply random scale to the vertices
+            scale_factor = np.random.uniform(scale_range[0], scale_range[1])
+            for vertex in mesh.vertices:
+                vertex.co *= scale_factor
+
+            # Apply random rotation to the object
+            rotation_angle = np.random.uniform(rotation_range[0], rotation_range[1])
+            obj.rotation_euler.z += rotation_angle
+
+            # Update the object with the modified mesh data
+            obj.data.update()
+            
 
 class LightRandomizer(Randomizer):
     def __init__(
@@ -83,10 +113,12 @@ class LightRandomizer(Randomizer):
         self._distance_range = distance_range
 
     def randomize_lighting_around_cam(self, cam: simpose.Camera):
+        
         for key in bpy.data.lights:
             bpy.data.lights.remove(key, do_unlink=True)
 
         n_lights = np.random.randint(*self._no_of_lights_range)
+        print("n_lights ",n_lights)
         for i in range(n_lights):
             energy = np.random.uniform(*self._energy_range)
             light = self._scene.create_light(f"Light_{i}", type="POINT", energy=energy)
@@ -96,11 +128,13 @@ class LightRandomizer(Randomizer):
             light.color = np.random.uniform(*self._color_range, size=(3,))
 
     def _get_random_position_rel_to_camera(self, cam: simpose.Camera):
+       
         dist = np.random.uniform(*self._distance_range)
         dir = R.random().as_matrix() @ np.array([0, 0, 1])
         offset = dist * dir
         cam_pos = cam.location
         pos = offset + cam_pos
+        
         return pos
 
 
@@ -114,5 +148,6 @@ class SceneRandomizer(Randomizer):
         self._backgrounds: List = list(self._backgrounds_dir.glob("*.jpg"))
 
     def randomize_background(self):
+        
         bg = "//" + str(np.random.choice(self._backgrounds))
         self._scene.set_background(bg)
