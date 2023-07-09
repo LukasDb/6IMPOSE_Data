@@ -40,7 +40,6 @@ def render_frames(output_path,start_frame, end_frame, index):
     )
 
     rand_scene = sp.SceneRandomizer(scene, backgrounds_dir=Path("backgrounds"))
-
     rand_obj = sp.ObjectRandomizer(scene, r_range=(0.3, 1.0))
 
     for obj_path in Path("meshes").glob("*/*.obj"):
