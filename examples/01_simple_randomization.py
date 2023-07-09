@@ -1,44 +1,65 @@
 import simpose as sp
 from pathlib import Path
 import logging
+from tqdm import tqdm
+import multiprocessing
+import random
+import time
 import numpy as np
-from tqdm import tqdm, trange
 
 logging.basicConfig(level=logging.WARN)
 
-scene = sp.Scene()
+def launch_multiple_instances(output_path,num_instances, frames_per_instance):
+    processes = []
+    for i in range(num_instances):
+        start_frame = i * frames_per_instance
+        end_frame = start_frame + frames_per_instance - 1
 
-writer = sp.Writer(scene, Path("output_01"))
+        process = multiprocessing.Process(target=render_frames, args=(output_path,start_frame, end_frame, i))
+        processes.append(process)
+        process.start()
 
-rand_lights = sp.LightRandomizer(
-    scene,
-    no_of_lights_range=(3, 6),
-    energy_range=(300, 1000),
-    color_range=(0.8, 1.0),
-    distance_range=(3.0, 10.0),
-)
+    # Wait for all instances to complete
+    for process in processes:
+        process.join()
 
-rand_scene = sp.SceneRandomizer(scene, backgrounds_dir=Path("backgrounds"))
+def render_frames(output_path,start_frame, end_frame, index):
+    seed = int(time.time()) + index
+    random.seed(seed)
+    np.random.seed(seed)  # Set seed for numpy's random number generator
+    
+    scene = sp.Scene()
+    writer = sp.Writer(scene, Path(output_path))
 
-rand_obj = sp.ObjectRandomizer(scene, r_range=(0.3, 1.0))
+    rand_lights = sp.LightRandomizer(
+        scene,
+        no_of_lights_range=(3, 6),
+        energy_range=(300, 1000),
+        color_range=(0.8, 1.0),
+        distance_range=(3.0, 10.0),
+    )
 
-for obj_path in Path("meshes").glob("*/*.obj"):
-    new = scene.create_from_obj(obj_path)
-    new.set_metallic_value(1.0)
-    new.set_roughness_value(0.5)
-    rand_obj.add(new)
-cam = scene.create_camera("Camera")
+    rand_scene = sp.SceneRandomizer(scene, backgrounds_dir=Path("backgrounds"))
 
+    rand_obj = sp.ObjectRandomizer(scene, r_range=(0.3, 1.0))
 
-for i in trange(10):    
-    rand_scene.randomize_background()
-    rand_lights.randomize_lighting_around_cam(cam)
-    rand_obj.randomize_pose_in_camera_view(cam)
+    for obj_path in Path("meshes").glob("*/*.obj"):
+        new = scene.create_from_obj(obj_path)
+        rand_obj.add(new)
 
-    writer.generate_data(i)  # Save the rendered image to the specified file path
+    cam = scene.create_camera("Camera")
+    
+    for frame in range(start_frame, end_frame + 1):
+        rand_scene.randomize_background()
+        rand_lights.randomize_lighting_around_cam(cam)
+        rand_obj.randomize_appearance([0.1, 1.0], [0.1, 0.5])
+        rand_obj.randomize_geometry((0.8, 1.2), (-0.8, 0.8))
+        rand_obj.randomize_pose_in_camera_view(cam)
 
+        writer.generate_data(frame)  # Save the rendered image to the specified file path
 
-print(cam.get_calibration_matrix_K_from_blender())
+output_path = "output_folder"
+num_instances = 2  # Number of Blender instances to launch
+frames_per_instance = 3  # Number of frames each instance will render
 
-# export Scene as .blend file, so we can open it in Blender and check results
-scene.export_blend(str(Path("scene.blend").resolve()))
+launch_multiple_instances(output_path,num_instances, frames_per_instance)
