@@ -18,12 +18,10 @@ class Placeable:
 
     @property
     def rotation(self) -> R:
-        """returns orientation of camera in OpenCV format"""
         self._bl_object.rotation_mode = "QUATERNION"
         q = self._bl_object.rotation_quaternion
         orn = R.from_quat([q.x, q.y, q.z, q.w])
-        to_cv2 = R.from_euler("x", 180, degrees=True)
-        return orn * to_cv2
+        return orn
 
     def set_location(self, location: Tuple | np.ndarray):
         if isinstance(location, np.ndarray):
@@ -31,8 +29,7 @@ class Placeable:
         self._bl_object.location = mathutils.Vector(location)
 
     def set_rotation(self, rotation: R):
-        to_blender = R.from_euler("x", -180, degrees=True)
-        r = (rotation * to_blender).as_quat()
+        r = rotation.as_quat()
         self._bl_object.rotation_mode = "QUATERNION"
         # blender: scalar first, scipy: scalar last
         blender_quat = [r[3], r[0], r[1], r[2]]
