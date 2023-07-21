@@ -23,6 +23,26 @@ class Object(Placeable):
     def __init__(self, bl_object) -> None:
         super().__init__(bl_object)
 
+    def hide(self):
+        if self.hidden:
+            return
+
+        try:
+            self._remove_pybullet_object()
+        except KeyError:
+            pass
+
+        self._bl_object.hide_render = True
+
+    def show(self):
+        if not self.hidden:
+            return
+        try:
+            self._add_pybullet_object()
+        except KeyError:
+            pass
+        self._bl_object.hide_render = False
+
     @property
     def material(self) -> Material:
         return self._bl_object.data.materials[0]
@@ -30,6 +50,31 @@ class Object(Placeable):
     @property
     def shader_node(self) -> ShaderNodeBsdfPrincipled:
         return self.material.node_tree.nodes["Principled BSDF"]
+
+    @property
+    def hidden(self) -> bool:
+        return self._bl_object.hide_render
+
+    def _add_pybullet_object(self) -> int:
+        coll_id = self._bl_object["coll_id"]
+        mass = self._bl_object["mass"]
+        friction = self._bl_object["friction"]
+
+        pb_id = p.createMultiBody(
+            baseMass=mass,
+            baseCollisionShapeIndex=coll_id,
+            basePosition=[0.0, 0.0, 0.0],
+        )
+        p.changeDynamics(pb_id, -1, lateralFriction=friction)
+        p.resetBasePositionAndOrientation(
+            pb_id, self._bl_object.location, self.rotation.as_quat()
+        )
+        self._bl_object["pb_id"] = pb_id
+        return pb_id
+
+    def _remove_pybullet_object(self):
+        p.removeBody(self._bl_object["pb_id"])
+        del self._bl_object["pb_id"]
 
     def copy(self, linked: bool) -> "Object":
         # clear blender selection
@@ -41,21 +86,12 @@ class Object(Placeable):
             bpy.ops.object.duplicate(linked=linked)
         bl_object = bpy.context.selected_objects[0]
 
-        try:
-            coll_id = self._bl_object["coll_id"]
-            mass = self._bl_object["mass"]
+        new_obj = Object(bl_object)
 
-            pb_id = p.createMultiBody(
-                baseMass=mass,
-                baseCollisionShapeIndex=coll_id,
-                basePosition=[0.0, 0.0, 0.0],
-            )
-            p.changeDynamics(pb_id, -1, lateralFriction=self._bl_object["friction"])
-            bl_object["pb_id"] = pb_id
-        except KeyError:
-            pass
+        if self._bl_object.get("pb_id") is not None:
+            new_obj._add_pybullet_object()
 
-        return Object(bl_object)
+        return new_obj
 
     @staticmethod
     def from_obj(
@@ -125,25 +161,18 @@ class Object(Placeable):
         #     bpy.context.object.rigid_body.mass = mass
         #     bpy.context.object.rigid_body.friction = friction
         #     bpy.context.object.rigid_body.restitution = restitution
-        if add_physics:
-            # add custom 'pb id' attribute to object
-            coll_id = p.createCollisionShape(p.GEOM_MESH, fileName=str(filepath))
-            pb_id = p.createMultiBody(
-                baseMass=mass,
-                baseCollisionShapeIndex=coll_id,
-                basePosition=[0.0, 0.0, 0.0],
-                baseOrientation=[0.0, 0.0, 0.0, 1.0],
-            )
-            p.changeDynamics(pb_id, -1, lateralFriction=friction)
-
-            bl_object["pb_id"] = pb_id
-            bl_object["mass"] = mass
-            bl_object["coll_id"] = coll_id
-            bl_object["friction"] = friction
-
-            # set friction
 
         obj = Object(bl_object)
+        if add_physics:
+            # add custom 'pb id' attribute to object
+            coll_id = p.createCollisionShape(
+                p.GEOM_MESH, fileName=str(filepath.resolve())
+            )
+            obj._bl_object["coll_id"] = coll_id
+            obj._bl_object["mass"] = mass
+            obj._bl_object["friction"] = friction
+            obj._add_pybullet_object()
+
         obj.set_location((0.0, 0.0, 0.0))
         obj.set_rotation(R.from_euler("x", 0, degrees=True))
         return obj

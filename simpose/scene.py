@@ -67,10 +67,13 @@ class Scene(Callbacks):
             p.stepSimulation()
         # now apply transform to objects
         for obj in self.get_objects():
-            pb_id = obj._bl_object["pb_id"]
-            pos, orn = p.getBasePositionAndOrientation(pb_id)
-            obj.set_location(pos)
-            obj.set_rotation(R.from_quat(orn))
+            try:
+                pb_id = obj._bl_object["pb_id"]
+                pos, orn = p.getBasePositionAndOrientation(pb_id)
+                obj.set_location(pos)
+                obj.set_rotation(R.from_quat(orn))
+            except KeyError:
+                pass
 
         self.callback(CallbackType.ON_PHYSICS_STEP)
 
