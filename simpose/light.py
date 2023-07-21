@@ -38,7 +38,6 @@ class Light(Placeable):
 
     @energy.setter
     def energy(self, energy):
-        logging.info(f"Setting energy of light {self._bl_object.name} to {energy}")
         self.light_data.energy = energy
     
     @property
@@ -47,7 +46,6 @@ class Light(Placeable):
     
     @color.setter
     def color(self, color):
-        logging.info(f"Setting color of light {self._bl_object.name} to {color}")
         self.light_data.color = color
 
 

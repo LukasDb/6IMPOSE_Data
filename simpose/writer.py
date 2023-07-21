@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 from .redirect_stdout import redirect_stdout
 import cv2
+import logging
 
 
 class Writer:
@@ -18,12 +19,13 @@ class Writer:
     """ contains logic to write the dataset """
 
     def generate_data(self, dataset_index: int):
+        logging.debug(f"Generating data for {dataset_index}")
         self._scene.frame_set(dataset_index)  # this sets the suffix for file names
 
         # for each object, deactivate all but one and render mask
         objs = self._scene.get_objects()
-        self._scene.render_rgb_and_depth()
-        self._scene.render_masks()
+        self._scene.render()
+    
 
         mask = cv2.imread(
             str(Path(self._output_dir, "mask", f"mask_{dataset_index:04}.exr")),

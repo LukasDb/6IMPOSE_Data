@@ -1,6 +1,5 @@
 import bpy
 from scipy.spatial.transform import Rotation as R
-import simpose as sp
 from .placeable import Placeable
 import mathutils
 import numpy as np

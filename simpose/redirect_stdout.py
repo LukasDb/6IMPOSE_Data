@@ -6,7 +6,7 @@ import logging
 
 @contextmanager
 def redirect_stdout():
-    mute = logging.getLogger().level >= logging.INFO
+    mute = logging.getLogger().level >= logging.DEBUG
     to = os.devnull
     fd = sys.stdout.fileno()
 

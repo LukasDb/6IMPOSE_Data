@@ -12,14 +12,19 @@ import pybullet as p
 import pybullet_data
 from scipy.spatial.transform import Rotation as R
 
+from simpose.callback import Callback, Callbacks, CallbackType
 
-class Scene:
+
+class Scene(Callbacks):
     def __init__(
         self, img_h: int = 480, img_w: int = 640, use_stereo: bool = False
     ) -> None:
+        Callbacks.__init__(self)
         self._bl_scene = bpy.data.scenes.new("6impose Scene")
         bpy.context.window.scene = self._bl_scene
         self.__id_counter = 0  # never directly access
+
+        self._randomizers: List[Callback] = []
 
         # add new custom integer property to view layer, called 'index'
         self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0
@@ -53,6 +58,8 @@ class Scene:
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         planeId = p.loadURDF("plane.urdf")
 
+        self.callback(CallbackType.ON_SCENE_CREATED)
+
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
         num_steps = np.floor(24 * dt).astype(int)
@@ -65,7 +72,12 @@ class Scene:
             obj.set_location(pos)
             obj.set_rotation(R.from_quat(orn))
 
-    def render_rgb_and_depth(self):
+        self.callback(CallbackType.ON_PHYSICS_STEP)
+
+    def render(self):
+        logging.debug("Rendering")
+        self.callback(CallbackType.BEFORE_RENDER)
+        # render RGB and DEPTH
         bpy.context.scene.render.engine = "CYCLES"
         bpy.context.scene.cycles.use_denoising = True
         bpy.context.scene.cycles.samples = 64
@@ -86,7 +98,7 @@ class Scene:
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)
 
-    def render_masks(self):
+        # render individual MASKS
         bpy.context.scene.render.engine = "BLENDER_EEVEE"
         self._bl_scene.eevee.taa_render_samples = 1
         self._bl_scene.eevee.taa_samples = 1
@@ -113,6 +125,8 @@ class Scene:
             output.file_slots[0].path = f"mask/mask_{i+1:04d}_"
             with redirect_stdout():
                 bpy.ops.render.render(write_still=False)
+
+        self.callback(CallbackType.AFTER_RENDER)
 
     def get_new_object_id(self) -> int:
         self.__id_counter += 1
@@ -157,11 +171,14 @@ class Scene:
         # move to "Objects" collection
         bpy.context.scene.collection.objects.unlink(obj._bl_object)
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
+
+        self.callback(CallbackType.ON_OBJECT_CREATED)
         return obj
 
     def create_copy(self, object: Object, linked: bool = False) -> Object:
         obj = object.copy(linked=linked)
         obj._bl_object.pass_index = self.get_new_object_id()
+        self.callback(CallbackType.ON_OBJECT_CREATED)
         return obj
 
     def create_light(self, light_name: str, energy: float, type="POINT") -> Light:
@@ -215,7 +232,7 @@ class Scene:
         self.bg_image_node.image = img
         scale_to_fit = np.max(self.resolution / np.array(img.size))
         self.bg_transform.inputs[4].default_value = scale_to_fit
-        logging.info(f"Set background to {filepath}")
+        logging.debug(f"Set background to {filepath}")
 
     def export_blend(self, filepath=str(Path("scene.blend").resolve())):
         with redirect_stdout():
