@@ -34,3 +34,23 @@ class Placeable:
         # blender: scalar first, scipy: scalar last
         blender_quat = [r[3], r[0], r[1], r[2]]
         self._bl_object.rotation_quaternion = blender_quat
+
+    def apply_global_offset(self, offset: Tuple | np.ndarray):
+        """Apply offset to location."""
+        if isinstance(offset, np.ndarray):
+            offset = tuple(offset)
+        self._bl_object.location += mathutils.Vector(offset)
+
+    def apply_local_offset(self, offset: Tuple | np.ndarray):
+        """Apply offset to location."""
+        if isinstance(offset, np.ndarray):
+            offset = tuple(offset)
+        self._bl_object.location += self._bl_object.rotation @ mathutils.Vector(offset)
+
+    def apply_global_rotation_offset(self, rotation: R):
+        """Apply offset to rotation."""
+        self.set_rotation(rotation * self.rotation)
+
+    def apply_local_rotation_offset(self, rotation: R):
+        """Apply offset to rotation."""
+        self.set_rotation(self.rotation * rotation)
