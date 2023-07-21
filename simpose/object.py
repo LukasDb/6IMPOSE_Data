@@ -10,6 +10,8 @@ from .redirect_stdout import redirect_stdout
 import re
 from pathlib import Path
 import numpy as np
+import pybullet as p
+
 
 class Object(Placeable):
     """This is just a functional wrapper around the blender object.
@@ -29,6 +31,31 @@ class Object(Placeable):
     def shader_node(self) -> ShaderNodeBsdfPrincipled:
         return self.material.node_tree.nodes["Principled BSDF"]
 
+    def copy(self, linked: bool) -> "Object":
+        # clear blender selection
+        bpy.ops.object.select_all(action="DESELECT")
+        # select object
+        self._bl_object.select_set(True)
+        # returns a new object with a linked data block
+        with redirect_stdout():
+            bpy.ops.object.duplicate(linked=linked)
+        bl_object = bpy.context.selected_objects[0]
+
+        try:
+            coll_id = self._bl_object["coll_id"]
+            mass = self._bl_object["mass"]
+
+            pb_id = p.createMultiBody(
+                baseMass=mass,
+                baseCollisionShapeIndex=coll_id,
+                basePosition=[0.0, 0.0, 0.0],
+            )
+            bl_object["pb_id"] = pb_id
+        except KeyError:
+            pass
+
+        return Object(bl_object)
+
     @staticmethod
     def from_obj(
         filepath: Path,
@@ -46,12 +73,12 @@ class Object(Placeable):
             bl_object = bpy.context.selected_objects[0]
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
-        
+
         # set material output to cycles only
         bl_object.data.materials[0].use_nodes = True
         tree = bl_object.data.materials[0].node_tree
         tree.nodes["Material Output"].target = "CYCLES"
-        
+
         attr_node = tree.nodes.new("ShaderNodeAttribute")
         attr_node.attribute_type = "VIEW_LAYER"
         attr_node.attribute_name = "object_index"
@@ -69,14 +96,14 @@ class Object(Placeable):
         # connect the attribute to the compare node
         tree.links.new(attr_node.outputs[0], compare_node.inputs[0])
         # conect object_info->pass_index to compare_node
-        tree.links.new(obj_info_node.outputs['Object Index'], compare_node.inputs[1])
+        tree.links.new(obj_info_node.outputs["Object Index"], compare_node.inputs[1])
         # conenct output of compare_node mix shader
         tree.links.new(compare_node.outputs[0], mix_shader.inputs[0])
         tree.links.new(compare_node.outputs[0], mix_shader.inputs[2])
         # connect transparent shader to mix2 shader
         tree.links.new(transparent.outputs[0], mix_shader2.inputs[1])
         # add camera data to mix2 (z depth)
-        tree.links.new(obj_info_node.outputs['Object Index'], mix_shader2.inputs[2])
+        tree.links.new(obj_info_node.outputs["Object Index"], mix_shader2.inputs[2])
         # connect attribute to compare2
         tree.links.new(attr_node.outputs[0], compare_node2.inputs[0])
         # set value2 of compare2 to 0
@@ -87,19 +114,34 @@ class Object(Placeable):
         tree.links.new(mix_shader2.outputs[0], mix_shader.inputs[1])
         # output of mix shader to material output
         tree.links.new(mix_shader.outputs[0], mat_output.inputs[0])
-        
+
         # set blend_method of material to alpha blend
-        bl_object.data.materials[0].blend_method = "BLEND"      
+        bl_object.data.materials[0].blend_method = "BLEND"
 
+        # if add_physics:
+        #     bpy.ops.rigidbody.object_add(type="ACTIVE")
+        #     if mesh_collision:
+        #         bpy.context.object.rigid_body.collision_shape = "MESH"
+        #     bpy.context.object.rigid_body.mass = mass
+        #     bpy.context.object.rigid_body.friction = friction
+        #     bpy.context.object.rigid_body.restitution = restitution
         if add_physics:
-            bpy.ops.rigidbody.object_add(type="ACTIVE")
-            if mesh_collision:
-                bpy.context.object.rigid_body.collision_shape = "MESH"
-            bpy.context.object.rigid_body.mass = mass
-            bpy.context.object.rigid_body.friction = friction
-            bpy.context.object.rigid_body.restitution = restitution
+            # add custom 'pb id' attribute to object
+            coll_id = p.createCollisionShape(p.GEOM_MESH, fileName=str(filepath))
+            pb_id = p.createMultiBody(
+                baseMass=mass,
+                baseCollisionShapeIndex=coll_id,
+                basePosition=[0.0, 0.0, 0.0],
+                baseOrientation=[0.0, 0.0, 0.0, 1.0],
+            )
+            bl_object["pb_id"] = pb_id
+            bl_object["mass"] = mass
+            bl_object["coll_id"] = coll_id
 
-        return Object(bl_object)
+        obj = Object(bl_object)
+        obj.set_location((0.0, 0.0, 0.0))
+        obj.set_rotation(R.from_euler("x", 0, degrees=True))
+        return obj
 
     @property
     def object_id(self):
@@ -119,9 +161,24 @@ class Object(Placeable):
 
     def __str__(self) -> str:
         return f"Object(name={self.get_name()}, class={self.get_class()}"
-    
 
-    
+    def set_location(self, location: Tuple | np.ndarray):
+        try:
+            # update physics representation
+            pb_id = self._bl_object["pb_id"]
+            q = self._bl_object.rotation_quaternion
+            p.resetBasePositionAndOrientation(pb_id, location, [q.x, q.y, q.z, q.w])
+        except KeyError:
+            pass
+        return super().set_location(location)
 
-   
-
+    def set_rotation(self, rotation: R):
+        try:
+            # update physics representation
+            pb_id = self._bl_object["pb_id"]
+            p.resetBasePositionAndOrientation(
+                pb_id, self._bl_object.location, rotation.as_quat()
+            )
+        except KeyError:
+            pass
+        return super().set_rotation(rotation)

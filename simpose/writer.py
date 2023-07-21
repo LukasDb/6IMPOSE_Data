@@ -24,7 +24,7 @@ class Writer:
         objs = self._scene.get_objects()
         self._scene.render_rgb_and_depth()
         self._scene.render_masks()
-        
+
         mask = cv2.imread(
             str(Path(self._output_dir, "mask", f"mask_{dataset_index:04}.exr")),
             cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
@@ -35,7 +35,6 @@ class Writer:
             cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
         )[..., 0]
         depth[depth > 100.0] = 0.0
-
 
         obj_list = []
         for obj in objs:
@@ -56,7 +55,10 @@ class Writer:
             px_count_all = np.count_nonzero(obj_mask == 1)
             px_count_visib = np.count_nonzero(mask == obj.object_id)
             px_count_valid = np.count_nonzero(depth[mask == obj.object_id])
-            visib_fract = px_count_visib / px_count_all
+            if px_count_all == 0:
+                visib_fract = 0.0
+            else:
+                visib_fract = px_count_visib / px_count_all
 
             obj_list.append(
                 {

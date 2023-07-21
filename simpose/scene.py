@@ -8,6 +8,9 @@ import numpy as np
 import logging
 from typing import List, Tuple
 from pathlib import Path
+import pybullet as p
+import pybullet_data
+from scipy.spatial.transform import Rotation as R
 
 
 class Scene:
@@ -40,6 +43,29 @@ class Scene:
         self._setup_compositor()
         self._setup_rendering_device()
 
+        p.connect(p.DIRECT)
+        p.resetSimulation()
+        p.setGravity(0, 0, -9.81)
+        p.setRealTimeSimulation(0)
+        # set timestep to 1/24. with 10substeps
+        p.setPhysicsEngineParameter(fixedTimeStep=1 / 24.0, numSubSteps=10)
+
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        planeId = p.loadURDF("plane.urdf")
+
+    def step_physics(self, dt):
+        """steps 1/240sec of physics simulation"""
+        num_steps = np.floor(24 * dt).astype(int)
+        print("stepping physics for ", num_steps, " steps")
+        for _ in range(max(1, num_steps)):
+            p.stepSimulation()
+        # now apply transform to objects
+        for obj in self.get_objects():
+            pb_id = obj._bl_object["pb_id"]
+            pos, orn = p.getBasePositionAndOrientation(pb_id)
+            obj.set_location(pos)
+            obj.set_rotation(R.from_quat(orn))
+
     def render_rgb_and_depth(self):
         bpy.context.scene.render.engine = "CYCLES"
         bpy.context.scene.cycles.use_denoising = True
@@ -65,14 +91,14 @@ class Scene:
         bpy.context.scene.render.engine = "BLENDER_EEVEE"
         self._bl_scene.eevee.taa_render_samples = 1
         self._bl_scene.eevee.taa_samples = 1
-        
+
         bpy.context.view_layer.use_pass_z = False
-        
+
         # connect renderlayer directly to output node
         tree = bpy.context.scene.node_tree
         tree.links.new(self.render_layers.outputs[0], self.output_node.inputs["rgb"])
-        
-        self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0 # all visible masks
+
+        self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0  # all visible masks
         output = self.output_node
         output.file_slots[0].path = "mask/mask_"
         output.file_slots[0].use_node_format = False
@@ -82,13 +108,12 @@ class Scene:
         output.file_slots[0].format.color_depth = "16"
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)
-            
+
         for i in range(len(self.get_objects())):
             self._bl_scene.view_layers["ViewLayer"]["object_index"] = i + 1
             output.file_slots[0].path = f"mask/mask_{i+1:04d}_"
             with redirect_stdout():
                 bpy.ops.render.render(write_still=False)
-            
 
     def get_new_object_id(self) -> int:
         self.__id_counter += 1
@@ -136,16 +161,9 @@ class Scene:
         return obj
 
     def create_copy(self, object: Object, linked: bool = False) -> Object:
-        # clear blender selection
-        bpy.ops.object.select_all(action="DESELECT")
-        # select object
-        object._bl_object.select_set(True)
-        # returns a new object with a linked data block
-        with redirect_stdout():
-            bpy.ops.object.duplicate(linked=linked)
-        bl_object = bpy.context.selected_objects[0]
-        bl_object.pass_index = self.get_new_object_id()
-        return Object(bl_object)
+        obj = object.copy(linked=linked)
+        obj._bl_object.pass_index = self.get_new_object_id()
+        return obj
 
     def create_light(self, light_name: str, energy: float, type="POINT") -> Light:
         light = Light.create(light_name, energy, type)

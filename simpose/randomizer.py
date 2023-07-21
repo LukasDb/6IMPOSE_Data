@@ -58,7 +58,6 @@ class ObjectRandomizer(Randomizer):
             cam_rot = cam.rotation
 
             pos = np.array([x, y, z]) @ cam_rot.as_matrix() + np.array(cam_origin)
-            print("pos ",pos)
             subject.set_location(pos)
             
             logging.info(f"randomize_in_camera_frustum: {subject} randomzied to {pos}")
@@ -118,7 +117,6 @@ class LightRandomizer(Randomizer):
             bpy.data.lights.remove(key, do_unlink=True)
 
         n_lights = np.random.randint(*self._no_of_lights_range)
-        print("n_lights ",n_lights)
         for i in range(n_lights):
             energy = np.random.uniform(*self._energy_range)
             light = self._scene.create_light(f"Light_{i}", type="POINT", energy=energy)
