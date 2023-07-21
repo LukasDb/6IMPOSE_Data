@@ -50,6 +50,7 @@ class Object(Placeable):
                 baseCollisionShapeIndex=coll_id,
                 basePosition=[0.0, 0.0, 0.0],
             )
+            p.changeDynamics(pb_id, -1, lateralFriction=self._bl_object["friction"])
             bl_object["pb_id"] = pb_id
         except KeyError:
             pass
@@ -63,7 +64,6 @@ class Object(Placeable):
         mass: float = 1,
         friction: float = 0.5,
         restitution: float = 0.5,
-        mesh_collision: bool = False,
     ):
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
@@ -134,9 +134,14 @@ class Object(Placeable):
                 basePosition=[0.0, 0.0, 0.0],
                 baseOrientation=[0.0, 0.0, 0.0, 1.0],
             )
+            p.changeDynamics(pb_id, -1, lateralFriction=friction)
+
             bl_object["pb_id"] = pb_id
             bl_object["mass"] = mass
             bl_object["coll_id"] = coll_id
+            bl_object["friction"] = friction
+
+            # set friction
 
         obj = Object(bl_object)
         obj.set_location((0.0, 0.0, 0.0))

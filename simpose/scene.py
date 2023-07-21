@@ -56,7 +56,6 @@ class Scene:
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
         num_steps = np.floor(24 * dt).astype(int)
-        print("stepping physics for ", num_steps, " steps")
         for _ in range(max(1, num_steps)):
             p.stepSimulation()
         # now apply transform to objects
@@ -218,7 +217,7 @@ class Scene:
         self.bg_transform.inputs[4].default_value = scale_to_fit
         logging.info(f"Set background to {filepath}")
 
-    def export_blend(self, filepath):
+    def export_blend(self, filepath=str(Path("scene.blend").resolve())):
         with redirect_stdout():
             bpy.ops.wm.save_as_mainfile(filepath=filepath)
 
