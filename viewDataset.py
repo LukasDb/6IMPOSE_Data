@@ -7,15 +7,18 @@ import cv2
 from scipy.spatial.transform import Rotation as R
 import click
 from pathlib import Path
+from tqdm import tqdm
 
 
 @click.command()
 @click.argument("img_dir", type=click.Path(exists=True))
-def main(img_dir):
+@click.option("--mp4", is_flag=True, help="Generate a mp4 video of the dataset instead")
+def main(img_dir, mp4):
     idxs = [
         int(x.stem.split("_")[1])
-        for x in Path(img_dir+"/rgb").glob("*.png") # will be problematic with stereo
+        for x in Path(img_dir + "/rgb").glob("*.png")  # will be problematic with stereo
     ]
+    idxs.sort()
 
     cls_ids = {
         "cpsduck": 1,
@@ -34,8 +37,23 @@ def main(img_dir):
         6: (240, 255, 31),
     }  # BGR
 
+    if mp4:
+        images = list(Path(img_dir + "/rgb").glob("*.png"))
+        images.sort()
+
+        frame = cv2.imread(str(images[0]))
+        height, width, layers = frame.shape
+
+        FPS = 24
+        video = cv2.VideoWriter(
+            "out.mp4",
+            cv2.VideoWriter_fourcc("m", "p", "4", "v"),
+            FPS,
+            (width * 2, height * 2),
+        )
+
     try:
-        for idx in idxs:
+        for idx in tqdm(idxs):
             with open(os.path.join(img_dir, "gt", f"gt_{idx:05}.json")) as F:
                 shot = json.load(F)
             cam_quat = shot["cam_rotation"]
@@ -90,7 +108,7 @@ def main(img_dir):
                         (bbox[0], bbox[1]),
                         (bbox[2], bbox[3]),
                         color=cls_colors[cls],
-                        thickness = 2
+                        thickness=2,
                     )
 
                 obj_pos = np.array(obj["pos"])
@@ -101,7 +119,7 @@ def main(img_dir):
 
                 # rotV, _ = cv2.Rodrigues(RotM)
                 # cv2.drawFrameAxes(
-                #     rgb,
+                #     bgr,
                 #     cameraMatrix=cam_matrix,
                 #     rvec=rotV,
                 #     tvec=t,
@@ -115,24 +133,27 @@ def main(img_dir):
                     cls
                 ]
 
-            print(f"Showing image: {idx:04}")
-
             # create preview, with rgb and mask
             row1 = np.hstack((bgr, colored_mask_bgr))
             row2 = np.hstack((colored_semantic_mask_bgr, colored_depth))
             preview = np.vstack((row1, row2))
 
-            cv2.imshow(f"Preview", preview)
+            if not mp4:
+                cv2.imshow(f"Preview", preview)
+                key = cv2.waitKey(0)
+                if key == ord("q") or key == 27:  # ESC
+                    break
 
-            key = cv2.waitKey(0)
-
-            if key == ord("q") or key == 27:  # ESC
-                break
+            else:
+                # cv2.waitKey(1)
+                video.write(preview)
 
     except KeyboardInterrupt:
         pass
     finally:
         cv2.destroyAllWindows()
+        if mp4:
+            video.release()
 
 
 if __name__ == "__main__":
