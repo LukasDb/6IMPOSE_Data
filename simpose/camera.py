@@ -3,6 +3,7 @@ from scipy.spatial.transform import Rotation as R
 import simpose as sp
 from .placeable import Placeable
 import mathutils
+import numpy as np
 
 
 class Camera(Placeable):
@@ -45,6 +46,14 @@ class Camera(Placeable):
 
     def __str__(self) -> str:
         return f"Camera(name={self._bl_object.name})"
+
+    def point_at(self, location: np.ndarray):
+        """point camera towards location with z-axis pointing up"""
+        to_point = self.location - location
+        yaw = np.arctan2(to_point[1], to_point[0]) + np.pi / 2
+        pitch = -np.pi / 2 - np.arctan2(to_point[2], np.linalg.norm(to_point[:2]))
+        towards_orign = R.from_euler("ZYX", [yaw, 0.0, pitch])
+        self.set_rotation(towards_orign)
 
     def get_calibration_matrix_K_from_blender(self):
         # always assume square pixels
