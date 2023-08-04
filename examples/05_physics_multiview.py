@@ -45,7 +45,7 @@ def generate_data(start: int, end: int, output_path: Path):
 
     scene = sp.Scene()
 
-    writer = sp.Writer(scene, output_path, render_object_masks=False)
+    writer = sp.Writer(scene, output_path, render_object_masks=True)
 
     shapenet_root = Path("/media/lukas/G-RAID/datasets/shapenet/ShapeNetCore")
     shapenet = sp.random.ShapenetLoader(

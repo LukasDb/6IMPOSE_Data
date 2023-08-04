@@ -105,29 +105,29 @@ class Scene(Callbacks):
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)
 
+        # render individual MASKS
+        bpy.context.scene.render.engine = "BLENDER_EEVEE"
+        self._bl_scene.eevee.taa_render_samples = 1
+        self._bl_scene.eevee.taa_samples = 1
+
+        bpy.context.view_layer.use_pass_z = False
+
+        # connect renderlayer directly to output node
+        tree = bpy.context.scene.node_tree
+        tree.links.new(self.render_layers.outputs[0], self.output_node.inputs["rgb"])
+
+        self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0  # all visible masks
+        output = self.output_node
+        output.file_slots[0].path = "mask/mask_"
+        output.file_slots[0].use_node_format = False
+        output.file_slots[0].format.color_mode = "RGB"
+        output.file_slots[0].format.file_format = "OPEN_EXR"
+        output.file_slots[0].format.exr_codec = "ZIPS"  # lossless
+        output.file_slots[0].format.color_depth = "16"
+        with redirect_stdout():
+            bpy.ops.render.render(write_still=False)
+
         if render_object_masks:
-            # render individual MASKS
-            bpy.context.scene.render.engine = "BLENDER_EEVEE"
-            self._bl_scene.eevee.taa_render_samples = 1
-            self._bl_scene.eevee.taa_samples = 1
-
-            bpy.context.view_layer.use_pass_z = False
-
-            # connect renderlayer directly to output node
-            tree = bpy.context.scene.node_tree
-            tree.links.new(self.render_layers.outputs[0], self.output_node.inputs["rgb"])
-
-            self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0  # all visible masks
-            output = self.output_node
-            output.file_slots[0].path = "mask/mask_"
-            output.file_slots[0].use_node_format = False
-            output.file_slots[0].format.color_mode = "RGB"
-            output.file_slots[0].format.file_format = "OPEN_EXR"
-            output.file_slots[0].format.exr_codec = "ZIPS"  # lossless
-            output.file_slots[0].format.color_depth = "16"
-            with redirect_stdout():
-                bpy.ops.render.render(write_still=False)
-
             for obj in self.get_labelled_objects():
                 self._bl_scene.view_layers["ViewLayer"]["object_index"] = obj.object_id
                 output.file_slots[0].path = f"mask/mask_{obj.object_id:04d}_"
