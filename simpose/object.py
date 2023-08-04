@@ -23,26 +23,6 @@ class Object(Placeable):
     def __init__(self, bl_object) -> None:
         super().__init__(bl_object)
 
-    def hide(self):
-        if self.is_hidden:
-            return
-
-        try:
-            self._remove_pybullet_object()
-        except KeyError:
-            pass
-
-        self._bl_object.hide_render = True
-
-    def show(self):
-        if not self.is_hidden:
-            return
-        try:
-            self._add_pybullet_object()
-        except KeyError:
-            pass
-        self._bl_object.hide_render = False
-
     @property
     def material(self) -> Material:
         return self._bl_object.data.materials[0]
@@ -59,26 +39,9 @@ class Object(Placeable):
     def has_semantics(self) -> bool:
         return self._bl_object.get("semantics", False)
 
-    def _add_pybullet_object(self) -> int:
-        coll_id = self._bl_object["coll_id"]
-        mass = self._bl_object["mass"]
-        friction = self._bl_object["friction"]
-
-        pb_id = p.createMultiBody(
-            baseMass=mass,
-            baseCollisionShapeIndex=coll_id,
-            basePosition=[0.0, 0.0, 0.0],
-        )
-        p.changeDynamics(pb_id, -1, lateralFriction=friction)
-        p.resetBasePositionAndOrientation(
-            pb_id, self._bl_object.location, self.rotation.as_quat()
-        )
-        self._bl_object["pb_id"] = pb_id
-        return pb_id
-
-    def _remove_pybullet_object(self):
-        p.removeBody(self._bl_object["pb_id"])
-        del self._bl_object["pb_id"]
+    @property
+    def object_id(self):
+        return self._bl_object.pass_index
 
     def copy(self, linked: bool) -> "Object":
         # clear blender selection
@@ -114,6 +77,150 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
+        obj = Object._initialize_blender_object(
+            bl_object=bl_object,
+            scale=scale,
+            mass=mass,
+            obj_path=filepath,
+            add_semantics=add_semantics,
+            friction=friction,
+        )
+        return obj
+
+    @staticmethod
+    def from_ply(
+        filepath: Path,
+        add_semantics: bool = False,
+        mass: float | None = None,
+        friction: float = 0.5,
+        scale: float = 1.0,
+    ):
+        # clear selection
+        bpy.ops.object.select_all(action="DESELECT")
+        with redirect_stdout():
+            bpy.ops.import_mesh.ply(filepath=str(filepath.resolve()))
+        try:
+            bl_object = bpy.context.selected_objects[0]
+        except IndexError:
+            raise RuntimeError(f"Could not import {filepath}")
+
+        # convert ply to .obj for pybullet
+        obj_path = filepath.with_suffix(".obj").resolve()
+        with redirect_stdout():
+            bpy.ops.wm.obj_export(
+                filepath=str(obj_path),
+                export_materials=False,
+                export_colors=False,
+                export_normals=True,
+            )
+        # create new material for object
+        material = bpy.data.materials.new(name="Material")
+        material.use_nodes = True
+        # create color attribute node and connect to base color of principled bsdf
+        color_node = material.node_tree.nodes.new("ShaderNodeAttribute")
+        color_node.attribute_name = "Col"
+        material.node_tree.links.new(
+            color_node.outputs["Color"],
+            material.node_tree.nodes["Principled BSDF"].inputs["Base Color"],
+        )
+        # add to object
+        bl_object.data.materials.append(material)
+
+        obj = Object._initialize_blender_object(
+            bl_object=bl_object,
+            scale=scale,
+            mass=mass,
+            obj_path=obj_path,
+            add_semantics=add_semantics,
+            friction=friction,
+        )
+        return obj
+
+    def hide(self):
+        if self.is_hidden:
+            return
+
+        try:
+            self._remove_pybullet_object()
+        except KeyError:
+            pass
+
+        self._bl_object.hide_render = True
+
+    def show(self):
+        if not self.is_hidden:
+            return
+        try:
+            self._add_pybullet_object()
+        except KeyError:
+            pass
+        self._bl_object.hide_render = False
+
+    def set_metallic_value(self, value):
+        self.shader_node.inputs["Metallic"].default_value = value
+
+    def set_roughness_value(self, value):
+        self.shader_node.inputs["Roughness"].default_value = value
+
+    def get_name(self) -> str:
+        return self._bl_object.name
+
+    def get_class(self) -> str:
+        return re.match("([\w]+)(.[0-9])*", self.get_name()).group(1)
+
+    def __str__(self) -> str:
+        return f"Object(name={self.get_name()}, class={self.get_class()}"
+
+    def set_location(self, location: Tuple | np.ndarray):
+        try:
+            # update physics representation
+            pb_id = self._bl_object["pb_id"]
+            q = self._bl_object.rotation_quaternion
+            p.resetBasePositionAndOrientation(pb_id, location, [q.x, q.y, q.z, q.w])
+        except KeyError:
+            pass
+        return super().set_location(location)
+
+    def set_rotation(self, rotation: R):
+        try:
+            # update physics representation
+            pb_id = self._bl_object["pb_id"]
+            p.resetBasePositionAndOrientation(pb_id, self._bl_object.location, rotation.as_quat())
+        except KeyError:
+            pass
+        return super().set_rotation(rotation)
+
+    def remove(self):
+        try:
+            self._remove_pybullet_object()
+        except KeyError:
+            pass
+
+        bpy.data.objects.remove(self._bl_object, do_unlink=True)
+
+    def _add_pybullet_object(self) -> int:
+        coll_id = self._bl_object["coll_id"]
+        mass = self._bl_object["mass"]
+        friction = self._bl_object["friction"]
+
+        pb_id = p.createMultiBody(
+            baseMass=mass,
+            baseCollisionShapeIndex=coll_id,
+            basePosition=[0.0, 0.0, 0.0],
+        )
+        p.changeDynamics(pb_id, -1, lateralFriction=friction)
+        p.resetBasePositionAndOrientation(pb_id, self._bl_object.location, self.rotation.as_quat())
+        self._bl_object["pb_id"] = pb_id
+        return pb_id
+
+    def _remove_pybullet_object(self):
+        p.removeBody(self._bl_object["pb_id"])
+        del self._bl_object["pb_id"]
+
+    @staticmethod
+    def _initialize_blender_object(
+        bl_object, scale, mass, obj_path, add_semantics, friction
+    ) -> "Object":
         # scale object
         bl_object.scale = (scale, scale, scale)
 
@@ -165,7 +272,7 @@ class Object(Placeable):
         if mass is not None:
             # add custom 'pb id' attribute to object
             coll_id = p.createCollisionShape(
-                p.GEOM_MESH, fileName=str(filepath.resolve()), meshScale=[scale] * 3
+                p.GEOM_MESH, fileName=str(obj_path.resolve()), meshScale=[scale] * 3
             )
             obj._bl_object["coll_id"] = coll_id
             obj._bl_object["mass"] = mass
@@ -176,52 +283,5 @@ class Object(Placeable):
 
         obj.set_location((0.0, 0.0, 0.0))
         obj.set_rotation(R.from_euler("x", 0, degrees=True))
+
         return obj
-
-    @property
-    def object_id(self):
-        return self._bl_object.pass_index
-
-    def set_metallic_value(self, value):
-        self.shader_node.inputs["Metallic"].default_value = value
-
-    def set_roughness_value(self, value):
-        self.shader_node.inputs["Roughness"].default_value = value
-
-    def get_name(self) -> str:
-        return self._bl_object.name
-
-    def get_class(self) -> str:
-        return re.match("([\w]+)(.[0-9])*", self.get_name()).group(1)
-
-    def __str__(self) -> str:
-        return f"Object(name={self.get_name()}, class={self.get_class()}"
-
-    def set_location(self, location: Tuple | np.ndarray):
-        try:
-            # update physics representation
-            pb_id = self._bl_object["pb_id"]
-            q = self._bl_object.rotation_quaternion
-            p.resetBasePositionAndOrientation(pb_id, location, [q.x, q.y, q.z, q.w])
-        except KeyError:
-            pass
-        return super().set_location(location)
-
-    def set_rotation(self, rotation: R):
-        try:
-            # update physics representation
-            pb_id = self._bl_object["pb_id"]
-            p.resetBasePositionAndOrientation(
-                pb_id, self._bl_object.location, rotation.as_quat()
-            )
-        except KeyError:
-            pass
-        return super().set_rotation(rotation)
-
-    def remove(self):
-        try:
-            self._remove_pybullet_object()
-        except KeyError:
-            pass
-
-        bpy.data.objects.remove(self._bl_object, do_unlink=True)

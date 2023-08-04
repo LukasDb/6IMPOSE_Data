@@ -165,7 +165,7 @@ class Scene(Callbacks):
     def get_labelled_objects(self) -> List[Object]:
         return list([x for x in self.get_active_objects() if x.has_semantics])
 
-    def create_from_obj(
+    def create_object(
         self,
         obj_path: Path,
         add_semantics: bool = False,
@@ -173,7 +173,12 @@ class Scene(Callbacks):
         friction: float = 0.5,
         scale: float = 1.0,
     ) -> Object:
-        obj = Object.from_obj(obj_path, add_semantics, mass, friction, scale)
+        if obj_path.suffix == ".obj":
+            obj = Object.from_obj(obj_path, add_semantics, mass, friction, scale)
+        elif obj_path.suffix == ".ply":
+            obj = Object.from_ply(obj_path, add_semantics, mass, friction, scale)
+        else:
+            raise NotImplementedError("Only .obj and .ply files are supported")
 
         obj._bl_object.pass_index = self.get_new_object_id()
         # move to "Objects" collection
