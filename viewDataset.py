@@ -19,21 +19,14 @@ def main(img_dir, mp4):
     ]
     idxs.sort()
 
-    cls_ids = {
-        "cpsduck": 1,
-        "stapler": 2,
-        "glue": 3,
-        "chew_toy": 4,
-        "wrench_13": 5,
-        "pliers": 6,
-    }
     cls_colors = {
-        1: (0, 250, 250),
-        2: (162, 2, 20),
-        3: (215, 235, 250),
-        4: (7, 7, 116),
-        5: (150, 150, 150),
-        6: (240, 255, 31),
+        "cpsduck": (0, 250, 250),
+        "stapler": (162, 2, 20),
+        "glue": (215, 235, 250),
+        "chew_toy": (7, 7, 116),
+        "wrench_13": (150, 150, 150),
+        "pliers": (240, 255, 31),
+        "lm_cam": (133, 133, 133),
     }  # BGR
 
     if mp4:
@@ -85,8 +78,8 @@ def main(img_dir, mp4):
                 cv2.convertScaleAbs(depth, alpha=255 / np.max(depth)), cv2.COLORMAP_JET
             )
 
-            semantic_mask = mask.copy()
-
+            colored_semantic_mask_bgr = np.zeros_like(bgr)
+            
             if bgr is None:
                 print(f"Could not load image for {id:04}")
                 continue
@@ -95,14 +88,14 @@ def main(img_dir, mp4):
 
             for obj in objs:
                 # semantics
-                cls = cls_ids[obj["class"]]
-                semantic_mask[mask == obj["object id"]] = cls
+                cls = obj["class"]                
+                colored_semantic_mask_bgr[mask[..., 0] == obj["object id"]] = cls_colors[cls]
 
                 # bbox
                 bbox = obj["bbox_visib"]
                 # bbox_size = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
                 # "visib_fract": visib_fract,
-                if obj["visib_fract"] > 0.5:
+                if obj["visib_fract"] > 0.1:
                     cv2.rectangle(
                         bgr,
                         (bbox[0], bbox[1]),
@@ -127,16 +120,12 @@ def main(img_dir, mp4):
                 #     length=0.1,
                 # )
 
-            colored_semantic_mask_bgr = np.zeros_like(bgr)
-            for cls in cls_ids.values():
-                colored_semantic_mask_bgr[semantic_mask[..., 0] == cls] = cls_colors[cls]
-
             # create preview, with rgb and mask
             row1 = np.hstack((bgr, colored_mask_bgr))
             row2 = np.hstack((colored_semantic_mask_bgr, colored_depth))
             preview = np.vstack((row1, row2))
 
-            print("\r" + f"Image: {idx:05}/{len(idxs):05} ", end="")
+            print("\r" + f"Image: {idx:05}/{len(idxs):05}", end="")
 
             if not mp4:
                 cv2.imshow(f"Preview", preview)
