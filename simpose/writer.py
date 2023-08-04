@@ -49,7 +49,7 @@ class Writer:
             px_count_valid = 0.0
             visib_fract = 0.0
 
-            if not self._render_object_masks:
+            if self._render_object_masks:
                 obj_mask = cv2.imread(
                     str(
                         Path(
