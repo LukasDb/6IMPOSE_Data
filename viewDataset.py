@@ -7,7 +7,6 @@ import cv2
 from scipy.spatial.transform import Rotation as R
 import click
 from pathlib import Path
-from tqdm import tqdm
 
 
 @click.command()
@@ -53,7 +52,8 @@ def main(img_dir, mp4):
         )
 
     try:
-        for idx in tqdm(idxs):
+        idx = 0
+        while True:
             with open(os.path.join(img_dir, "gt", f"gt_{idx:05}.json")) as F:
                 shot = json.load(F)
             cam_quat = shot["cam_rotation"]
@@ -129,14 +129,14 @@ def main(img_dir, mp4):
 
             colored_semantic_mask_bgr = np.zeros_like(bgr)
             for cls in cls_ids.values():
-                colored_semantic_mask_bgr[semantic_mask[..., 0] == cls] = cls_colors[
-                    cls
-                ]
+                colored_semantic_mask_bgr[semantic_mask[..., 0] == cls] = cls_colors[cls]
 
             # create preview, with rgb and mask
             row1 = np.hstack((bgr, colored_mask_bgr))
             row2 = np.hstack((colored_semantic_mask_bgr, colored_depth))
             preview = np.vstack((row1, row2))
+
+            print("\r" + f"Image: {idx:05}/{len(idxs):05} ", end="")
 
             if not mp4:
                 cv2.imshow(f"Preview", preview)
@@ -144,13 +144,20 @@ def main(img_dir, mp4):
                 if key == ord("q") or key == 27:  # ESC
                     break
 
+                elif key == ord("a"):
+                    idx -= 2
             else:
                 # cv2.waitKey(1)
                 video.write(preview)
 
+            idx += 1
+
+            idx = np.clip(idx, 0, len(idxs) - 1)
+
     except KeyboardInterrupt:
         pass
     finally:
+        # bar.close()
         cv2.destroyAllWindows()
         if mp4:
             video.release()

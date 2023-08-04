@@ -9,10 +9,11 @@ import logging
 
 
 class Writer:
-    def __init__(self, scene: simpose.Scene, output_dir: Path):
+    def __init__(self, scene: simpose.Scene, output_dir: Path, render_object_masks: bool):
         self._output_dir = output_dir
         self._data_dir = output_dir / "gt"
         self._scene = scene
+        self._render_object_masks = render_object_masks
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._scene.set_output_path(self._output_dir)
 
@@ -23,8 +24,8 @@ class Writer:
         self._scene.frame_set(dataset_index)  # this sets the suffix for file names
 
         # for each object, deactivate all but one and render mask
-        objs = self._scene.get_objects()
-        self._scene.render()
+        objs = self._scene.get_labelled_objects()
+        self._scene.render(render_object_masks=self._render_object_masks)
     
 
         mask = cv2.imread(
@@ -40,27 +41,31 @@ class Writer:
 
         obj_list = []
         for obj in objs:
-            obj_mask = cv2.imread(
-                str(
-                    Path(
-                        self._output_dir,
-                        "mask",
-                        f"mask_{obj.object_id:04}_{dataset_index:04}.exr",
-                    )
-                ),
-                cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-            )[..., 0]
 
-            bbox_visib = self._get_bbox(mask, obj.object_id)
-            bbox_obj = self._get_bbox(obj_mask, 1)
-
-            px_count_all = np.count_nonzero(obj_mask == 1)
             px_count_visib = np.count_nonzero(mask == obj.object_id)
-            px_count_valid = np.count_nonzero(depth[mask == obj.object_id])
-            if px_count_all == 0:
-                visib_fract = 0.0
-            else:
-                visib_fract = px_count_visib / px_count_all
+            bbox_visib = self._get_bbox(mask, obj.object_id)
+            bbox_obj = [0, 0, 0, 0]
+            px_count_all = 0.0
+            px_count_valid = 0.0
+            visib_fract = 0.0
+
+            if not self._render_object_masks:
+                obj_mask = cv2.imread(
+                    str(
+                        Path(
+                            self._output_dir,
+                            "mask",
+                            f"mask_{obj.object_id:04}_{dataset_index:04}.exr",
+                        )
+                    ),
+                    cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
+                )[..., 0]
+
+                bbox_obj = self._get_bbox(obj_mask, 1)
+                px_count_all = np.count_nonzero(obj_mask == 1)
+                px_count_valid = np.count_nonzero(depth[mask == obj.object_id])
+                if px_count_all != 0:
+                    visib_fract = px_count_visib / px_count_all
 
             obj_list.append(
                 {

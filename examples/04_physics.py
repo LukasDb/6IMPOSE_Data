@@ -35,6 +35,7 @@ duck = scene.create_from_obj(obj_path, add_physics=True, mass=0.2)
 duck.set_metallic_value(0.0)
 duck.set_roughness_value(0.5)
 
+
 ducks = [duck]
 
 for i in range(20):

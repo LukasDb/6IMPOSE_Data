@@ -24,7 +24,7 @@ class Object(Placeable):
         super().__init__(bl_object)
 
     def hide(self):
-        if self.hidden:
+        if self.is_hidden:
             return
 
         try:
@@ -35,7 +35,7 @@ class Object(Placeable):
         self._bl_object.hide_render = True
 
     def show(self):
-        if not self.hidden:
+        if not self.is_hidden:
             return
         try:
             self._add_pybullet_object()
@@ -52,8 +52,12 @@ class Object(Placeable):
         return self.material.node_tree.nodes["Principled BSDF"]
 
     @property
-    def hidden(self) -> bool:
+    def is_hidden(self) -> bool:
         return self._bl_object.hide_render
+
+    @property
+    def has_semantics(self) -> bool:
+        return self._bl_object.get("semantics", False)
 
     def _add_pybullet_object(self) -> int:
         coll_id = self._bl_object["coll_id"]
@@ -96,10 +100,10 @@ class Object(Placeable):
     @staticmethod
     def from_obj(
         filepath: Path,
-        add_physics: bool = False,
-        mass: float = 1,
+        add_semantics: bool = False,
+        mass: float | None = None,
         friction: float = 0.5,
-        restitution: float = 0.5,
+        scale: float = 1.0,
     ):
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
@@ -109,6 +113,9 @@ class Object(Placeable):
             bl_object = bpy.context.selected_objects[0]
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
+
+        # scale object
+        bl_object.scale = (scale, scale, scale)
 
         # set material output to cycles only
         bl_object.data.materials[0].use_nodes = True
@@ -154,24 +161,18 @@ class Object(Placeable):
         # set blend_method of material to alpha blend
         bl_object.data.materials[0].blend_method = "BLEND"
 
-        # if add_physics:
-        #     bpy.ops.rigidbody.object_add(type="ACTIVE")
-        #     if mesh_collision:
-        #         bpy.context.object.rigid_body.collision_shape = "MESH"
-        #     bpy.context.object.rigid_body.mass = mass
-        #     bpy.context.object.rigid_body.friction = friction
-        #     bpy.context.object.rigid_body.restitution = restitution
-
         obj = Object(bl_object)
-        if add_physics:
+        if mass is not None:
             # add custom 'pb id' attribute to object
             coll_id = p.createCollisionShape(
-                p.GEOM_MESH, fileName=str(filepath.resolve())
+                p.GEOM_MESH, fileName=str(filepath.resolve()), meshScale=[scale] * 3
             )
             obj._bl_object["coll_id"] = coll_id
             obj._bl_object["mass"] = mass
             obj._bl_object["friction"] = friction
             obj._add_pybullet_object()
+
+        obj._bl_object["semantics"] = add_semantics
 
         obj.set_location((0.0, 0.0, 0.0))
         obj.set_rotation(R.from_euler("x", 0, degrees=True))
@@ -216,3 +217,11 @@ class Object(Placeable):
         except KeyError:
             pass
         return super().set_rotation(rotation)
+
+    def remove(self):
+        try:
+            self._remove_pybullet_object()
+        except KeyError:
+            pass
+
+        bpy.data.objects.remove(self._bl_object, do_unlink=True)

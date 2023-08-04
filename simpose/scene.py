@@ -16,9 +16,7 @@ from simpose.callback import Callback, Callbacks, CallbackType
 
 
 class Scene(Callbacks):
-    def __init__(
-        self, img_h: int = 480, img_w: int = 640, use_stereo: bool = False
-    ) -> None:
+    def __init__(self, img_h: int = 480, img_w: int = 640, use_stereo: bool = False) -> None:
         Callbacks.__init__(self)
         self._bl_scene = bpy.data.scenes.new("6impose Scene")
         bpy.context.window.scene = self._bl_scene
@@ -56,7 +54,7 @@ class Scene(Callbacks):
         p.setPhysicsEngineParameter(fixedTimeStep=1 / 24.0, numSubSteps=10)
 
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        planeId = p.loadURDF("plane.urdf")
+        p.loadURDF("plane.urdf")  # XY ground plane
 
         self.callback(CallbackType.ON_SCENE_CREATED)
 
@@ -66,7 +64,7 @@ class Scene(Callbacks):
         for _ in range(max(1, num_steps)):
             p.stepSimulation()
         # now apply transform to objects
-        for obj in self.get_objects():
+        for obj in self.get_active_objects():
             try:
                 pb_id = obj._bl_object["pb_id"]
                 pos, orn = p.getBasePositionAndOrientation(pb_id)
@@ -77,7 +75,7 @@ class Scene(Callbacks):
 
         self.callback(CallbackType.ON_PHYSICS_STEP)
 
-    def render(self):
+    def render(self, render_object_masks: bool):
         logging.debug("Rendering")
         self.callback(CallbackType.BEFORE_RENDER)
         # render RGB and DEPTH
@@ -87,6 +85,12 @@ class Scene(Callbacks):
         bpy.context.scene.cycles.caustics_reflective = False
         bpy.context.scene.cycles.caustics_refractive = False
         bpy.context.scene.cycles.use_auto_tile = False
+        # set number of bounces
+        bpy.context.scene.cycles.max_bounces = 4
+        bpy.context.scene.cycles.min_bounces = 0
+        bpy.context.scene.cycles.diffuse_bounces = 3
+        bpy.context.scene.cycles.glossy_bounces = 3
+        bpy.context.scene.cycles.transparent_max_bounces = 4
 
         bpy.context.view_layer.use_pass_z = True
 
@@ -101,33 +105,34 @@ class Scene(Callbacks):
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)
 
-        # render individual MASKS
-        bpy.context.scene.render.engine = "BLENDER_EEVEE"
-        self._bl_scene.eevee.taa_render_samples = 1
-        self._bl_scene.eevee.taa_samples = 1
+        if render_object_masks:
+            # render individual MASKS
+            bpy.context.scene.render.engine = "BLENDER_EEVEE"
+            self._bl_scene.eevee.taa_render_samples = 1
+            self._bl_scene.eevee.taa_samples = 1
 
-        bpy.context.view_layer.use_pass_z = False
+            bpy.context.view_layer.use_pass_z = False
 
-        # connect renderlayer directly to output node
-        tree = bpy.context.scene.node_tree
-        tree.links.new(self.render_layers.outputs[0], self.output_node.inputs["rgb"])
+            # connect renderlayer directly to output node
+            tree = bpy.context.scene.node_tree
+            tree.links.new(self.render_layers.outputs[0], self.output_node.inputs["rgb"])
 
-        self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0  # all visible masks
-        output = self.output_node
-        output.file_slots[0].path = "mask/mask_"
-        output.file_slots[0].use_node_format = False
-        output.file_slots[0].format.color_mode = "RGB"
-        output.file_slots[0].format.file_format = "OPEN_EXR"
-        output.file_slots[0].format.exr_codec = "ZIPS"  # lossless
-        output.file_slots[0].format.color_depth = "16"
-        with redirect_stdout():
-            bpy.ops.render.render(write_still=False)
-
-        for i in range(len(self.get_objects())):
-            self._bl_scene.view_layers["ViewLayer"]["object_index"] = i + 1
-            output.file_slots[0].path = f"mask/mask_{i+1:04d}_"
+            self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0  # all visible masks
+            output = self.output_node
+            output.file_slots[0].path = "mask/mask_"
+            output.file_slots[0].use_node_format = False
+            output.file_slots[0].format.color_mode = "RGB"
+            output.file_slots[0].format.file_format = "OPEN_EXR"
+            output.file_slots[0].format.exr_codec = "ZIPS"  # lossless
+            output.file_slots[0].format.color_depth = "16"
             with redirect_stdout():
                 bpy.ops.render.render(write_still=False)
+
+            for obj in self.get_labelled_objects():
+                self._bl_scene.view_layers["ViewLayer"]["object_index"] = obj.object_id
+                output.file_slots[0].path = f"mask/mask_{obj.object_id:04d}_"
+                with redirect_stdout():
+                    bpy.ops.render.render(write_still=False)
 
         self.callback(CallbackType.AFTER_RENDER)
 
@@ -143,9 +148,7 @@ class Scene(Callbacks):
         self.output_node.base_path = str((self.output_dir).resolve())
 
     def get_cameras(self) -> List[Camera]:
-        return [
-            Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects
-        ]
+        return [Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects]
 
     def create_camera(self, cam_name: str) -> Camera:
         cam = Camera.create(cam_name)
@@ -155,20 +158,22 @@ class Scene(Callbacks):
         bpy.context.scene.collection.objects.unlink(cam._bl_object)
         return cam
 
-    def get_objects(self) -> List[Object]:
-        return list(
-            [Object(x) for x in self._bl_scene.collection.children["Objects"].objects]
-        )
+    def get_active_objects(self) -> List[Object]:
+        objects = [Object(x) for x in self._bl_scene.collection.children["Objects"].objects]
+        return list([x for x in objects if not x.is_hidden])
+
+    def get_labelled_objects(self) -> List[Object]:
+        return list([x for x in self.get_active_objects() if x.has_semantics])
 
     def create_from_obj(
         self,
         obj_path: Path,
-        add_physics: bool = False,
-        mass: float = 1,
+        add_semantics: bool = False,
+        mass: float | None = None,
         friction: float = 0.5,
-        restitution: float = 0.5,
+        scale: float = 1.0,
     ) -> Object:
-        obj = Object.from_obj(obj_path, add_physics, mass, friction, restitution)
+        obj = Object.from_obj(obj_path, add_semantics, mass, friction, scale)
 
         obj._bl_object.pass_index = self.get_new_object_id()
         # move to "Objects" collection
@@ -222,7 +227,7 @@ class Scene(Callbacks):
             if i in selected_devices:
                 dev.use = True
 
-        logging.info(f"Available devices: {available_devices}")
+        logging.debug(f"Available devices: {available_devices}")
 
         if chosen_type == "OPTIX":
             bpy.context.scene.cycles.denoiser = "OPTIX"
