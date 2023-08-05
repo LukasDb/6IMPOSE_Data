@@ -5,8 +5,13 @@ from simpose.object import Object
 import simpose.random as random
 from simpose.writer import Writer
 
+import logging
 import coloredlogs
-coloredlogs.install()
+
+coloredlogs.install(fmt="%(asctime)s %(levelname)s %(message)s", level="INFO")
+
+logging.info("Set logging format")
+
 
 import os
 

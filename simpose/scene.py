@@ -1,14 +1,17 @@
 from typing import Dict
+from .redirect_stdout import redirect_stdout
+
+with redirect_stdout():
+    import bpy
+    import pybullet as p
+
 from simpose.camera import Camera
 from simpose.light import Light
 from simpose.object import Object
-from .redirect_stdout import redirect_stdout
-import bpy
 import numpy as np
 import logging
 from typing import List, Tuple
 from pathlib import Path
-import pybullet as p
 import pybullet_data
 from scipy.spatial.transform import Rotation as R
 
@@ -83,7 +86,7 @@ class Scene(Callbacks):
         self.callback(CallbackType.ON_PHYSICS_STEP)
 
     def render(self, render_object_masks: bool):
-        logging.debug("Rendering")
+        logging.getLogger().debug("Rendering")
         self.callback(CallbackType.BEFORE_RENDER)
         # render RGB and DEPTH
         bpy.context.scene.render.engine = "CYCLES"

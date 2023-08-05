@@ -20,9 +20,7 @@ class DelayedKeyboardInterrupt:
 
     def handler(self, sig, frame):
         self.signal_received = (sig, frame)
-        logging.warn(
-            f"SIGINT received. Finish rendering {self.index} and delaying KeyboardInterrupt."
-        )
+        logging.warn(f"SIGINT received. Finishing rendering {self.index}...")
 
     def __exit__(self, type, value, traceback):
         signal.signal(signal.SIGINT, self.old_handler)
