@@ -3,6 +3,7 @@ import multiprocessing as mp
 from pathlib import Path
 import logging
 import click
+from typing import List
 
 logging.getLogger().setLevel(logging.INFO)
 
@@ -41,12 +42,12 @@ def main(
 
     queue = mp.Queue()
     for i in range(n_workers):
-        queue.put((inds[i][0], inds[i][-1], Path(output_path), Path(main_obj_path), scale))
+        queue.put((inds[i], Path(output_path), Path(main_obj_path), scale))
 
     for _ in range(n_workers):
         queue.put(None)
 
-    processes = [mp.Process(target=process, args=(queue,), daemon=True) for _ in range(n_workers)]
+    processes = [mp.Process(target=process, args=(queue,)) for _ in range(n_workers)]
     for p in processes:
         p.start()
     for p in processes:
@@ -61,7 +62,7 @@ def process(queue: mp.Queue):
         generate_data(*job)
 
 
-def generate_data(start: int, end: int, output_path: Path, obj_path: Path, scale: float):
+def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: float):
     import simpose as sp
     import logging
     from tqdm import tqdm
@@ -109,9 +110,8 @@ def generate_data(start: int, end: int, output_path: Path, obj_path: Path, scale
     num_dt_step = int(drop_duration / dt)
     num_cam_locs = 20
 
-    i = start
-    bar = tqdm(total=end - start + 1)
-    while True:
+    bar = tqdm(total=len(inds))
+    for i in inds:
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=0.8)
 
         random.shuffle(drop_objects)
@@ -150,11 +150,8 @@ def generate_data(start: int, end: int, output_path: Path, obj_path: Path, scale
                 )  # minor rotation noise
 
                 writer.generate_data(i)
-                i += 1
                 bar.update(1)
-                if i > end:
-                    bar.close()
-                    return
+    bar.close()
 
 
 if __name__ == "__main__":
