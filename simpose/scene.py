@@ -107,7 +107,7 @@ class Scene(Callbacks):
         output.file_slots[0].use_node_format = False
         output.file_slots[0].format.color_mode = "RGB"
         output.file_slots[0].format.file_format = "PNG"
-        tree.links.new(self.rgb_out.outputs[0], output.inputs["rgb"])
+        tree.links.new(self.alpha_over.outputs[0], output.inputs["rgb"])
 
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="simpose",
-    version="0.1.0",
+    version="0.1.1",
     description="Synthetic Image Generator based on Blender",
     url="todo",
     author="Lukas Dirnberger",

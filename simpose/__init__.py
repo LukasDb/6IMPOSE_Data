@@ -5,6 +5,8 @@ from simpose.object import Object
 import simpose.random as random
 from simpose.writer import Writer
 
+import coloredlogs
+coloredlogs.install()
 
 import os
 

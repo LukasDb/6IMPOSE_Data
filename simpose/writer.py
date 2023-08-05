@@ -7,6 +7,28 @@ from .redirect_stdout import redirect_stdout
 import cv2
 import logging
 
+import signal
+
+
+class DelayedKeyboardInterrupt:
+    def __init__(self, index) -> None:
+        self.index = index
+
+    def __enter__(self):
+        self.signal_received = False
+        self.old_handler = signal.signal(signal.SIGINT, self.handler)
+
+    def handler(self, sig, frame):
+        self.signal_received = (sig, frame)
+        logging.warn(
+            f"SIGINT received. Finish rendering {self.index} and delaying KeyboardInterrupt."
+        )
+
+    def __exit__(self, type, value, traceback):
+        signal.signal(signal.SIGINT, self.old_handler)
+        if self.signal_received:
+            self.old_handler(*self.signal_received)
+
 
 class Writer:
     def __init__(self, scene: simpose.Scene, output_dir: Path, render_object_masks: bool):
@@ -17,16 +39,25 @@ class Writer:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._scene.set_output_path(self._output_dir)
 
-    """ contains logic to write the dataset """
-
     def generate_data(self, dataset_index: int):
+        """dont allow CTRl+C during data generation"""
+        with DelayedKeyboardInterrupt(dataset_index):
+            try:
+                self._generate_data(dataset_index)
+            except Exception as e:
+                # clean up possibly corrupted data
+                logging.error(f"Error while generating data no. {dataset_index}")
+                logging.error(e)
+                self._cleanup(dataset_index)
+                raise e
+
+    def _generate_data(self, dataset_index: int):
         logging.debug(f"Generating data for {dataset_index}")
         self._scene.frame_set(dataset_index)  # this sets the suffix for file names
 
         # for each object, deactivate all but one and render mask
         objs = self._scene.get_labelled_objects()
         self._scene.render(render_object_masks=self._render_object_masks)
-    
 
         mask = cv2.imread(
             str(Path(self._output_dir, "mask", f"mask_{dataset_index:04}.exr")),
@@ -41,7 +72,6 @@ class Writer:
 
         obj_list = []
         for obj in objs:
-
             px_count_visib = np.count_nonzero(mask == obj.object_id)
             bbox_visib = self._get_bbox(mask, obj.object_id)
             bbox_obj = [0, 0, 0, 0]
@@ -106,3 +136,39 @@ class Writer:
         y1 = np.min(y).tolist()
         y2 = np.max(y).tolist()
         return [x1, y1, x2, y2]
+
+    def _cleanup(self, dataset_index):
+        # writer generates:
+        # - mask/mask_{dataset_index:04}.exr
+        # - depth/depth_{dataset_index:04}.exr
+        # - mask/mask_{object_id:04}_{dataset_index:04}.exr
+        # - gt/gt_{dataset_index:05}.json
+        # - rgb/rgb_{dataset_index:04}.png
+        # possibly for stereo also
+
+        gt_path = self._data_dir / f"gt_{dataset_index:05}.json"
+        if gt_path.exists():
+            logging.debug(f"Removing {gt_path}")
+            gt_path.unlink()
+
+        rgb_path = self._output_dir / "rgb" / f"rgb_{dataset_index:04}.png"
+        if rgb_path.exists():
+            logging.debug(f"Removing {rgb_path}")
+            rgb_path.unlink()
+
+        mask_path = self._output_dir / "mask" / f"mask_{dataset_index:04}.exr"
+        if mask_path.exists():
+            logging.debug(f"Removing {mask_path}")
+            mask_path.unlink()
+
+        depth_path = self._output_dir / "depth" / f"depth_{dataset_index:04}.exr"
+        if depth_path.exists():
+            logging.debug(f"Removing {depth_path}")
+            depth_path.unlink()
+
+        if self._render_object_masks:
+            mask_paths = (self._output_dir / "mask").glob(f"mask_*_{dataset_index:04}.exr")
+            for mask_path in mask_paths:
+                if mask_path.exists():
+                    logging.debug(f"Removing {mask_path}")
+                    mask_path.unlink()
