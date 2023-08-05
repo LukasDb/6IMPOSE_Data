@@ -1,20 +1,47 @@
 import numpy as np
 import multiprocessing as mp
 from pathlib import Path
+import logging
+import click
+
+logging.getLogger().setLevel(logging.INFO)
 
 
-def main():
-    n_frames = 20000
-    start_from = 0
-    n_workers = 4
-    inds = np.arange(start_from, start_from + n_frames)
-    inds = np.array_split(inds, n_workers)
+@click.command()
+@click.argument("output_path", type=str)
+@click.argument("main_obj_path", type=str)
+@click.option("--scale", default=1.0)
+@click.option("--start", default=19999)
+@click.option("--end", default=0)
+@click.option("--n_workers", default=8)
+@click.option("--overwrite", is_flag=True, default=False, help="Overwrite existing files.")
+def main(
+    start: int,
+    end: int,
+    n_workers: int,
+    output_path: str,
+    main_obj_path: str,
+    scale: float,
+    overwrite: bool,
+):
+    if not overwrite:
+        existing_files = Path(output_path).joinpath("gt").glob("*.json")
+        existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
+        all_inds = np.setdiff1d(np.arange(start, end + 1), existing_ids)
+    else:
+        all_inds = np.arange(start, end + 1)
 
-    output_path = Path("6IMPOSE/multi_pliers")
+    if len(all_inds) == 0:
+        logging.info("No images to render.")
+        return
+
+    n_workers = min(n_workers, len(all_inds))
+    logging.info("Rendering %d images with %d workers.", len(all_inds), n_workers)
+    inds = np.array_split(all_inds, n_workers)
 
     queue = mp.Queue()
     for i in range(n_workers):
-        queue.put((inds[i][0], inds[i][-1], output_path))
+        queue.put((inds[i][0], inds[i][-1], Path(output_path), Path(main_obj_path), scale))
 
     for _ in range(n_workers):
         queue.put(None)
@@ -34,14 +61,12 @@ def process(queue: mp.Queue):
         generate_data(*job)
 
 
-def generate_data(start: int, end: int, output_path: Path):
+def generate_data(start: int, end: int, output_path: Path, obj_path: Path, scale: float):
     import simpose as sp
     import logging
     from tqdm import tqdm
     from scipy.spatial.transform import Rotation as R
     import random
-
-    logging.basicConfig(level=logging.INFO)
 
     scene = sp.Scene()
 
@@ -63,13 +88,13 @@ def generate_data(start: int, end: int, output_path: Path):
         distance_range=(3.0, 10.0),
     )
 
-    rand_scene = sp.random.BackgroundRandomizer(
+    rand_bg = sp.random.BackgroundRandomizer(
         scene, sp.CallbackType.BEFORE_RENDER, backgrounds_dir=Path("backgrounds")
     )
 
-    # obj_path = Path("meshes/cpsduck/cpsduck.obj")
-    obj_path = Path("meshes/pliers/pliers.obj")
-    main_obj = scene.create_from_obj(obj_path, mass=0.2, friction=0.8, add_semantics=True)
+    main_obj = scene.create_object(
+        obj_path, mass=0.2, friction=0.8, add_semantics=True, scale=scale
+    )
     main_obj.set_metallic_value(0.0)
     main_obj.set_roughness_value(0.5)
 
@@ -81,15 +106,11 @@ def generate_data(start: int, end: int, output_path: Path):
     # data generation params
     dt = 1 / 5.0  # 5 FPS
     drop_duration = 5
-    num_drops = 100
     num_dt_step = int(drop_duration / dt)
     num_cam_locs = 20
-    # print(f"Generating {num_dt_step * num_cam_locs * num_drops} images")
 
     i = start
-    # bar = tqdm(total=num_drops * num_dt_step * num_cam_locs)
     bar = tqdm(total=end - start + 1)
-    # for run in range(num_drops):  # 50 different drops
     while True:
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=0.8)
 

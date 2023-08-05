@@ -105,14 +105,15 @@ class Object(Placeable):
             raise RuntimeError(f"Could not import {filepath}")
 
         # convert ply to .obj for pybullet
-        obj_path = filepath.with_suffix(".obj").resolve()
+        collision_obj_path = filepath.with_name("collision_" + filepath.name).with_suffix(".obj").resolve()
         with redirect_stdout():
-            bpy.ops.wm.obj_export(
-                filepath=str(obj_path),
-                export_materials=False,
-                export_colors=False,
-                export_normals=True,
-            )
+            if not collision_obj_path.exists():
+                bpy.ops.wm.obj_export(
+                    filepath=str(collision_obj_path),
+                    export_materials=False,
+                    export_colors=False,
+                    export_normals=True,
+                )
         # create new material for object
         material: bpy.types.Material = bpy.data.materials.new(name="Material")
         material.use_nodes = True
@@ -132,7 +133,7 @@ class Object(Placeable):
             bl_object=bl_object,
             scale=scale,
             mass=mass,
-            obj_path=obj_path,
+            obj_path=collision_obj_path,
             add_semantics=add_semantics,
             friction=friction,
         )

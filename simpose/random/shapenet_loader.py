@@ -6,6 +6,7 @@ import bpy
 from tqdm import tqdm
 from scipy.spatial.transform import Rotation as R
 import logging
+from simpose.redirect_stdout import redirect_stdout
 
 
 class ShapenetLoader(simpose.Callback):
@@ -49,12 +50,13 @@ class ShapenetLoader(simpose.Callback):
         for obj_type in obj_types:
             objs = list(obj_type.iterdir())
             obj_path = np.random.choice(list(objs), replace=False)
-            obj = self._scene.create_from_obj(
-                obj_path / "models/model_normalized.obj",
-                add_semantics=False,
-                scale=np.random.uniform(*self._scale_range),
-                **kwargs,
-            )
+            with redirect_stdout():
+                obj = self._scene.create_object(
+                    obj_path / "models/model_normalized.obj",
+                    add_semantics=False,
+                    scale=np.random.uniform(*self._scale_range),
+                    **kwargs,
+                )
             self._shapenet_objects.append(obj)
             logging.debug(f"Added Shapenet object: {obj_path}")
 
