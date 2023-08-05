@@ -18,8 +18,14 @@ from simpose.callback import Callback, Callbacks, CallbackType
 class Scene(Callbacks):
     def __init__(self, img_h: int = 480, img_w: int = 640, use_stereo: bool = False) -> None:
         Callbacks.__init__(self)
-        self._bl_scene = bpy.data.scenes.new("6impose Scene")
-        bpy.context.window.scene = self._bl_scene
+        # self._bl_scene = bpy.data.scenes.new("6impose Scene")
+        self._bl_scene: bpy.types.Scene = bpy.context.window.scene
+
+        # delete old cup, light, camera and scene
+        bpy.ops.object.select_all(action="SELECT")
+        bpy.ops.object.delete(use_global=False)
+
+        # bpy.context.window.scene= self._bl_scene
         self.__id_counter = 0  # never directly access
 
         self._randomizers: List[Callback] = []
@@ -42,6 +48,7 @@ class Scene(Callbacks):
         self.resolution = np.array([img_w, img_h])
         bpy.context.scene.view_layers[0].cycles.use_denoising = True
 
+        self.current_bg_img: bpy.types.Image | None = None
         self.output_dir = Path("output")
         self._setup_compositor()
         self._setup_rendering_device()
@@ -155,7 +162,7 @@ class Scene(Callbacks):
         # add camera to "Cameras" collection
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         # remove from default collection
-        bpy.context.scene.collection.objects.unlink(cam._bl_object)
+        # bpy.context.scene.collection.objects.unlink(cam._bl_object)
         return cam
 
     def get_active_objects(self) -> List[Object]:
@@ -182,7 +189,7 @@ class Scene(Callbacks):
 
         obj._bl_object.pass_index = self.get_new_object_id()
         # move to "Objects" collection
-        bpy.context.scene.collection.objects.unlink(obj._bl_object)
+        # bpy.context.scene.collection.objects.unlink(obj._bl_object)
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
 
         self.callback(CallbackType.ON_OBJECT_CREATED)
@@ -241,9 +248,11 @@ class Scene(Callbacks):
 
     def set_background(self, filepath):
         # get composition node_tree
-        img = bpy.data.images.load(filepath)
-        self.bg_image_node.image = img
-        scale_to_fit = np.max(self.resolution / np.array(img.size))
+        if self.current_bg_img is not None:
+            bpy.data.images.remove(self.current_bg_img)
+        self.current_bg_img = bpy.data.images.load(filepath)
+        self.bg_image_node.image = self.current_bg_img
+        scale_to_fit = np.max(self.resolution / np.array(self.current_bg_img.size))
         self.bg_transform.inputs[4].default_value = scale_to_fit
         logging.debug(f"Set background to {filepath}")
 
@@ -266,31 +275,38 @@ class Scene(Callbacks):
         self.render_layers = render_layers = tree.nodes.new("CompositorNodeRLayers")
 
         # create a alpha node to overlay the rendered image over the background image
-        self.rgb_out = alpha_over = tree.nodes.new("CompositorNodeAlphaOver")
-        self.bg_image_node = bg_image_node = tree.nodes.new("CompositorNodeImage")
+        self.alpha_over: bpy.types.CompositorNodeAlphaOver = tree.nodes.new(
+            "CompositorNodeAlphaOver"
+        )
+        self.bg_image_node: bpy.types.CompositorNodeImage = tree.nodes.new("CompositorNodeImage")
 
         # create a transform node to scale the background image to fit the render resolution
-        self.bg_transform = transform = tree.nodes.new("CompositorNodeTransform")
-        transform.filter_type = "BILINEAR"
+        self.bg_transform: bpy.types.CompositorNodeTransform = tree.nodes.new(
+            "CompositorNodeTransform"
+        )
+        self.bg_transform.filter_type = "BILINEAR"
 
         # invert alpha
-        invert_alpha = tree.nodes.new("CompositorNodeMath")
+        invert_alpha: bpy.types.CompositorNodeMath = tree.nodes.new("CompositorNodeMath")
         invert_alpha.operation = "SUBTRACT"
         invert_alpha.inputs[0].default_value = 1.0
 
         # bg_node -> transform
-        tree.links.new(bg_image_node.outputs[0], transform.inputs[0])
+        tree.links.new(self.bg_image_node.outputs[0], self.bg_transform.inputs[0])
         # transform -> alpha over
-        tree.links.new(transform.outputs[0], alpha_over.inputs[2])
+        tree.links.new(self.bg_transform.outputs[0], self.alpha_over.inputs[2])
         # rendered_rgb -> alpha over
-        tree.links.new(render_layers.outputs[0], alpha_over.inputs[1])
+        tree.links.new(render_layers.outputs[0], self.alpha_over.inputs[1])
         # rendered_alpha -> invert alpha
         tree.links.new(render_layers.outputs[1], invert_alpha.inputs[1])
         # invert alpha -> alpha_over
-        tree.links.new(invert_alpha.outputs[0], alpha_over.inputs[0])
+        tree.links.new(invert_alpha.outputs[0], self.alpha_over.inputs[0])
 
         # RGB image output
-        self.output_node = output = tree.nodes.new("CompositorNodeOutputFile")
+        self.output_node: bpy.types.CompositorNodeOutputFile = tree.nodes.new(
+            "CompositorNodeOutputFile"
+        )
+        output: bpy.types.CompositorNodeOutputFile = self.output_node
         output.base_path = str((self.output_dir).resolve())
         output.inputs.remove(output.inputs[0])
 
@@ -300,7 +316,7 @@ class Scene(Callbacks):
         output.file_slots[0].use_node_format = False
         output.file_slots[0].format.color_mode = "RGB"
         output.file_slots[0].format.file_format = "PNG"
-        tree.links.new(alpha_over.outputs[0], output.inputs["rgb"])
+        tree.links.new(self.alpha_over.outputs[0], output.inputs["rgb"])
 
         # Depth output
         output.file_slots.new("depth")
@@ -311,13 +327,3 @@ class Scene(Callbacks):
         output.file_slots[1].format.exr_codec = "ZIP"
         output.file_slots[1].format.color_depth = "16"
         tree.links.new(render_layers.outputs["Depth"], output.inputs["depth"])
-
-        # # Object index output
-        # ret_val = output.file_slots.new("object_index")
-        # output.file_slots[2].path = "mask/mask_"
-        # output.file_slots[2].use_node_format = False
-        # output.file_slots[2].format.color_mode = "RGB"
-        # output.file_slots[2].format.file_format = "OPEN_EXR"
-        # output.file_slots[2].format.exr_codec = "ZIPS"  # lossless
-        # output.file_slots[2].format.color_depth = "16"
-        # tree.links.new(render_layers.outputs["IndexOB"], output.inputs["object_index"])
