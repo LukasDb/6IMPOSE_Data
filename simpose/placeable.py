@@ -10,7 +10,7 @@ class Placeable:
     """Object that can be placed in the 3D scene."""
 
     def __init__(self, bl_object) -> None:
-        self._bl_object = bl_object  # reference to internal blender object
+        self._bl_object: bpy.types.Object = bl_object  # reference to internal blender object
 
     @property
     def location(self) -> Tuple:
@@ -45,7 +45,8 @@ class Placeable:
         """Apply offset to location."""
         if isinstance(offset, np.ndarray):
             offset = tuple(offset)
-        self._bl_object.location += self._bl_object.rotation @ mathutils.Vector(offset)
+        self._bl_object.rotation_mode = "QUATERNION"
+        self._bl_object.location += self._bl_object.rotation_quaternion @ mathutils.Vector(offset)
 
     def apply_global_rotation_offset(self, rotation: R):
         """Apply offset to rotation."""

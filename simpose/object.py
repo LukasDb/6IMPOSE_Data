@@ -100,7 +100,7 @@ class Object(Placeable):
         with redirect_stdout():
             bpy.ops.import_mesh.ply(filepath=str(filepath.resolve()))
         try:
-            bl_object = bpy.context.selected_objects[0]
+            bl_object: bpy.types.Object = bpy.context.selected_objects[0]
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
@@ -114,10 +114,12 @@ class Object(Placeable):
                 export_normals=True,
             )
         # create new material for object
-        material = bpy.data.materials.new(name="Material")
+        material: bpy.types.Material = bpy.data.materials.new(name="Material")
         material.use_nodes = True
         # create color attribute node and connect to base color of principled bsdf
-        color_node = material.node_tree.nodes.new("ShaderNodeAttribute")
+        color_node: bpy.types.ShaderNodeAttribute = material.node_tree.nodes.new(
+            "ShaderNodeAttribute"
+        )
         color_node.attribute_name = "Col"
         material.node_tree.links.new(
             color_node.outputs["Color"],
@@ -166,7 +168,9 @@ class Object(Placeable):
         return self._bl_object.name
 
     def get_class(self) -> str:
-        return re.match("([\w]+)(.[0-9])*", self.get_name()).group(1)
+        result = re.match("([\w]+)(.[0-9])*", self.get_name())
+        assert result is not None, "Could not extract class name from object name"
+        return result.group(1)
 
     def __str__(self) -> str:
         return f"Object(name={self.get_name()}, class={self.get_class()}"
@@ -197,6 +201,10 @@ class Object(Placeable):
             pass
 
         bpy.data.objects.remove(self._bl_object, do_unlink=True)
+        if self._bl_object.data.users == 0:
+            bpy.data.meshes.remove(self._bl_object.data, do_unlink=True)
+        if self.material.users == 0:
+            bpy.data.materials.remove(self.material, do_unlink=True)
 
     def _add_pybullet_object(self) -> int:
         coll_id = self._bl_object["coll_id"]
@@ -219,25 +227,30 @@ class Object(Placeable):
 
     @staticmethod
     def _initialize_blender_object(
-        bl_object, scale, mass, obj_path, add_semantics, friction
+        bl_object: bpy.types.Object,
+        scale: float,
+        mass: float,
+        obj_path: Path,
+        add_semantics: bool,
+        friction: float,
     ) -> "Object":
         # scale object
         bl_object.scale = (scale, scale, scale)
 
         # set material output to cycles only
         bl_object.data.materials[0].use_nodes = True
-        tree = bl_object.data.materials[0].node_tree
+        tree: bpy.types.NodeTree = bl_object.data.materials[0].node_tree
         tree.nodes["Material Output"].target = "CYCLES"
 
-        attr_node = tree.nodes.new("ShaderNodeAttribute")
+        attr_node: bpy.types.ShaderNodeAttribute = tree.nodes.new("ShaderNodeAttribute")
         attr_node.attribute_type = "VIEW_LAYER"
         attr_node.attribute_name = "object_index"
         obj_info_node = tree.nodes.new("ShaderNodeObjectInfo")
-        compare_node = tree.nodes.new("ShaderNodeMath")
+        compare_node: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")
         compare_node.operation = "COMPARE"
-        compare_node2 = tree.nodes.new("ShaderNodeMath")
+        compare_node2: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")
         compare_node2.operation = "COMPARE"
-        mat_output = tree.nodes.new("ShaderNodeOutputMaterial")
+        mat_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes.new("ShaderNodeOutputMaterial")
         mat_output.target = "EEVEE"
         transparent = tree.nodes.new("ShaderNodeBsdfTransparent")
         mix_shader = tree.nodes.new("ShaderNodeMixShader")
