@@ -110,8 +110,9 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     num_dt_step = int(drop_duration / dt)
     num_cam_locs = 20
 
+    i = 0
     bar = tqdm(total=len(inds))
-    for i in inds:
+    while True:
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=0.8)
 
         random.shuffle(drop_objects)
@@ -149,7 +150,11 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
                     R.from_euler("z", np.random.uniform(-5, 5), degrees=True)
                 )  # minor rotation noise
 
-                writer.generate_data(i)
+                writer.generate_data(inds[i])
+                i += 1
+                if i == len(inds):
+                    bar.close()
+                    return
                 bar.update(1)
     bar.close()
 
