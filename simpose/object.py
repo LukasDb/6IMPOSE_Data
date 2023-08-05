@@ -200,11 +200,14 @@ class Object(Placeable):
         except KeyError:
             pass
 
-        bpy.data.objects.remove(self._bl_object, do_unlink=True)
-        if self._bl_object.data.users == 0:
-            bpy.data.meshes.remove(self._bl_object.data, do_unlink=True)
-        if self.material.users == 0:
-            bpy.data.materials.remove(self.material, do_unlink=True)
+        material = self.material  # keep reference to material before removing object
+        mesh = self._bl_object.data  # keep reference to mesh before removing object
+        bpy.data.objects.remove(self._bl_object)
+        if mesh.users == 0:
+            # first, remove mesh data
+            bpy.data.meshes.remove(mesh, do_unlink=True)
+        if material.users == 0:
+            bpy.data.materials.remove(material, do_unlink=True)
 
     def _add_pybullet_object(self) -> int:
         coll_id = self._bl_object["coll_id"]
