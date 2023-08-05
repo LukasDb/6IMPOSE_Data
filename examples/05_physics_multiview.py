@@ -114,7 +114,7 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     bar = tqdm(total=len(inds))
     while True:
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=0.8)
-
+        
         random.shuffle(drop_objects)
 
         for j, obj in enumerate(drop_objects):
