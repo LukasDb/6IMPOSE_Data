@@ -4,6 +4,7 @@ from .redirect_stdout import redirect_stdout
 with redirect_stdout():
     import bpy
     import pybullet as p
+    import pybullet_data
 
 from simpose.camera import Camera
 from simpose.light import Light
@@ -12,7 +13,6 @@ import numpy as np
 import logging
 from typing import List, Tuple
 from pathlib import Path
-import pybullet_data
 from scipy.spatial.transform import Rotation as R
 
 from simpose.callback import Callback, Callbacks, CallbackType
@@ -184,15 +184,26 @@ class Scene(Callbacks):
         scale: float = 1.0,
     ) -> Object:
         if obj_path.suffix == ".obj":
-            obj = Object.from_obj(obj_path, add_semantics, mass, friction, scale)
+            obj = Object.from_obj(
+                filepath=obj_path,
+                add_semantics=add_semantics,
+                mass=mass,
+                friction=friction,
+                scale=scale,
+            )
         elif obj_path.suffix == ".ply":
-            obj = Object.from_ply(obj_path, add_semantics, mass, friction, scale)
+            obj = Object.from_ply(
+                filepath=obj_path,
+                add_semantics=add_semantics,
+                mass=mass,
+                friction=friction,
+                scale=scale,
+            )
         else:
             raise NotImplementedError("Only .obj and .ply files are supported")
 
-        obj._bl_object.pass_index = self.get_new_object_id()
-        # move to "Objects" collection
-        # bpy.context.scene.collection.objects.unlink(obj._bl_object)
+        if add_semantics:
+            obj._bl_object.pass_index = self.get_new_object_id()
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
 
         self.callback(CallbackType.ON_OBJECT_CREATED)
@@ -200,7 +211,9 @@ class Scene(Callbacks):
 
     def create_copy(self, object: Object, linked: bool = False) -> Object:
         obj = object.copy(linked=linked)
-        obj._bl_object.pass_index = self.get_new_object_id()
+        if obj.has_semantics:
+            # assign new instance id to copy
+            obj._bl_object.pass_index = self.get_new_object_id()
         self.callback(CallbackType.ON_OBJECT_CREATED)
         return obj
 

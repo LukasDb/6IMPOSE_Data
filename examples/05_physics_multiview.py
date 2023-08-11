@@ -90,7 +90,9 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     )
 
     rand_bg = sp.random.BackgroundRandomizer(
-        scene, sp.CallbackType.BEFORE_RENDER, backgrounds_dir=Path("backgrounds")
+        scene,
+        sp.CallbackType.BEFORE_RENDER,
+        backgrounds_dir=Path("/media/lukas/G-RAID/datasets/backgrounds"),
     )
 
     main_obj = scene.create_object(
@@ -114,7 +116,7 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     bar = tqdm(total=len(inds))
     while True:
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=0.8)
-        
+
         random.shuffle(drop_objects)
 
         for j, obj in enumerate(drop_objects):
@@ -133,12 +135,12 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
         for _ in range(num_dt_step):
             scene.step_physics(dt)
 
-            # sample 20 camera locations in upper hemisphere (uniformly)
+            # sample 20 camera locations in upper hemisphere
             rots = R.random(num=num_cam_locs)
             cam_view = np.array([0.0, 0.0, 1.0])
-            rads = np.random.uniform(0.5, 1.0, size=(num_cam_locs,))
+            radius = np.random.uniform(0.5, 1.5, size=(num_cam_locs,))
 
-            cam_locations = rots.apply(cam_view) * rads[:, None]
+            cam_locations = rots.apply(cam_view) * radius[:, None]
             cam_locations[:, 2] *= np.sign(cam_locations[:, 2])
             cam_locations[:, 2] += 0.2
 

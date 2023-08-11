@@ -31,8 +31,8 @@ class ShapenetLoader(simpose.Callback):
         self._scale_range = scale_range
 
         # get a list of all folders in shapenet root
-        self._shapenet_types = list(self._shapenet_root.iterdir())
-        self._shapenet_types = [x for x in self._shapenet_types if x.is_dir()]
+        shapenet_contents = self._shapenet_root.iterdir()
+        self._shapenet_types = list([x for x in shapenet_contents if x.is_dir()])
 
         self._shapenet_objects: List[simpose.Object] = []
 
@@ -50,13 +50,12 @@ class ShapenetLoader(simpose.Callback):
         for obj_type in obj_types:
             objs = list(obj_type.iterdir())
             obj_path = np.random.choice(list(objs), replace=False)
-            with redirect_stdout():
-                obj = self._scene.create_object(
-                    obj_path / "models/model_normalized.obj",
-                    add_semantics=False,
-                    scale=np.random.uniform(*self._scale_range),
-                    **kwargs,
-                )
+            obj = self._scene.create_object(
+                obj_path / "models/model_normalized.obj",
+                add_semantics=False,
+                scale=np.random.uniform(*self._scale_range),
+                **kwargs,
+            )
             self._shapenet_objects.append(obj)
             logging.debug(f"Added Shapenet object: {obj_path}")
 
