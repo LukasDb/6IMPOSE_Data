@@ -19,6 +19,6 @@ class BackgroundRandomizer(simpose.Callback):
         self._backgrounds: List = list(self._backgrounds_dir.glob("*.jpg"))
 
     def callback(self):
-        bg = "//" + str(np.random.choice(self._backgrounds))
+        bg = np.random.choice(self._backgrounds)
         self._scene.set_background(bg)
 

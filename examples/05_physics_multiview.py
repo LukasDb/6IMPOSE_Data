@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import multiprocessing as mp
 from pathlib import Path
@@ -5,7 +6,8 @@ import logging
 import click
 from typing import List
 
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.DEBUG)
+# logging.getLogger().setLevel(0)
 
 
 @click.command()
@@ -50,6 +52,7 @@ def main(
     processes = [mp.Process(target=process, args=(queue,)) for _ in range(n_workers)]
     for p in processes:
         p.start()
+        time.sleep(10)  # 'load balancing'
     for p in processes:
         p.join()
 
@@ -71,7 +74,7 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
 
     scene = sp.Scene()
 
-    writer = sp.Writer(scene, output_path, render_object_masks=True)
+    writer = sp.Writer(scene, output_path)
 
     shapenet_root = Path("/media/lukas/G-RAID/datasets/shapenet/ShapeNetCore")
     shapenet = sp.random.ShapenetLoader(
@@ -95,8 +98,10 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
         backgrounds_dir=Path("/media/lukas/G-RAID/datasets/backgrounds"),
     )
 
+    friction = 0.8
+
     main_obj = scene.create_object(
-        obj_path, mass=0.2, friction=0.8, add_semantics=True, scale=scale
+        obj_path, mass=0.2, friction=friction, add_semantics=True, scale=scale
     )
     main_obj.set_metallic_value(0.0)
     main_obj.set_roughness_value(0.5)
@@ -104,19 +109,18 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     main_objs = [main_obj]
 
     for i in range(19):
-        main_objs.append(scene.create_copy(main_obj, linked=True))
+        main_objs.append(scene.create_copy(main_obj))
 
     # data generation params
-    dt = 1 / 5.0  # 5 FPS
-    drop_duration = 5
+    dt = 1 / 4.0
+    drop_duration = 8
     num_dt_step = int(drop_duration / dt)
-    num_cam_locs = 20
+    num_cam_locs = 1  # 20
 
     i = 0
     bar = tqdm(total=len(inds))
     while True:
-        drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=0.8)
-
+        drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=friction)
         random.shuffle(drop_objects)
 
         for j, obj in enumerate(drop_objects):
@@ -125,7 +129,7 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
                 (
                     np.random.uniform(-0.05, 0.05),
                     np.random.uniform(-0.05, 0.05),
-                    j * 0.1 + 0.1,
+                    j * 0.05 + 0.1,
                 )
             )
             obj.set_rotation(R.random())
@@ -152,7 +156,12 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
                     R.from_euler("z", np.random.uniform(-5, 5), degrees=True)
                 )  # minor rotation noise
 
+                for obj in drop_objects:
+                    obj.set_metallic_value(np.random.uniform(0, 1.0))
+                    obj.set_roughness_value(np.random.uniform(0, 1.0))
+
                 writer.generate_data(inds[i])
+
                 i += 1
                 if i == len(inds):
                     bar.close()

@@ -3,7 +3,7 @@ from bpy.types import ShaderNodeBsdfPrincipled, Material
 import mathutils
 import math
 from scipy.spatial.transform import Rotation as R
-from typing import Tuple
+from typing import Tuple, List
 from .placeable import Placeable
 import logging
 from .redirect_stdout import redirect_stdout
@@ -24,12 +24,12 @@ class Object(Placeable):
         super().__init__(bl_object)
 
     @property
-    def material(self) -> Material:
-        return self._bl_object.data.materials[0]
+    def materials(self) -> List[Material]:
+        return list(self._bl_object.data.materials)
 
     @property
-    def shader_node(self) -> ShaderNodeBsdfPrincipled:
-        return self.material.node_tree.nodes["Principled BSDF"]
+    def shader_nodes(self) -> List[ShaderNodeBsdfPrincipled]:
+        return [m.node_tree.nodes["Principled BSDF"] for m in self.materials]
 
     @property
     def is_hidden(self) -> bool:
@@ -37,21 +37,22 @@ class Object(Placeable):
 
     @property
     def has_semantics(self) -> bool:
-        return self._bl_object.get("semantics", False)
+        return self._bl_object["semantics"]
 
     @property
     def object_id(self):
         return self._bl_object.pass_index
 
-    def copy(self, linked: bool) -> "Object":
+    def copy(self) -> "Object":
         # clear blender selection
         bpy.ops.object.select_all(action="DESELECT")
         # select object
         self._bl_object.select_set(True)
         # returns a new object with a linked data block
         with redirect_stdout():
-            bpy.ops.object.duplicate(linked=linked)
+            bpy.ops.object.duplicate(linked=False)
         bl_object = bpy.context.selected_objects[0]
+        bl_object.active_material = self._bl_object.active_material.copy()
 
         new_obj = Object(bl_object)
 
@@ -77,7 +78,7 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
-        obj = Object._initialize_blender_object(
+        obj = Object._initialize_object(
             bl_object=bl_object,
             scale=scale,
             mass=mass,
@@ -105,7 +106,9 @@ class Object(Placeable):
             raise RuntimeError(f"Could not import {filepath}")
 
         # convert ply to .obj for pybullet
-        collision_obj_path = filepath.with_name("collision_" + filepath.name).with_suffix(".obj").resolve()
+        collision_obj_path = (
+            filepath.with_name("collision_" + filepath.name).with_suffix(".obj").resolve()
+        )
         with redirect_stdout():
             if not collision_obj_path.exists():
                 bpy.ops.wm.obj_export(
@@ -129,7 +132,10 @@ class Object(Placeable):
         # add to object
         bl_object.data.materials.append(material)
 
-        obj = Object._initialize_blender_object(
+        # shade smooth
+        bpy.ops.object.shade_smooth()
+
+        obj = Object._initialize_object(
             bl_object=bl_object,
             scale=scale,
             mass=mass,
@@ -160,10 +166,12 @@ class Object(Placeable):
         self._bl_object.hide_render = False
 
     def set_metallic_value(self, value):
-        self.shader_node.inputs["Metallic"].default_value = value
+        for shader_node in self.shader_nodes:
+            shader_node.inputs["Metallic"].default_value = value
 
     def set_roughness_value(self, value):
-        self.shader_node.inputs["Roughness"].default_value = value
+        for shader_node in self.shader_nodes:
+            shader_node.inputs["Roughness"].default_value = value
 
     def get_name(self) -> str:
         return self._bl_object.name
@@ -201,14 +209,20 @@ class Object(Placeable):
         except KeyError:
             pass
 
-        material = self.material  # keep reference to material before removing object
+        materials = self.materials
         mesh = self._bl_object.data  # keep reference to mesh before removing object
         bpy.data.objects.remove(self._bl_object)
         if mesh.users == 0:
             # first, remove mesh data
             bpy.data.meshes.remove(mesh, do_unlink=True)
-        if material.users == 0:
-            bpy.data.materials.remove(material, do_unlink=True)
+            try:
+                coll_id = self._bl_object["coll_id"]
+                p.removeCollisionShape(coll_id)
+            except Exception:
+                pass
+        for material in materials:
+            if material.users == 0:
+                bpy.data.materials.remove(material, do_unlink=True)
 
     def _add_pybullet_object(self) -> int:
         coll_id = self._bl_object["coll_id"]
@@ -229,74 +243,130 @@ class Object(Placeable):
         p.removeBody(self._bl_object["pb_id"])
         del self._bl_object["pb_id"]
 
+    def set_semantic_id(self, id: int):
+        self._bl_object.pass_index = id
+
     @staticmethod
-    def _initialize_blender_object(
+    def _initialize_object(
         bl_object: bpy.types.Object,
-        scale: float,
-        mass: float,
         obj_path: Path,
         add_semantics: bool,
+        scale: float,
+        mass: float | None,
         friction: float,
     ) -> "Object":
         # scale object
         bl_object.scale = (scale, scale, scale)
 
-        # set material output to cycles only
-        bl_object.data.materials[0].use_nodes = True
-        tree: bpy.types.NodeTree = bl_object.data.materials[0].node_tree
-        tree.nodes["Material Output"].target = "CYCLES"
+        for material in bl_object.data.materials:
+            tree: bpy.types.NodeTree = material.node_tree
+            material.blend_method = "BLEND"
 
-        attr_node: bpy.types.ShaderNodeAttribute = tree.nodes.new("ShaderNodeAttribute")
-        attr_node.attribute_type = "VIEW_LAYER"
-        attr_node.attribute_name = "object_index"
-        obj_info_node = tree.nodes.new("ShaderNodeObjectInfo")
-        compare_node: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")
-        compare_node.operation = "COMPARE"
-        compare_node2: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")
-        compare_node2.operation = "COMPARE"
-        mat_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes.new("ShaderNodeOutputMaterial")
-        mat_output.target = "EEVEE"
-        transparent = tree.nodes.new("ShaderNodeBsdfTransparent")
-        mix_shader = tree.nodes.new("ShaderNodeMixShader")
-        mix_shader2 = tree.nodes.new("ShaderNodeMixShader")
+            # set current material output to cycles only
+            tree.nodes["Material Output"].target = "CYCLES"
 
-        # connect the attribute to the compare node
-        tree.links.new(attr_node.outputs[0], compare_node.inputs[0])
-        # conect object_info->pass_index to compare_node
-        tree.links.new(obj_info_node.outputs["Object Index"], compare_node.inputs[1])
-        # conenct output of compare_node mix shader
-        tree.links.new(compare_node.outputs[0], mix_shader.inputs[0])
-        tree.links.new(compare_node.outputs[0], mix_shader.inputs[2])
-        # connect transparent shader to mix2 shader
-        tree.links.new(transparent.outputs[0], mix_shader2.inputs[1])
-        # add camera data to mix2 (z depth)
-        tree.links.new(obj_info_node.outputs["Object Index"], mix_shader2.inputs[2])
-        # connect attribute to compare2
-        tree.links.new(attr_node.outputs[0], compare_node2.inputs[0])
-        # set value2 of compare2 to 0
-        compare_node2.inputs[1].default_value = 0
-        # connect compare2 to mix2
-        tree.links.new(compare_node2.outputs[0], mix_shader2.inputs[0])
-        # connect mix2 to mix
-        tree.links.new(mix_shader2.outputs[0], mix_shader.inputs[1])
-        # output of mix shader to material output
-        tree.links.new(mix_shader.outputs[0], mat_output.inputs[0])
+            #          | vl > 0 | vl == 0
+            # vl == oi |    1   |   0 or oi
+            # vl != oi |  trans | oi
 
-        # set blend_method of material to alpha blend
-        bl_object.data.materials[0].blend_method = "BLEND"
+            # --> vl == 0 -> oi
+            # else:
+            #  if vl == oi: 1
+            #  if vl != oi: trans
+
+            # add eevee output with above truth table (vl == view_layer["Object Index"]; oi == object_index)
+            vl: bpy.types.ShaderNodeAttribute = tree.nodes.new("ShaderNodeAttribute")
+            vl.attribute_type = "VIEW_LAYER"
+            vl.attribute_name = "object_index"
+            vl.location = (300, 100)
+
+            oi = tree.nodes.new("ShaderNodeObjectInfo")
+            oi.location = (300, -200)
+
+            vl_is_0: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")
+            vl_is_0.operation = "COMPARE"
+            vl_is_0.inputs[2].default_value = 0.1  # epsilon
+            vl_is_0.inputs[1].default_value = 0
+            vl_is_0.location = (600, 100)
+
+            vl_is_oi: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")
+            vl_is_oi.operation = "COMPARE"
+            vl_is_oi.inputs[2].default_value = 0.1  # epsilon
+            vl_is_oi.location = (600, -200)
+
+            id_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes.new(
+                "ShaderNodeOutputMaterial"
+            )
+            id_output.target = "EEVEE"
+            id_output.location = (1100, 0)
+
+            transparent = tree.nodes.new("ShaderNodeBsdfTransparent")
+            transparent.location = (600, -100)
+            mix_shader = tree.nodes.new("ShaderNodeMixShader")
+            mix_shader.location = (1000, 0)
+            mix_shader2 = tree.nodes.new("ShaderNodeMixShader")
+            mix_shader2.location = (800, -200)
+
+            # connect vl_is_0
+            tree.links.new(vl.outputs[0], vl_is_0.inputs[0])
+            # connect result to mix shader1
+            tree.links.new(vl_is_0.outputs[0], mix_shader.inputs[0])
+            # if vl_is_0 -> return oi -> output of mix shader is output
+            tree.links.new(oi.outputs["Object Index"], mix_shader.inputs[2])
+            tree.links.new(mix_shader.outputs[0], id_output.inputs[0])
+
+            # if vl is not 0 then the other mix input is used, which is either transparent or 1 (from mix2)
+            tree.links.new(mix_shader2.outputs[0], mix_shader.inputs[1])
+
+            # connect vl_is_oi
+            tree.links.new(vl.outputs[0], vl_is_oi.inputs[0])
+            tree.links.new(oi.outputs["Object Index"], vl_is_oi.inputs[1])
+            # connect result to mix shader2
+            tree.links.new(vl_is_oi.outputs[0], mix_shader2.inputs[0])
+            # connect transparent shader to mix2 shader (if vl != oi)
+            tree.links.new(transparent.outputs[0], mix_shader2.inputs[1])
+            # else we return 1 which is also the result of vl_is_oi
+            tree.links.new(vl_is_oi.outputs[0], mix_shader2.inputs[2])
 
         obj = Object(bl_object)
         if mass is not None:
-            # add custom 'pb id' attribute to object
-            coll_id = p.createCollisionShape(
-                p.GEOM_MESH, fileName=str(obj_path.resolve()), meshScale=[scale] * 3
-            )
+            # use vhacd to create collision shape
+            out_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
+            if not out_path.exists():
+                # hierachical decomposition for dynamic collision of concave objects
+                logging.info(f"running vhacd for {obj_path}...")
+                with redirect_stdout():
+                    p.vhacd(
+                        str(obj_path.resolve()),
+                        str(out_path),
+                        str(obj_path.parent.joinpath("log.txt").resolve()),
+                    )
+            else:
+                logging.info(f"Reusing vhacd from {out_path}")
+
+            try:
+                with redirect_stdout():
+                    coll_id = p.createCollisionShape(
+                        p.GEOM_MESH, fileName=str(out_path), meshScale=[scale] * 3
+                    )
+            except Exception as e:
+                import traceback
+
+                logging.error(
+                    f"Collision shape from {out_path} failed, using convex hull from {obj_path} instead!\n{e}\n{traceback.format_exc()}"
+                )
+                with redirect_stdout():
+                    coll_id = p.createCollisionShape(
+                        p.GEOM_MESH, fileName=str(obj_path.resolve()), meshScale=[scale] * 3
+                    )
+
             obj._bl_object["coll_id"] = coll_id
             obj._bl_object["mass"] = mass
             obj._bl_object["friction"] = friction
             obj._add_pybullet_object()
 
         obj._bl_object["semantics"] = add_semantics
+        obj._bl_object.pass_index = 0
 
         obj.set_location((0.0, 0.0, 0.0))
         obj.set_rotation(R.from_euler("x", 0, degrees=True))

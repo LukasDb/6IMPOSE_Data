@@ -24,37 +24,35 @@ class Scene(Callbacks):
         # self._bl_scene = bpy.data.scenes.new("6impose Scene")
         self._bl_scene: bpy.types.Scene = bpy.context.window.scene
 
+        scene = self._bl_scene
+        self.__id_counter = 0
+
         # delete old cup, light, camera and scene
         bpy.ops.object.select_all(action="SELECT")
         bpy.ops.object.delete(use_global=False)
 
         # bpy.context.window.scene= self._bl_scene
-        self.__id_counter = 0  # never directly access
-
         self._randomizers: List[Callback] = []
 
-        # add new custom integer property to view layer, called 'index'
-        self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0
-
         # create a lights collection
-        self._bl_scene.collection.children.link(bpy.data.collections.new("Lights"))
-        self._bl_scene.collection.children.link(bpy.data.collections.new("Cameras"))
-        self._bl_scene.collection.children.link(bpy.data.collections.new("Objects"))
+        scene.collection.children.link(bpy.data.collections.new("Lights"))
+        scene.collection.children.link(bpy.data.collections.new("Cameras"))
+        scene.collection.children.link(bpy.data.collections.new("Objects"))
 
-        bpy.context.scene.render.use_multiview = use_stereo
+        scene.render.use_multiview = use_stereo
 
         # setup settings
-        bpy.context.scene.render.resolution_x = img_w
-        bpy.context.scene.render.resolution_y = img_h
-        bpy.context.scene.render.resolution_percentage = 100
-        bpy.context.scene.render.use_persistent_data = True
-        self.resolution = np.array([img_w, img_h])
-        bpy.context.scene.view_layers[0].cycles.use_denoising = True
+        scene.render.resolution_x = img_w
+        scene.render.resolution_y = img_h
+        scene.render.resolution_percentage = 100
+        scene.render.use_persistent_data = True
+        scene.view_layers[0].cycles.use_denoising = True
 
         self.current_bg_img: bpy.types.Image | None = None
         self.output_dir = Path("output")
-        self._setup_compositor()
         self._setup_rendering_device()
+        self._setup_compositor()
+        self._register_new_id("visib")
 
         p.connect(p.DIRECT)
         p.resetSimulation()
@@ -66,7 +64,11 @@ class Scene(Callbacks):
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.loadURDF("plane.urdf")  # XY ground plane
 
-        self.callback(CallbackType.ON_SCENE_CREATED)
+        self.call_callback(CallbackType.ON_SCENE_CREATED)
+
+    @property
+    def resolution(self):
+        return np.array((self._bl_scene.render.resolution_x, self._bl_scene.render.resolution_y))
 
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
@@ -83,68 +85,35 @@ class Scene(Callbacks):
             except KeyError:
                 pass
 
-        self.callback(CallbackType.ON_PHYSICS_STEP)
+        self.call_callback(CallbackType.ON_PHYSICS_STEP)
 
-    def render(self, render_object_masks: bool):
+    def render(self):
         logging.getLogger().debug("Rendering")
-        self.callback(CallbackType.BEFORE_RENDER)
-        # render RGB and DEPTH
-        bpy.context.scene.render.engine = "CYCLES"
-        bpy.context.scene.cycles.use_denoising = True
-        bpy.context.scene.cycles.samples = 64
-        bpy.context.scene.cycles.caustics_reflective = False
-        bpy.context.scene.cycles.caustics_refractive = False
-        bpy.context.scene.cycles.use_auto_tile = False
-        # set number of bounces
-        bpy.context.scene.cycles.max_bounces = 4
-        bpy.context.scene.cycles.min_bounces = 0
-        bpy.context.scene.cycles.diffuse_bounces = 3
-        bpy.context.scene.cycles.glossy_bounces = 3
-        bpy.context.scene.cycles.transparent_max_bounces = 4
+        self.call_callback(CallbackType.BEFORE_RENDER)
 
-        bpy.context.view_layer.use_pass_z = True
-
-        tree = bpy.context.scene.node_tree
-        output = self.output_node
-        output.file_slots[0].path = "rgb/rgb_"
-        output.file_slots[0].use_node_format = False
-        output.file_slots[0].format.color_mode = "RGB"
-        output.file_slots[0].format.file_format = "PNG"
-        tree.links.new(self.alpha_over.outputs[0], output.inputs["rgb"])
-
+        # render RGB, depth using cycles
+        # disable all view layers except 'ViewLayer'
+        for layer in self._bl_scene.view_layers:
+            layer.use = False
+        self._bl_scene.view_layers["ViewLayer"].use = True
+        self._bl_scene.render.engine = "CYCLES"
+        self.output_node.mute = False
+        self.mask_output.mute = True
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)
 
-        # render individual MASKS
-        bpy.context.scene.render.engine = "BLENDER_EEVEE"
-        self._bl_scene.eevee.taa_render_samples = 1
-        self._bl_scene.eevee.taa_samples = 1
-
-        bpy.context.view_layer.use_pass_z = False
-
-        # connect renderlayer directly to output node
-        tree = bpy.context.scene.node_tree
-        tree.links.new(self.render_layers.outputs[0], self.output_node.inputs["rgb"])
-
-        self._bl_scene.view_layers["ViewLayer"]["object_index"] = 0  # all visible masks
-        output = self.output_node
-        output.file_slots[0].path = "mask/mask_"
-        output.file_slots[0].use_node_format = False
-        output.file_slots[0].format.color_mode = "RGB"
-        output.file_slots[0].format.file_format = "OPEN_EXR"
-        output.file_slots[0].format.exr_codec = "ZIPS"  # lossless
-        output.file_slots[0].format.color_depth = "16"
+        # render mask into a single EXR using eevee
+        # enable all view layers except ViewLayer
+        for layer in self._bl_scene.view_layers:
+            layer.use = True
+        self._bl_scene.view_layers["ViewLayer"].use = False
+        self._bl_scene.render.engine = "BLENDER_EEVEE"
+        self.output_node.mute = True
+        self.mask_output.mute = False
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)
 
-        if render_object_masks:
-            for obj in self.get_labelled_objects():
-                self._bl_scene.view_layers["ViewLayer"]["object_index"] = obj.object_id
-                output.file_slots[0].path = f"mask/mask_{obj.object_id:04d}_"
-                with redirect_stdout():
-                    bpy.ops.render.render(write_still=False)
-
-        self.callback(CallbackType.AFTER_RENDER)
+        self.call_callback(CallbackType.AFTER_RENDER)
 
     def get_new_object_id(self) -> int:
         self.__id_counter += 1
@@ -156,6 +125,7 @@ class Scene(Callbacks):
     def set_output_path(self, output_dir: Path):
         self.output_dir = output_dir
         self.output_node.base_path = str((self.output_dir).resolve())
+        self.mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
 
     def get_cameras(self) -> List[Camera]:
         return [Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects]
@@ -164,8 +134,6 @@ class Scene(Callbacks):
         cam = Camera.create(cam_name)
         # add camera to "Cameras" collection
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
-        # remove from default collection
-        # bpy.context.scene.collection.objects.unlink(cam._bl_object)
         return cam
 
     def get_active_objects(self) -> List[Object]:
@@ -203,30 +171,54 @@ class Scene(Callbacks):
             raise NotImplementedError("Only .obj and .ply files are supported")
 
         if add_semantics:
-            obj._bl_object.pass_index = self.get_new_object_id()
+            new_id = self.get_new_object_id()
+            obj.set_semantic_id(new_id)
+            self._register_new_id(new_id)
+
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
 
-        self.callback(CallbackType.ON_OBJECT_CREATED)
+        self.call_callback(CallbackType.ON_OBJECT_CREATED)
         return obj
 
-    def create_copy(self, object: Object, linked: bool = False) -> Object:
-        obj = object.copy(linked=linked)
+    def create_copy(self, object: Object) -> Object:
+        obj = object.copy()
         if obj.has_semantics:
-            # assign new instance id to copy
-            obj._bl_object.pass_index = self.get_new_object_id()
-        self.callback(CallbackType.ON_OBJECT_CREATED)
+            new_id = self.get_new_object_id()
+            obj.set_semantic_id(new_id)
+            self._register_new_id(new_id)
+
+        self.call_callback(CallbackType.ON_OBJECT_CREATED)
         return obj
+
+    def _register_new_id(self, new_id: str | int):
+        # create a new view layer
+        if isinstance(new_id, int):
+            id = new_id
+            layer_name = f"{new_id:04}"
+        else:
+            id = 0
+            layer_name = new_id
+
+        # new layer with id_material override and object index
+        self._bl_scene.view_layers.new(name=layer_name)
+        self._bl_scene.view_layers[layer_name]["object_index"] = id
+
+        # add file output to compositor
+        tree = self._bl_scene.node_tree
+        layer_node: bpy.types.CompositorNodeRLayers = tree.nodes.new("CompositorNodeRLayers")
+        layer_node.layer = layer_name
+        layer_node.location = (0, -500 - id * 100)
+
+        self.mask_output.file_slots.new(layer_name)
+        tree.links.new(layer_node.outputs["Image"], self.mask_output.inputs[layer_name])
 
     def create_light(self, light_name: str, energy: float, type="POINT") -> Light:
         light = Light.create(light_name, energy, type)
         bpy.data.collections["Lights"].objects.link(light._bl_object)
         return light
 
-    def set_gravity(self, gravity: Tuple[float, float, float]):
-        bpy.context.scene.gravity = gravity
-
     def _setup_rendering_device(self):
-        bpy.context.scene.cycles.device = "GPU"
+        self._bl_scene.cycles.device = "GPU"
         pref = bpy.context.preferences.addons["cycles"].preferences
         pref.get_devices()
 
@@ -258,18 +250,17 @@ class Scene(Callbacks):
         logging.debug(f"Available devices: {available_devices}")
 
         if chosen_type == "OPTIX":
-            bpy.context.scene.cycles.denoiser = "OPTIX"
+            self._bl_scene.cycles.denoiser = "OPTIX"
         else:
-            bpy.context.scene.cycles.denoiser = "OPENIMAGEDENOISE"
+            self._bl_scene.cycles.denoiser = "OPENIMAGEDENOISE"
 
-    def set_background(self, filepath):
+    def set_background(self, filepath: Path):
         # get composition node_tree
         if self.current_bg_img is not None:
             bpy.data.images.remove(self.current_bg_img)
-        self.current_bg_img = bpy.data.images.load(filepath)
+        self.current_bg_img = bpy.data.images.load(str(filepath.resolve()))
         self.bg_image_node.image = self.current_bg_img
-        scale_to_fit = np.max(self.resolution / np.array(self.current_bg_img.size))
-        self.bg_transform.inputs[4].default_value = scale_to_fit
+        # scale_to_fit = np.max(self.resolution / np.array(self.current_bg_img.size))
         logging.debug(f"Set background to {filepath}")
 
     def export_blend(self, filepath=str(Path("scene.blend").resolve())):
@@ -277,11 +268,28 @@ class Scene(Callbacks):
             bpy.ops.wm.save_as_mainfile(filepath=filepath)
 
     def _setup_compositor(self):
-        bpy.context.scene.use_nodes = True
-        bpy.context.scene.render.film_transparent = True
-        bpy.context.view_layer.use_pass_z = True
-        bpy.context.view_layer.use_pass_combined = True
-        tree = bpy.context.scene.node_tree
+        self._bl_scene.use_nodes = True
+        self._bl_scene.render.film_transparent = True
+        self._bl_scene.view_layers["ViewLayer"].use_pass_z = True
+        self._bl_scene.view_layers["ViewLayer"].use_pass_combined = True
+        self._bl_scene.render.engine = "CYCLES"
+        self._bl_scene.cycles.use_denoising = True
+        self._bl_scene.cycles.samples = 64
+        self._bl_scene.cycles.caustics_reflective = False
+        self._bl_scene.cycles.caustics_refractive = False
+        self._bl_scene.cycles.use_auto_tile = False
+
+        self._bl_scene.eevee.taa_render_samples = 1
+        self._bl_scene.eevee.taa_samples = 1
+
+        # set number of bounces
+        self._bl_scene.cycles.max_bounces = 4
+        self._bl_scene.cycles.min_bounces = 0
+        self._bl_scene.cycles.diffuse_bounces = 3
+        self._bl_scene.cycles.glossy_bounces = 3
+        self._bl_scene.cycles.transparent_max_bounces = 4
+
+        tree = self._bl_scene.node_tree
 
         # clear node tree
         for node in tree.nodes:
@@ -294,29 +302,24 @@ class Scene(Callbacks):
         self.alpha_over: bpy.types.CompositorNodeAlphaOver = tree.nodes.new(
             "CompositorNodeAlphaOver"
         )
+        self.alpha_over.location = (600, 300)
+
         self.bg_image_node: bpy.types.CompositorNodeImage = tree.nodes.new("CompositorNodeImage")
+        self.bg_image_node.location = (0, 300)
 
-        # create a transform node to scale the background image to fit the render resolution
-        self.bg_transform: bpy.types.CompositorNodeTransform = tree.nodes.new(
-            "CompositorNodeTransform"
-        )
-        self.bg_transform.filter_type = "BILINEAR"
+        # add scale node
+        scale_node: bpy.types.CompositorNodeScale = tree.nodes.new("CompositorNodeScale")
+        scale_node.space = "RENDER_SIZE"
+        scale_node.location = (300, 300)
 
-        # invert alpha
-        invert_alpha: bpy.types.CompositorNodeMath = tree.nodes.new("CompositorNodeMath")
-        invert_alpha.operation = "SUBTRACT"
-        invert_alpha.inputs[0].default_value = 1.0
-
-        # bg_node -> transform
-        tree.links.new(self.bg_image_node.outputs[0], self.bg_transform.inputs[0])
-        # transform -> alpha over
-        tree.links.new(self.bg_transform.outputs[0], self.alpha_over.inputs[2])
-        # rendered_rgb -> alpha over
-        tree.links.new(render_layers.outputs[0], self.alpha_over.inputs[1])
-        # rendered_alpha -> invert alpha
-        tree.links.new(render_layers.outputs[1], invert_alpha.inputs[1])
-        # invert alpha -> alpha_over
-        tree.links.new(invert_alpha.outputs[0], self.alpha_over.inputs[0])
+        # bg node -> scale
+        tree.links.new(self.bg_image_node.outputs[0], scale_node.inputs[0])
+        # scale -> alpha over [1]
+        tree.links.new(scale_node.outputs[0], self.alpha_over.inputs[1])
+        # rendered_rgb -> alpha over [2]
+        tree.links.new(render_layers.outputs[0], self.alpha_over.inputs[2])
+        # rendered_alpha -> alpha over [0]
+        tree.links.new(render_layers.outputs[1], self.alpha_over.inputs[0])
 
         # RGB image output
         self.output_node: bpy.types.CompositorNodeOutputFile = tree.nodes.new(
@@ -325,6 +328,7 @@ class Scene(Callbacks):
         output: bpy.types.CompositorNodeOutputFile = self.output_node
         output.base_path = str((self.output_dir).resolve())
         output.inputs.remove(output.inputs[0])
+        output.location = (900, 0)
 
         # RGB output
         output.file_slots.new("rgb")
@@ -343,3 +347,16 @@ class Scene(Callbacks):
         output.file_slots[1].format.exr_codec = "ZIP"
         output.file_slots[1].format.color_depth = "16"
         tree.links.new(render_layers.outputs["Depth"], output.inputs["depth"])
+
+        # mask output
+        self.mask_output: bpy.types.CompositorNodeOutputFile = tree.nodes.new(
+            "CompositorNodeOutputFile"
+        )
+        mask_output: bpy.types.CompositorNodeOutputFile = self.mask_output
+        mask_output.location = (400, -500)
+        mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
+        mask_output.inputs.remove(mask_output.inputs[0])
+        mask_output.format.file_format = "OPEN_EXR_MULTILAYER"
+        mask_output.format.color_depth = "16"
+        # mask_output.format.exr_codec = "ZIP"
+        mask_output.format.exr_codec = "NONE"

@@ -30,6 +30,6 @@ class Callbacks:
     def add(self, callback: Callback):
         self._callbacks.append(callback)
 
-    def callback(self, callback_type: CallbackType):
+    def call_callback(self, callback_type: CallbackType):
         for cb in [x for x in self._callbacks if x._type == callback_type]:
             cb.callback()

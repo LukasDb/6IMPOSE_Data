@@ -6,6 +6,8 @@ from pathlib import Path
 from .redirect_stdout import redirect_stdout
 import cv2
 import logging
+import minexr
+
 
 import signal
 
@@ -29,11 +31,10 @@ class DelayedKeyboardInterrupt:
 
 
 class Writer:
-    def __init__(self, scene: simpose.Scene, output_dir: Path, render_object_masks: bool):
+    def __init__(self, scene: simpose.Scene, output_dir: Path):
         self._output_dir = output_dir
         self._data_dir = output_dir / "gt"
         self._scene = scene
-        self._render_object_masks = render_object_masks
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._scene.set_output_path(self._output_dir)
 
@@ -55,12 +56,13 @@ class Writer:
 
         # for each object, deactivate all but one and render mask
         objs = self._scene.get_labelled_objects()
-        self._scene.render(render_object_masks=self._render_object_masks)
+        self._scene.render()
 
-        mask = cv2.imread(
-            str(Path(self._output_dir, "mask", f"mask_{dataset_index:04}.exr")),
-            cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-        )[..., 0]
+        with Path(self._output_dir / f"mask/mask_{dataset_index:04}.exr").open("rb") as F:
+            reader = minexr.load(F)
+
+        # print(reader.channel_names)
+        mask = reader.select(["visib.R"])[..., 0]
 
         depth = cv2.imread(
             str(Path(self._output_dir, "depth", f"depth_{dataset_index:04}.exr")),
@@ -77,23 +79,13 @@ class Writer:
             px_count_valid = 0.0
             visib_fract = 0.0
 
-            if self._render_object_masks:
-                obj_mask = cv2.imread(
-                    str(
-                        Path(
-                            self._output_dir,
-                            "mask",
-                            f"mask_{obj.object_id:04}_{dataset_index:04}.exr",
-                        )
-                    ),
-                    cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-                )[..., 0]
+            obj_mask = reader.select([f"{obj.object_id:04}.R"])[..., 0]
 
-                bbox_obj = self._get_bbox(obj_mask, 1)
-                px_count_all = np.count_nonzero(obj_mask == 1)
-                px_count_valid = np.count_nonzero(depth[mask == obj.object_id])
-                if px_count_all != 0:
-                    visib_fract = px_count_visib / px_count_all
+            bbox_obj = self._get_bbox(obj_mask, 1)
+            px_count_all = np.count_nonzero(obj_mask == 1)
+            px_count_valid = np.count_nonzero(depth[mask == obj.object_id])
+            if px_count_all != 0:
+                visib_fract = px_count_visib / px_count_all
 
             obj_list.append(
                 {
@@ -164,9 +156,8 @@ class Writer:
             logging.debug(f"Removing {depth_path}")
             depth_path.unlink()
 
-        if self._render_object_masks:
-            mask_paths = (self._output_dir / "mask").glob(f"mask_*_{dataset_index:04}.exr")
-            for mask_path in mask_paths:
-                if mask_path.exists():
-                    logging.debug(f"Removing {mask_path}")
-                    mask_path.unlink()
+        mask_paths = (self._output_dir / "mask").glob(f"mask_*_{dataset_index:04}.exr")
+        for mask_path in mask_paths:
+            if mask_path.exists():
+                logging.debug(f"Removing {mask_path}")
+                mask_path.unlink()

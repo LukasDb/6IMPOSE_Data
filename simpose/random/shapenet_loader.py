@@ -2,11 +2,7 @@ import simpose
 from pathlib import Path
 import numpy as np
 from typing import Tuple, List
-import bpy
-from tqdm import tqdm
-from scipy.spatial.transform import Rotation as R
 import logging
-from simpose.redirect_stdout import redirect_stdout
 
 
 class ShapenetLoader(simpose.Callback):
@@ -36,7 +32,7 @@ class ShapenetLoader(simpose.Callback):
 
         self._shapenet_objects: List[simpose.Object] = []
 
-    def get_objects(self, *args, **kwargs) -> List[simpose.Object]:
+    def get_objects(self, **kwargs) -> List[simpose.Object]:
         """renews the list of objects and returns it"""
 
         for obj in self._shapenet_objects:
