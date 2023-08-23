@@ -67,7 +67,6 @@ def process(queue: mp.Queue):
 
 def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: float):
     import simpose as sp
-    import logging
     from tqdm import tqdm
     from scipy.spatial.transform import Rotation as R
     import random
@@ -118,7 +117,10 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     num_cam_locs = 1  # 20
 
     i = 0
-    bar = tqdm(total=len(inds))
+    if mp.current_process().name == "Process-1":
+        bar = tqdm(total=len(inds), desc="Process-1", smoothing=0.0)
+    else:
+        bar = None
     while True:
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=friction)
         random.shuffle(drop_objects)
@@ -164,9 +166,11 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
 
                 i += 1
                 if i == len(inds):
-                    bar.close()
+                    if bar is not None:
+                        bar.close()
                     return
-                bar.update(1)
+                if bar is not None:
+                    bar.update(1)
     bar.close()
 
 

@@ -334,7 +334,7 @@ class Object(Placeable):
             out_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
             if not out_path.exists():
                 # hierachical decomposition for dynamic collision of concave objects
-                logging.info(f"running vhacd for {obj_path}...")
+                #logging.info(f"running vhacd for {obj_path}...")
                 with redirect_stdout():
                     p.vhacd(
                         str(obj_path.resolve()),
@@ -342,7 +342,8 @@ class Object(Placeable):
                         str(obj_path.parent.joinpath("log.txt").resolve()),
                     )
             else:
-                logging.info(f"Reusing vhacd from {out_path}")
+                pass
+                #logging.info(f"Reusing vhacd from {out_path}")
 
             try:
                 with redirect_stdout():

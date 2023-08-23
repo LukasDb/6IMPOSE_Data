@@ -39,9 +39,7 @@ class ShapenetLoader(simpose.Callback):
             obj.remove()
         self._shapenet_objects.clear()
 
-        obj_types = np.random.choice(
-            self._shapenet_types, replace=True, size=self._num_objects
-        )
+        obj_types = np.random.choice(self._shapenet_types, replace=True, size=self._num_objects)
 
         for obj_type in obj_types:
             objs = list(obj_type.iterdir())

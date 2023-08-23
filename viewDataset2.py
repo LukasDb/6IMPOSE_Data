@@ -10,15 +10,20 @@ import streamlit as st
 import minexr
 
 
-def main():
-    img_dir = st.text_input("Image directory", "/home/lukas/data/6IMPOSE/lm_cam")
-
+@st.cache_data(show_spinner="Globbing...")
+def get_idx(img_dir):
     idxs = [
         int(x.stem.split("_")[1])
         for x in Path(img_dir + "/rgb").glob("*.png")  # will be problematic with stereo
     ]
     idxs.sort()
+    return idxs
 
+
+def main():
+    img_dir = st.text_input("Image directory", "/home/lukas/data/6IMPOSE/lm_cam")
+
+    idxs = get_idx(img_dir)
     idx = st.select_slider("Image", idxs, value=idxs[0], key="idx")
 
     cls_colors = {
