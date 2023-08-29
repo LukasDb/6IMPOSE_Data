@@ -119,8 +119,29 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     i = 0
     if mp.current_process().name == "Process-1":
         bar = tqdm(total=len(inds), desc="Process-1", smoothing=0.0)
+
+        # export one scene for debugging (only process-1)
+        drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=friction)
+        random.shuffle(drop_objects)
+
+        for j, obj in enumerate(drop_objects):
+            obj.show()
+            obj.set_location(
+                (
+                    np.random.uniform(-0.05, 0.05),
+                    np.random.uniform(-0.05, 0.05),
+                    j * 0.05 + 0.1,
+                )
+            )
+            obj.set_rotation(R.random())
+        scene.step_physics(1.0)  # initial fall
+        scene.export_blend()
+
+        scene.export_meshes(output_path / "meshes")
+
     else:
         bar = None
+
     while True:
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=friction)
         random.shuffle(drop_objects)

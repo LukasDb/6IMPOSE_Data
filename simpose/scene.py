@@ -267,6 +267,11 @@ class Scene(Callbacks):
         with redirect_stdout():
             bpy.ops.wm.save_as_mainfile(filepath=filepath)
 
+    def export_meshes(self, output_dir: Path):
+        """export meshes as ply files in 'meshes' folder"""
+        for obj in self.get_labelled_objects():
+            obj.export_mesh(output_dir)
+
     def _setup_compositor(self):
         self._bl_scene.use_nodes = True
         self._bl_scene.render.film_transparent = True

@@ -145,6 +145,32 @@ class Object(Placeable):
         )
         return obj
 
+    def export_mesh(self, output_dir: Path):
+        """export mesh as ply file"""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        bpy.ops.object.select_all(action="DESELECT")
+        self._bl_object.select_set(True)
+        with redirect_stdout():
+            old_loc = self.location
+            old_rot = self.rotation
+            try:
+                self.set_location((0, 0, 0))
+                self.set_rotation(R.from_euler("x", 0, degrees=True))
+                bpy.ops.export_mesh.ply(
+                    filepath=str(output_dir / f"{self.get_class()}.ply"),
+                    use_selection=True,
+                    use_normals=True,
+                    use_uv_coords=False,
+                    use_colors=False,
+                    use_mesh_modifiers=False,
+                    use_ascii=False,
+                )
+            finally:
+                self.set_location(old_loc)
+                self.set_rotation(old_rot)
+
+        logging.info("Exported mesh to " + str(output_dir / f"{self.get_class()}.ply"))
+
     def hide(self):
         if self.is_hidden:
             return
@@ -334,7 +360,7 @@ class Object(Placeable):
             out_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
             if not out_path.exists():
                 # hierachical decomposition for dynamic collision of concave objects
-                #logging.info(f"running vhacd for {obj_path}...")
+                # logging.info(f"running vhacd for {obj_path}...")
                 with redirect_stdout():
                     p.vhacd(
                         str(obj_path.resolve()),
@@ -343,7 +369,7 @@ class Object(Placeable):
                     )
             else:
                 pass
-                #logging.info(f"Reusing vhacd from {out_path}")
+                # logging.info(f"Reusing vhacd from {out_path}")
 
             try:
                 with redirect_stdout():

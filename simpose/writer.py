@@ -16,15 +16,15 @@ class DelayedKeyboardInterrupt:
     def __init__(self, index) -> None:
         self.index = index
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         self.signal_received = False
-        self.old_handler = signal.signal(signal.SIGINT, self.handler)
+        self.old_handler: signal._HANDLER = signal.signal(signal.SIGINT, self.handler)
 
-    def handler(self, sig, frame):
+    def handler(self, sig, frame) -> None:
         self.signal_received = (sig, frame)
         logging.warn(f"SIGINT received. Finishing rendering {self.index}...")
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, type, value, traceback) -> None:
         signal.signal(signal.SIGINT, self.old_handler)
         if self.signal_received:
             self.old_handler(*self.signal_received)
@@ -37,6 +37,7 @@ class Writer:
         self._scene = scene
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._scene.set_output_path(self._output_dir)
+
 
     def generate_data(self, dataset_index: int):
         """dont allow CTRl+C during data generation"""
@@ -92,7 +93,7 @@ class Writer:
                     "class": obj.get_class(),
                     "object id": obj.object_id,
                     "pos": list(obj.location),
-                    "rotation": list(obj.rotation.as_quat()),
+                    "rotation": list(obj.rotation.as_quat(canonical=False)),
                     "bbox_visib": bbox_visib,
                     "bbox_obj": bbox_obj,
                     "px_count_visib": px_count_visib,

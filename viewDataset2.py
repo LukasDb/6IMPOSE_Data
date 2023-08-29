@@ -34,6 +34,7 @@ def main():
         "wrench_13": (150, 150, 150),
         "pliers": (240, 255, 31),
         "lm_cam": (133, 133, 133),
+        "lm_holepuncher": (242, 40, 13),
     }  # BGR
 
     if False:  # mp4:
@@ -127,8 +128,12 @@ def main():
         # )
 
     # create preview, with rgb and mask
-    row1 = np.hstack((bgr, colored_mask_bgr))
-    row2 = np.hstack((colored_semantic_mask_bgr, colored_depth))
+    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    colored_mask_rgb = cv2.cvtColor(colored_mask_bgr, cv2.COLOR_BGR2RGB)
+    colored_semantic_mask_rgb = cv2.cvtColor(colored_semantic_mask_bgr, cv2.COLOR_BGR2RGB)
+
+    row1 = np.hstack((rgb, colored_mask_rgb))
+    row2 = np.hstack((colored_semantic_mask_rgb, colored_depth))
     preview = np.vstack((row1, row2))
 
     print("\r" + f"Image: {idx:05}/{len(idxs):05}", end="")
