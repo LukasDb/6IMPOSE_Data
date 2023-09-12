@@ -28,9 +28,9 @@ class CameraFrustumRandomizer(simpose.Callback):
 
     def callback(self):
         aspect_ratio = self._scene.resolution[0] / self._scene.resolution[1]
-
-        hfov = self._cam._bl_object.data.angle_x / 2.0
-        vfov = self._cam._bl_object.data.angle_x / 2.0 / aspect_ratio
+        cam_data = self._cam.data
+        hfov = cam_data.angle_x / 2.0
+        vfov = cam_data.angle_x / 2.0 / aspect_ratio
         # min_fov = min(hfov, vfov)
 
         r_range = self._r_range
@@ -53,7 +53,7 @@ class CameraFrustumRandomizer(simpose.Callback):
             pos = np.array([x, y, z]) @ cam_rot.as_matrix() + np.array(cam_origin)
             subject.set_location(pos)
 
-            logging.debug(f"randomize_in_camera_frustum: {subject} randomzied to {pos}")
+            logging.debug(f"randomize_in_camera_frustum: {subject} randomized to {pos}")
 
     def _randomize_orientation(self):
         for subject in self._subjects:

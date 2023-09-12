@@ -39,10 +39,14 @@ class ShapenetLoader(simpose.Callback):
             obj.remove()
         self._shapenet_objects.clear()
 
-        obj_types = np.random.choice(self._shapenet_types, replace=True, size=self._num_objects)
+        obj_types_indices = np.random.choice(
+            np.arange(len(self._shapenet_types)), replace=True, size=self._num_objects
+        )
 
-        for obj_type in obj_types:
+        for obj_type_index in obj_types_indices:
+            obj_type = self._shapenet_types[obj_type_index]
             objs = list(obj_type.iterdir())
+
             obj_path = np.random.choice(list(objs), replace=False)
             obj = self._scene.create_object(
                 obj_path / "models/model_normalized.obj",

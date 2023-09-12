@@ -31,7 +31,7 @@ rand_scene = sp.random.BackgroundRandomizer(
 
 
 obj_path = Path("meshes/cpsduck/cpsduck.obj")
-duck = scene.create_from_obj(obj_path, add_physics=True, mass=0.2)
+duck = scene.create_object(obj_path, mass=0.2, add_semantics=True)
 duck.set_metallic_value(0.0)
 duck.set_roughness_value(0.5)
 
@@ -39,7 +39,7 @@ duck.set_roughness_value(0.5)
 ducks = [duck]
 
 for i in range(20):
-    ducks.append(scene.create_copy(duck, linked=True))
+    ducks.append(scene.create_copy(duck))
 
 for i, duck in enumerate(ducks):
     duck.set_location(

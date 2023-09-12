@@ -75,7 +75,7 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
 
     writer = sp.Writer(scene, output_path)
 
-    shapenet_root = Path("/media/lukas/G-RAID/datasets/shapenet/ShapeNetCore")
+    shapenet_root = Path.home().joinpath("data/shapenet/ShapeNetCore")
     shapenet = sp.random.ShapenetLoader(
         scene, sp.CallbackType.NONE, shapenet_root=shapenet_root, num_objects=20
     )
@@ -94,7 +94,7 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     rand_bg = sp.random.BackgroundRandomizer(
         scene,
         sp.CallbackType.BEFORE_RENDER,
-        backgrounds_dir=Path("/media/lukas/G-RAID/datasets/backgrounds"),
+        backgrounds_dir=Path.home().joinpath("data/backgrounds"),
     )
 
     friction = 0.8

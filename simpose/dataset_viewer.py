@@ -11,17 +11,17 @@ import minexr
 import click
 
 
-@st.cache_data(show_spinner="Globbing...")
+@st.cache_data(show_spinner="Reading files...")
 def get_idx(img_dir):
-    idxs = list(
+    indices = list(
         set(
             int(x.stem.split("_")[1])
             for x in Path(img_dir + "/rgb").glob("*.png")  # will be problematic with stereo
         )
     )
-    assert len(idxs) > 0, "No images found! Is it the correct directory?"
-    idxs.sort()
-    return idxs
+    assert len(indices) > 0, "No images found! Is it the correct directory?"
+    indices.sort()
+    return indices
 
 
 @click.command()
@@ -29,8 +29,8 @@ def get_idx(img_dir):
 def main(data_dir: Path):
     img_dir = st.text_input("Image directory", str(data_dir))
 
-    idxs = get_idx(img_dir)
-    idx = st.select_slider("Image", idxs, value=idxs[0], key="idx")
+    indices = get_idx(img_dir)
+    idx = st.select_slider("Image", indices, value=indices[0], key="idx")
 
     cls_colors = {
         "cpsduck": (0, 250, 250),
@@ -42,21 +42,6 @@ def main(data_dir: Path):
         "lm_cam": (133, 133, 133),
         "lm_holepuncher": (242, 40, 13),
     }  # BGR
-
-    if False:  # mp4:
-        images = list(Path(img_dir + "/rgb").glob("*.png"))
-        images.sort()
-
-        frame = cv2.imread(str(images[0]))
-        height, width, layers = frame.shape
-
-        FPS = 24
-        video = cv2.VideoWriter(
-            "out.mp4",
-            cv2.VideoWriter_fourcc("m", "p", "4", "v"),
-            FPS,
-            (width * 2, height * 2),
-        )
 
     with open(os.path.join(img_dir, "gt", f"gt_{idx:05}.json")) as F:
         shot = json.load(F)
@@ -78,17 +63,19 @@ def main(data_dir: Path):
     mask = reader.select(["visib.R"]).astype(np.uint8)
 
     colored_mask_bgr = cv2.applyColorMap(
-        cv2.convertScaleAbs(mask, alpha=255 / np.max(mask)),
+        cv2.convertScaleAbs(mask, alpha=255.0 / np.max(mask)),  # type: ignore
         cv2.COLORMAP_TURBO,
     )
 
-    depth = cv2.imread(
-        os.path.join(img_dir, "depth", f"depth_{idx:04}.exr"),
-        cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-    )
+    depth = np.array(
+        cv2.imread(
+            os.path.join(img_dir, "depth", f"depth_{idx:04}.exr"),
+            cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
+        )
+    ).astype(np.float32)
     depth[depth > 50.0] = 0.0
     colored_depth = cv2.applyColorMap(
-        cv2.convertScaleAbs(depth, alpha=255 / np.max(depth)), cv2.COLORMAP_JET
+        cv2.convertScaleAbs(depth, alpha=255 / np.max(depth)), cv2.COLORMAP_JET  # type: ignore
     )
 
     colored_semantic_mask_bgr = np.zeros((*mask.shape[:2], 3)).astype(np.uint8)
@@ -142,10 +129,10 @@ def main(data_dir: Path):
     row2 = np.hstack((colored_semantic_mask_rgb, colored_depth))
     preview = np.vstack((row1, row2))
 
-    print("\r" + f"Image: {idx:05}/{len(idxs):05}", end="")
+    print("\r" + f"Image: {idx:05}/{len(indices):05}", end="")
 
     c1, c2 = st.columns(2)
-    st.image(preview, caption=f"Image: {idx:05}/{len(idxs):05}", width=1000)
+    st.image(preview, caption=f"Image: {idx:05}/{len(indices):05}", width=1000)
 
 
 if __name__ == "__main__":

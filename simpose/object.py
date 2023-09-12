@@ -25,11 +25,11 @@ class Object(Placeable):
 
     @property
     def materials(self) -> List[Material]:
-        return list(self._bl_object.data.materials)
+        return list(self._bl_object.data.materials)  # type: ignore
 
     @property
     def shader_nodes(self) -> List[ShaderNodeBsdfPrincipled]:
-        return [m.node_tree.nodes["Principled BSDF"] for m in self.materials]
+        return [m.node_tree.nodes["Principled BSDF"] for m in self.materials]  # type: ignore
 
     @property
     def is_hidden(self) -> bool:
@@ -52,7 +52,7 @@ class Object(Placeable):
         with redirect_stdout():
             bpy.ops.object.duplicate(linked=False)
         bl_object = bpy.context.selected_objects[0]
-        bl_object.active_material = self._bl_object.active_material.copy()
+        bl_object.active_material = self._bl_object.active_material.copy()  # type: ignore
 
         new_obj = Object(bl_object)
 
@@ -78,7 +78,7 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
-        obj = Object._initialize_object(
+        obj = Object._initialize_bl_object(
             bl_object=bl_object,
             scale=scale,
             mass=mass,
@@ -99,7 +99,7 @@ class Object(Placeable):
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
-            bpy.ops.import_mesh.ply(filepath=str(filepath.resolve()))
+            bpy.ops.import_mesh.ply(filepath=str(filepath.resolve()))  # type: ignore
         try:
             bl_object: bpy.types.Object = bpy.context.selected_objects[0]
         except IndexError:
@@ -123,19 +123,19 @@ class Object(Placeable):
         # create color attribute node and connect to base color of principled bsdf
         color_node: bpy.types.ShaderNodeAttribute = material.node_tree.nodes.new(
             "ShaderNodeAttribute"
-        )
+        )  # type: ignore
         color_node.attribute_name = "Col"
         material.node_tree.links.new(
             color_node.outputs["Color"],
             material.node_tree.nodes["Principled BSDF"].inputs["Base Color"],
         )
         # add to object
-        bl_object.data.materials.append(material)
+        bl_object.data.materials.append(material)  # type: ignore
 
         # shade smooth
         bpy.ops.object.shade_smooth()
 
-        obj = Object._initialize_object(
+        obj = Object._initialize_bl_object(
             bl_object=bl_object,
             scale=scale,
             mass=mass,
@@ -156,7 +156,7 @@ class Object(Placeable):
             try:
                 self.set_location((0, 0, 0))
                 self.set_rotation(R.from_euler("x", 0, degrees=True))
-                bpy.ops.export_mesh.ply(
+                bpy.ops.export_mesh.ply(  # type: ignore
                     filepath=str(output_dir / f"{self.get_class()}.ply"),
                     use_selection=True,
                     use_normals=True,
@@ -193,17 +193,17 @@ class Object(Placeable):
 
     def set_metallic_value(self, value):
         for shader_node in self.shader_nodes:
-            shader_node.inputs["Metallic"].default_value = value
+            shader_node.inputs["Metallic"].default_value = value  # type: ignore
 
     def set_roughness_value(self, value):
         for shader_node in self.shader_nodes:
-            shader_node.inputs["Roughness"].default_value = value
+            shader_node.inputs["Roughness"].default_value = value  # type: ignore
 
     def get_name(self) -> str:
         return self._bl_object.name
 
     def get_class(self) -> str:
-        result = re.match("([\w]+)(.[0-9])*", self.get_name())
+        result = re.match(r"([\w]+)(.[0-9])*", self.get_name())
         assert result is not None, "Could not extract class name from object name"
         return result.group(1)
 
@@ -215,7 +215,7 @@ class Object(Placeable):
             # update physics representation
             pb_id = self._bl_object["pb_id"]
             q = self._bl_object.rotation_quaternion
-            p.resetBasePositionAndOrientation(pb_id, location, [q.x, q.y, q.z, q.w])
+            p.resetBasePositionAndOrientation(pb_id, location, [q.x, q.y, q.z, q.w])  # type: ignore
         except KeyError:
             pass
         return super().set_location(location)
@@ -224,7 +224,7 @@ class Object(Placeable):
         try:
             # update physics representation
             pb_id = self._bl_object["pb_id"]
-            p.resetBasePositionAndOrientation(pb_id, self._bl_object.location, rotation.as_quat())
+            p.resetBasePositionAndOrientation(pb_id, self._bl_object.location, rotation.as_quat())  # type: ignore
         except KeyError:
             pass
         return super().set_rotation(rotation)
@@ -236,7 +236,8 @@ class Object(Placeable):
             pass
 
         materials = self.materials
-        mesh = self._bl_object.data  # keep reference to mesh before removing object
+        # keep reference to mesh before removing object
+        mesh: bpy.types.Mesh = self._bl_object.data  # type: ignore
         bpy.data.objects.remove(self._bl_object)
         if mesh.users == 0:
             # first, remove mesh data
@@ -261,7 +262,9 @@ class Object(Placeable):
             basePosition=[0.0, 0.0, 0.0],
         )
         p.changeDynamics(pb_id, -1, lateralFriction=friction)
-        p.resetBasePositionAndOrientation(pb_id, self._bl_object.location, self.rotation.as_quat())
+        p.resetBasePositionAndOrientation(
+            pb_id, self._bl_object.location, self.rotation.as_quat(canonical=True)
+        )
         self._bl_object["pb_id"] = pb_id
         return pb_id
 
@@ -273,7 +276,7 @@ class Object(Placeable):
         self._bl_object.pass_index = id
 
     @staticmethod
-    def _initialize_object(
+    def _initialize_bl_object(
         bl_object: bpy.types.Object,
         obj_path: Path,
         add_semantics: bool,
@@ -283,13 +286,14 @@ class Object(Placeable):
     ) -> "Object":
         # scale object
         bl_object.scale = (scale, scale, scale)
-
-        for material in bl_object.data.materials:
+        materials: list[bpy.types.Material] = bl_object.data.materials  # type: ignore
+        for material in materials:
             tree: bpy.types.NodeTree = material.node_tree
             material.blend_method = "BLEND"
 
             # set current material output to cycles only
-            tree.nodes["Material Output"].target = "CYCLES"
+            mat_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes["Material Output"]  # type: ignore
+            mat_output.target = "CYCLES"
 
             #          | vl > 0 | vl == 0
             # vl == oi |    1   |   0 or oi
@@ -301,7 +305,7 @@ class Object(Placeable):
             #  if vl != oi: trans
 
             # add eevee output with above truth table (vl == view_layer["Object Index"]; oi == object_index)
-            vl: bpy.types.ShaderNodeAttribute = tree.nodes.new("ShaderNodeAttribute")
+            vl: bpy.types.ShaderNodeAttribute = tree.nodes.new("ShaderNodeAttribute")  # type: ignore
             vl.attribute_type = "VIEW_LAYER"
             vl.attribute_name = "object_index"
             vl.location = (300, 100)
@@ -309,20 +313,20 @@ class Object(Placeable):
             oi = tree.nodes.new("ShaderNodeObjectInfo")
             oi.location = (300, -200)
 
-            vl_is_0: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")
+            vl_is_0: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")  # type: ignore
             vl_is_0.operation = "COMPARE"
-            vl_is_0.inputs[2].default_value = 0.1  # epsilon
-            vl_is_0.inputs[1].default_value = 0
+            vl_is_0.inputs[2].default_value = 0.1  # type: ignore
+            vl_is_0.inputs[1].default_value = 0  # type: ignore
             vl_is_0.location = (600, 100)
 
-            vl_is_oi: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")
+            vl_is_oi: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")  # type: ignore
             vl_is_oi.operation = "COMPARE"
-            vl_is_oi.inputs[2].default_value = 0.1  # epsilon
+            vl_is_oi.inputs[2].default_value = 0.1  # type: ignore
             vl_is_oi.location = (600, -200)
 
             id_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes.new(
                 "ShaderNodeOutputMaterial"
-            )
+            )  # type: ignore
             id_output.target = "EEVEE"
             id_output.location = (1100, 0)
 
@@ -359,7 +363,7 @@ class Object(Placeable):
             # use vhacd to create collision shape
             out_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
             if not out_path.exists():
-                # hierachical decomposition for dynamic collision of concave objects
+                # hierarchical decomposition for dynamic collision of concave objects
                 # logging.info(f"running vhacd for {obj_path}...")
                 with redirect_stdout():
                     p.vhacd(

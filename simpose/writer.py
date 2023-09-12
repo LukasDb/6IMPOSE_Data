@@ -27,7 +27,7 @@ class DelayedKeyboardInterrupt:
     def __exit__(self, type, value, traceback) -> None:
         signal.signal(signal.SIGINT, self.old_handler)
         if self.signal_received:
-            self.old_handler(*self.signal_received)
+            self.old_handler(*self.signal_received)  # type: ignore
 
 
 class Writer:
@@ -64,10 +64,12 @@ class Writer:
         # print(reader.channel_names)
         mask = reader.select(["visib.R"])[..., 0]
 
-        depth = cv2.imread(
-            str(Path(self._output_dir, "depth", f"depth_{dataset_index:04}.exr")),
-            cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-        )[..., 0]
+        depth = np.array(
+            cv2.imread(
+                str(Path(self._output_dir, "depth", f"depth_{dataset_index:04}.exr")),
+                cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
+            )
+        )[..., 0].astype(np.float32)
         depth[depth > 100.0] = 0.0
 
         obj_list = []
@@ -108,7 +110,7 @@ class Writer:
         cam_matrix = cam.get_calibration_matrix_K_from_blender()
 
         meta_dict = {
-            "cam_rotation": list(cam_rot.as_quat()),
+            "cam_rotation": list(cam_rot.as_quat(canonical=True)),
             "cam_location": list(cam_pos),
             "cam_matrix": np.array(cam_matrix).tolist(),
             "objs": list(obj_list),

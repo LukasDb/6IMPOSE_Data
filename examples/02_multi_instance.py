@@ -2,7 +2,7 @@ import simpose as sp
 from pathlib import Path
 import logging
 import numpy as np
-from tqdm import tqdm, trange
+import tqdm
 
 logging.basicConfig(level=logging.WARN)
 
@@ -22,30 +22,34 @@ rand_lights = sp.random.LightRandomizer(
     distance_range=(3.0, 10.0),
 )
 
-rand_scene = sp.random.BackgroundRandomizer(scene, sp.CallbackType.BEFORE_RENDER, backgrounds_dir=Path("backgrounds"))
+rand_scene = sp.random.BackgroundRandomizer(
+    scene, sp.CallbackType.BEFORE_RENDER, backgrounds_dir=Path("backgrounds")
+)
 
-rand_obj = sp.random.CameraFrustumRandomizer(scene, cam, sp.CallbackType.BEFORE_RENDER, r_range=(0.3, 1.0))
+rand_obj = sp.random.CameraFrustumRandomizer(
+    scene, cam, sp.CallbackType.BEFORE_RENDER, r_range=(0.3, 1.0)
+)
 
 
 obj_path = Path("meshes/cpsduck/cpsduck.obj")
-duck = scene.create_from_obj(obj_path)
+duck = scene.create_object(obj_path, add_semantics=True)
 duck.set_metallic_value(0.0)
 duck.set_roughness_value(0.5)
 rand_obj.add(duck)
 
 obj_path = Path("meshes/wrench_13/wrench_13.obj")
-wrench = scene.create_from_obj(obj_path)
+wrench = scene.create_object(obj_path, add_semantics=True)
 wrench.set_metallic_value(1.0)
 wrench.set_roughness_value(0.1)
 rand_obj.add(wrench)
 
 for i in range(50):
-    duck_copy = scene.create_copy(duck, linked=True)
+    duck_copy = scene.create_copy(duck)
     rand_obj.add(duck_copy)
 
 scene.export_blend(str(Path("scene.blend").resolve()))
 
-for i in trange(10):
+for i in tqdm.trange(10):
     writer.generate_data(i)  # Save the rendered image to the specified file path
 
 print(cam.get_calibration_matrix_K_from_blender())

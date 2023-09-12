@@ -14,13 +14,14 @@ class Placeable:
 
     @property
     def location(self) -> Tuple:
-        return self._bl_object.location.to_tuple()
+        loc: mathutils.Vector = self._bl_object.location  # type: ignore
+        return loc.to_tuple()
 
     @property
     def rotation(self) -> R:
         self._bl_object.rotation_mode = "QUATERNION"
         q = self._bl_object.rotation_quaternion
-        orn = R.from_quat([q.x, q.y, q.z, q.w])
+        orn = R.from_quat([q.x, q.y, q.z, q.w])  # type: ignore
         return orn
 
     def set_location(self, location: Tuple | np.ndarray):
@@ -29,7 +30,7 @@ class Placeable:
         self._bl_object.location = mathutils.Vector(location)
 
     def set_rotation(self, rotation: R):
-        r = rotation.as_quat()
+        r = rotation.as_quat(canonical=False)
         self._bl_object.rotation_mode = "QUATERNION"
         # blender: scalar first, scipy: scalar last
         blender_quat = [r[3], r[0], r[1], r[2]]
@@ -46,7 +47,7 @@ class Placeable:
         if isinstance(offset, np.ndarray):
             offset = tuple(offset)
         self._bl_object.rotation_mode = "QUATERNION"
-        self._bl_object.location += self._bl_object.rotation_quaternion @ mathutils.Vector(offset)
+        self._bl_object.location += self._bl_object.rotation_quaternion @ mathutils.Vector(offset)  # type: ignore
 
     def apply_global_rotation_offset(self, rotation: R):
         """Apply offset to rotation."""

@@ -32,7 +32,7 @@ class Scene(Callbacks):
         bpy.ops.object.delete(use_global=False)
 
         # bpy.context.window.scene= self._bl_scene
-        self._randomizers: List[Callback] = []
+        self._randomize: List[Callback] = []
 
         # create a lights collection
         scene.collection.children.link(bpy.data.collections.new("Lights"))
@@ -205,7 +205,7 @@ class Scene(Callbacks):
 
         # add file output to compositor
         tree = self._bl_scene.node_tree
-        layer_node: bpy.types.CompositorNodeRLayers = tree.nodes.new("CompositorNodeRLayers")
+        layer_node: bpy.types.CompositorNodeRLayers = tree.nodes.new("CompositorNodeRLayers")  # type: ignore
         layer_node.layer = layer_name
         layer_node.location = (0, -500 - id * 100)
 
@@ -220,12 +220,12 @@ class Scene(Callbacks):
     def _setup_rendering_device(self):
         self._bl_scene.cycles.device = "GPU"
         pref = bpy.context.preferences.addons["cycles"].preferences
-        pref.get_devices()
+        pref.get_devices()  # type: ignore
 
-        for dev in pref.devices:
+        for dev in pref.devices:  # type: ignore
             dev.use = False
 
-        device_types = list({x.type for x in pref.devices})
+        device_types = list({x.type for x in pref.devices})  # type: ignore
         priority_list = ["OPTIX", "HIP", "METAL", "ONEAPI", "CUDA"]
 
         chosen_type = "NONE"
@@ -237,10 +237,10 @@ class Scene(Callbacks):
 
         logging.info("Rendering device: " + chosen_type)
         # Set GPU rendering mode to detected one
-        pref.compute_device_type = chosen_type
+        pref.compute_device_type = chosen_type  # type: ignore
 
         chosen_type_device = "CPU" if chosen_type == "NONE" else chosen_type
-        available_devices = [x for x in pref.devices if x.type == chosen_type_device]
+        available_devices = [x for x in pref.devices if x.type == chosen_type_device]  # type: ignore
 
         selected_devices = [0]  # TODO parametrize this
         for i, dev in enumerate(available_devices):
@@ -306,14 +306,14 @@ class Scene(Callbacks):
         # create a alpha node to overlay the rendered image over the background image
         self.alpha_over: bpy.types.CompositorNodeAlphaOver = tree.nodes.new(
             "CompositorNodeAlphaOver"
-        )
+        )  # type: ignore
         self.alpha_over.location = (600, 300)
 
-        self.bg_image_node: bpy.types.CompositorNodeImage = tree.nodes.new("CompositorNodeImage")
+        self.bg_image_node: bpy.types.CompositorNodeImage = tree.nodes.new("CompositorNodeImage")  # type: ignore
         self.bg_image_node.location = (0, 300)
 
         # add scale node
-        scale_node: bpy.types.CompositorNodeScale = tree.nodes.new("CompositorNodeScale")
+        scale_node: bpy.types.CompositorNodeScale = tree.nodes.new("CompositorNodeScale")  # type: ignore
         scale_node.space = "RENDER_SIZE"
         scale_node.location = (300, 300)
 
@@ -329,8 +329,8 @@ class Scene(Callbacks):
         # RGB image output
         self.output_node: bpy.types.CompositorNodeOutputFile = tree.nodes.new(
             "CompositorNodeOutputFile"
-        )
-        output: bpy.types.CompositorNodeOutputFile = self.output_node
+        )  # type: ignore
+        output: bpy.types.CompositorNodeOutputFile = self.output_node  # type: ignore
         output.base_path = str((self.output_dir).resolve())
         output.inputs.remove(output.inputs[0])
         output.location = (900, 0)
@@ -345,6 +345,7 @@ class Scene(Callbacks):
 
         # Depth output
         output.file_slots.new("depth")
+        t: bpy.types.NodeOutputFileSlotFile = output.file_slots[1]
         output.file_slots[1].path = "depth/depth_"
         output.file_slots[1].use_node_format = False
         output.file_slots[1].format.color_mode = "RGB"
@@ -356,8 +357,8 @@ class Scene(Callbacks):
         # mask output
         self.mask_output: bpy.types.CompositorNodeOutputFile = tree.nodes.new(
             "CompositorNodeOutputFile"
-        )
-        mask_output: bpy.types.CompositorNodeOutputFile = self.mask_output
+        )  # type: ignore
+        mask_output: bpy.types.CompositorNodeOutputFile = self.mask_output  # type: ignore
         mask_output.location = (400, -500)
         mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
         mask_output.inputs.remove(mask_output.inputs[0])
