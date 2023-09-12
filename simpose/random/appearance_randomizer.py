@@ -10,22 +10,22 @@ class AppearanceRandomizer(simpose.Callback):
         scene: simpose.Scene,
         cb_type: simpose.CallbackType,
         *,
-        metallic_scale: float = 0.3,
-        roughness_scale: float = 0.3,
-        hue_scale: float = 0.04,
-        saturation_scale: float = 0.24,
-        value_scale: float = 0.24,
+        metallic_range: float = 0.3,  # standard deviation 68% <, 95% <<, 99.7% <<<
+        roughness_range: float = 0.3,
+        hue_range: float = 0.04,
+        saturation_range: float = 0.24,
+        value_range: float = 0.24,
     ):
         super().__init__(scene, cb_type)
         self._scene = scene
         self._subjects: set[simpose.Object] = set()
         app = simpose.Object.ObjectAppearance
-        self._scales = {
-            app.METALLIC: metallic_scale,
-            app.ROUGHNESS: roughness_scale,
-            app.HUE: hue_scale,
-            app.SATURATION: saturation_scale,
-            app.VALUE: value_scale,
+        self._ranges = {
+            app.METALLIC: metallic_range,
+            app.ROUGHNESS: roughness_range,
+            app.HUE: hue_range,
+            app.SATURATION: saturation_range,
+            app.VALUE: value_range,
         }
 
     def add(self, object: simpose.Object):
@@ -34,8 +34,9 @@ class AppearanceRandomizer(simpose.Callback):
     def callback(self):
         for obj in self._subjects:
             for appearance in simpose.Object.ObjectAppearance:
-                random_value = np.random.normal(
-                    obj.get_appearance(appearance), self._scales[appearance]
-                )
+                default = obj.get_default_appearance(appearance)
+                r = self._ranges[appearance]
+                random_value = np.random.uniform(default - r, default + r)
+
                 logging.debug(f"{obj}.{appearance}: %f", random_value)
                 obj.set_appearance(appearance, random_value, set_default=False)

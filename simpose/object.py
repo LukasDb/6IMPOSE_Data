@@ -213,6 +213,7 @@ class Object(Placeable):
             _ObjectAppearance.ROUGHNESS.value,
         ]:
             return self.shader_nodes[0].inputs[appearance.value].default_value  # type: ignore
+
         elif appearance.value in [
             _ObjectAppearance.HUE.value,
             _ObjectAppearance.SATURATION.value,
@@ -221,6 +222,9 @@ class Object(Placeable):
             return self.hsv_nodes[0].inputs[appearance.value].default_value  # type: ignore
         else:
             raise ValueError(f"Unknown appearance: {appearance}")
+
+    def get_default_appearance(self, appearance: ObjectAppearance) -> float:
+        return self._bl_object[f"default_{appearance.value}"]
 
     def set_appearance(self, appearance: ObjectAppearance, value, set_default=True):
         if set_default:
@@ -482,5 +486,9 @@ class Object(Placeable):
         obj.set_rotation(R.from_euler("x", 0, degrees=True))
 
         # set defaults
-        obj.set_appearance(_ObjectAppearance.METALLIC, 0.0, set_default=True)
+        obj.set_metallic(0.0, set_default=True)
+        obj.set_roughness(0.5, set_default=True)
+        obj.set_hue(0.5, set_default=True)
+        obj.set_saturation(1.0, set_default=True)
+        obj.set_value(1.0, set_default=True)
         return obj
