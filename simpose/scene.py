@@ -39,8 +39,6 @@ class Scene(Callbacks):
         scene.collection.children.link(bpy.data.collections.new("Cameras"))
         scene.collection.children.link(bpy.data.collections.new("Objects"))
 
-        scene.render.use_multiview = use_stereo
-
         # setup settings
         scene.render.resolution_x = img_w
         scene.render.resolution_y = img_h
@@ -99,6 +97,21 @@ class Scene(Callbacks):
         self._bl_scene.render.engine = "CYCLES"
         self.output_node.mute = False
         self.mask_output.mute = True
+
+        camera = self.get_cameras()[0]
+
+        if camera.is_stereo_camera():
+            self._bl_scene.camera = camera.right_camera
+            with redirect_stdout():
+                bpy.ops.render.render(write_still=False)
+            # rename rendered depth and rgb with suffix _R
+            rgb_path = self.output_dir / "rgb" / f"rgb_{self._bl_scene.frame_current:04}.png"
+            rgb_path.rename(rgb_path.parent / f"rgb_{self._bl_scene.frame_current:04}_R.png")
+            depth_path = self.output_dir / "depth" / f"depth_{self._bl_scene.frame_current:04}.exr"
+            depth_path.rename(depth_path.parent / f"depth_{self._bl_scene.frame_current:04}_R.exr")
+
+        # for left image and the labels
+        self._bl_scene.camera = camera.left_camera
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)
 
@@ -131,7 +144,13 @@ class Scene(Callbacks):
         return [Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects]
 
     def create_camera(self, cam_name: str) -> Camera:
-        cam = Camera.create(cam_name)
+        cam = Camera.create(cam_name, baseline=None)
+        # add camera to "Cameras" collection
+        bpy.data.collections["Cameras"].objects.link(cam._bl_object)
+        return cam
+
+    def create_stereo_camera(self, cam_name: str, baseline: float) -> Camera:
+        cam = Camera.create(cam_name, baseline=baseline)
         # add camera to "Cameras" collection
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam

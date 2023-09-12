@@ -62,11 +62,13 @@ def main(data_dir: Path):
 
     objs = shot["objs"]
     bgr = cv2.imread(os.path.join(img_dir, "rgb", f"rgb_{idx:04}.png"), cv2.IMREAD_ANYCOLOR)
+    try:
+        bgr_R = cv2.imread(
+            os.path.join(img_dir, "rgb", f"rgb_{idx:04}_R.png"), cv2.IMREAD_ANYCOLOR
+        )
+    except Exception:
+        bgr_R = None
 
-    # mask = cv2.imread(
-    #     os.path.join(img_dir, "mask", f"mask_{idx:04}.exr"),
-    #     cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-    # )
     with Path(img_dir).joinpath(f"mask/mask_{idx:04}.exr").open("rb") as F:
         reader = minexr.load(F)
 
@@ -89,10 +91,6 @@ def main(data_dir: Path):
     )
 
     colored_semantic_mask_bgr = np.zeros((*mask.shape[:2], 3)).astype(np.uint8)
-
-    if bgr is None:
-        st.error(f"Could not load image for {id:04}")
-        return
 
     assert bgr is not None, f"Could not load image for {id:04}"
 
@@ -120,29 +118,28 @@ def main(data_dir: Path):
         t = cam_rot.T @ (obj_pos - cam_pos)
         RotM = cam_rot.T @ obj_rot
 
-        # rotV, _ = cv2.Rodrigues(RotM)
-        # cv2.drawFrameAxes(
-        #     bgr,
-        #     cameraMatrix=cam_matrix,
-        #     rvec=rotV,
-        #     tvec=t,
-        #     distCoeffs=0,
-        #     length=0.1,
-        # )
+        rotV, _ = cv2.Rodrigues(RotM)
+        cv2.drawFrameAxes(
+            bgr, cameraMatrix=cam_matrix, rvec=rotV, tvec=t, distCoeffs=0, length=0.05, thickness=1
+        )
 
     # create preview, with rgb and mask
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    rgb_R = cv2.cvtColor(bgr_R, cv2.COLOR_BGR2RGB) if bgr_R is not None else None
     colored_mask_rgb = cv2.cvtColor(colored_mask_bgr, cv2.COLOR_BGR2RGB)
     colored_semantic_mask_rgb = cv2.cvtColor(colored_semantic_mask_bgr, cv2.COLOR_BGR2RGB)
 
-    row1 = np.hstack((rgb, colored_mask_rgb))
-    row2 = np.hstack((colored_semantic_mask_rgb, colored_depth))
-    preview = np.vstack((row1, row2))
-
-    print("\r" + f"Image: {idx:05}/{len(indices):05}", end="")
-
+    st.title(f"Datapoint: {idx:05}/{len(indices):05}")
     c1, c2 = st.columns(2)
-    st.image(preview, caption=f"Image: {idx:05}/{len(indices):05}", width=1000)
+    with c1:
+        st.image(rgb, caption="RGB")
+        if rgb_R is not None:
+            st.image(rgb_R, caption=f"RGB_R")
+        st.image(colored_depth, caption=f"Depth")
+
+    with c2:
+        st.image(colored_mask_rgb, caption=f"Instance Mask")
+        st.image(colored_semantic_mask_rgb, caption=f"Semantic Mask")
 
 
 if __name__ == "__main__":

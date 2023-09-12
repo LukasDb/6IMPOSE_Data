@@ -10,38 +10,82 @@ class Camera(Placeable):
     It is not meant to be instantiated directly. Use the factory methods of
         simpose.Scene instead
     It has no internal state, everything is delegated to the blender object.
+
+    In this case, a camera is an 'Empty' Blender Object with one (or two) cameras attached to it.
     """
 
     def __init__(self, bl_cam):
         super().__init__(bl_object=bl_cam)
-        bpy.context.scene.camera = bl_cam
 
     @staticmethod
-    def create(name: str):
+    def create(name: str, baseline: float | None = None):
+        # create empty blender
+        bpy.ops.object.empty_add(type="PLAIN_AXES")
+        frame = bpy.context.selected_objects[0]
+        frame.name = name
+
+        # create camera
         bpy.ops.object.camera_add()
         bl_cam = bpy.context.selected_objects[0]
-        bl_cam.name = name
-        return Camera(bl_cam)
+        bl_cam.name = name + "_L"
+        # rotate by 180 degrees around x to follow OpenCV convention
+        # blender: scalar first, scipy: scalar last
+        r = R.from_euler("x", -180, degrees=True).as_quat(canonical=False)
+        blender_quat = [r[3], r[0], r[1], r[2]]
+        bl_cam.rotation_mode = "QUATERNION"
+        bl_cam.rotation_quaternion = blender_quat
+        bl_cam.location = mathutils.Vector([0, 0, 0])
+        bl_cam.parent = frame
+
+        # set scene's active camera to the left one
+        bpy.context.scene.camera = bl_cam
+
+        if baseline is not None:
+            # create right camera
+            bpy.ops.object.camera_add()
+            bl_cam_right = bpy.context.selected_objects[0]
+            bl_cam_right.name = name + "_R"
+
+            bl_cam_right.location = mathutils.Vector([baseline, 0, 0])
+            bl_cam_right.rotation_mode = "QUATERNION"
+            bl_cam_right.rotation_quaternion = blender_quat
+            bl_cam_right.parent = frame
+
+            frame["sp_baseline"] = baseline
+        return Camera(frame)
 
     @property
     def name(self) -> str:
         return self._bl_object.name
 
     @property
-    def data(self) -> bpy.types.Camera:
-        return self._bl_object.data  # type: ignore
+    def baseline(self) -> float:
+        return self._bl_object["sp_baseline"]
 
     @property
-    def rotation(self) -> R:
-        """returns orientation of camera in OpenCV format"""
-        orn = super().rotation
-        to_cv2 = R.from_euler("x", 180, degrees=True)
-        return orn * to_cv2
+    def left_camera(self) -> bpy.types.Object:
+        child = None
+        for child in self._bl_object.children:
+            if child.name == self.name + "_L":
+                break
+        assert child is not None
+        return child  # type: ignore
 
-    def set_rotation(self, rotation: R):
-        """sets orientation of camera in OpenCV format"""
-        to_blender = R.from_euler("x", -180, degrees=True)
-        super().set_rotation(rotation * to_blender)
+    @property
+    def right_camera(self) -> bpy.types.Object:
+        child = None
+        for child in self._bl_object.children:
+            if child.name == self.name + "_R":
+                break
+        assert child is not None, "Right camera not found. Did you create a stereo camera?"
+        return child
+
+    @property
+    def data(self) -> bpy.types.Camera:
+        return self.left_camera.data  # type: ignore
+
+    def is_stereo_camera(self) -> bool:
+        return self.name + "_R" in [x.name for x in self._bl_object.children]
 
     def __str__(self) -> str:
         return f"Camera(name={self._bl_object.name})"

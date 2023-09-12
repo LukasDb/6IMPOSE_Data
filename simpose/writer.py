@@ -61,7 +61,6 @@ class Writer:
         with Path(self._output_dir / f"mask/mask_{dataset_index:04}.exr").open("rb") as F:
             reader = minexr.load(F)
 
-        # print(reader.channel_names)
         mask = reader.select(["visib.R"])[..., 0]
 
         depth = np.array(

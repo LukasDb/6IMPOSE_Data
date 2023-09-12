@@ -85,7 +85,9 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
         sp.CallbackType.BEFORE_RENDER,
     )
 
-    cam = scene.create_camera("Camera")
+    # cam = scene.create_camera("Camera")
+    cam = scene.create_stereo_camera("Camera", baseline=0.063)
+
     rand_lights = sp.random.LightRandomizer(
         scene,
         cam,
@@ -109,6 +111,9 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
     )
     main_obj.set_metallic(0.0)
     main_obj.set_roughness(0.5)
+    
+    if mp.current_process().name == "Process-1":
+        scene.export_meshes(output_path / "meshes")
 
     main_objs = [main_obj]
 
@@ -127,7 +132,6 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
     i = 0
     if mp.current_process().name == "Process-1":
         bar = tqdm(total=len(indices), desc="Process-1", smoothing=0.0)
-
         # export one scene for debugging (only process-1)
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=friction)
         random.shuffle(drop_objects)
@@ -144,9 +148,6 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
             obj.set_rotation(R.random())
         scene.step_physics(1.0)  # initial fall
         scene.export_blend()
-
-        scene.export_meshes(output_path / "meshes")
-
     else:
         bar = None
 
@@ -190,10 +191,6 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
                     R.from_euler("z", np.random.uniform(-5, 5), degrees=True)
                 )  # minor rotation noise
 
-                for obj in drop_objects:
-                    obj.set_metallic(np.random.uniform(0, 1.0))
-                    obj.set_roughness(np.random.uniform(0, 1.0))
-
                 writer.generate_data(indices[i])
 
                 i += 1
@@ -203,8 +200,6 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
                     return
                 if bar is not None:
                     bar.update(1)
-    bar.close()
-
 
 if __name__ == "__main__":
     main()
