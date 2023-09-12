@@ -6,11 +6,16 @@ install this package with
 `pip install -e .`
 
 ## Usage
+If you want to write your own dataset generation script, a typical script would follow this approach. Take a look at the examples!
 - create a simpose Scene
 - attach a Writer
 - create a simpose Camera
 - add objects, lights, etc...
 - use the writer to generate the Datset
+After you generated your dataset you can inspect the rendered data and labels with the Dataset Viewer:
+```
+simpose view <dataset_directory>
+```
 
 ## Features
 - Abstracted Blender interface

@@ -33,14 +33,12 @@ rand_obj = sp.random.CameraFrustumRandomizer(
 
 obj_path = Path("meshes/cpsduck/cpsduck.obj")
 duck = scene.create_object(obj_path, add_semantics=True)
-duck.set_metallic_value(0.0)
-duck.set_roughness_value(0.5)
 rand_obj.add(duck)
 
 obj_path = Path("meshes/wrench_13/wrench_13.obj")
 wrench = scene.create_object(obj_path, add_semantics=True)
-wrench.set_metallic_value(1.0)
-wrench.set_roughness_value(0.1)
+wrench.set_metallic(1.0)
+wrench.set_roughness(0.1)
 rand_obj.add(wrench)
 
 for i in range(50):

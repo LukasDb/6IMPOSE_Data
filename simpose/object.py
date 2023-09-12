@@ -1,5 +1,5 @@
 import bpy
-from bpy.types import ShaderNodeBsdfPrincipled, Material
+from bpy.types import ShaderNodeBsdfPrincipled, Material, ShaderNodeHueSaturation
 import mathutils
 import math
 from scipy.spatial.transform import Rotation as R
@@ -11,6 +11,15 @@ import re
 from pathlib import Path
 import numpy as np
 import pybullet as p
+from enum import Enum
+
+
+class _ObjectAppearance(Enum):
+    METALLIC = "Metallic"
+    ROUGHNESS = "Roughness"
+    HUE = "Hue"
+    SATURATION = "Saturation"
+    VALUE = "Value"
 
 
 class Object(Placeable):
@@ -19,6 +28,8 @@ class Object(Placeable):
         simpose.Scene instead
     It has no internal state, everything is delegated to the blender object.
     """
+
+    ObjectAppearance = _ObjectAppearance
 
     def __init__(self, bl_object) -> None:
         super().__init__(bl_object)
@@ -30,6 +41,10 @@ class Object(Placeable):
     @property
     def shader_nodes(self) -> List[ShaderNodeBsdfPrincipled]:
         return [m.node_tree.nodes["Principled BSDF"] for m in self.materials]  # type: ignore
+
+    @property
+    def hsv_nodes(self) -> List[ShaderNodeHueSaturation]:
+        return [m.node_tree.nodes["sp_hsv"] for m in self.materials]  # type: ignore
 
     @property
     def is_hidden(self) -> bool:
@@ -118,12 +133,13 @@ class Object(Placeable):
                     export_normals=True,
                 )
         # create new material for object
-        material: bpy.types.Material = bpy.data.materials.new(name="Material")
+        material: bpy.types.Material = bpy.data.materials.new(name="sp_Material")
         material.use_nodes = True
         # create color attribute node and connect to base color of principled bsdf
         color_node: bpy.types.ShaderNodeAttribute = material.node_tree.nodes.new(
             "ShaderNodeAttribute"
         )  # type: ignore
+        color_node.name = "sp_" + color_node.name
         color_node.attribute_name = "Col"
         material.node_tree.links.new(
             color_node.outputs["Color"],
@@ -191,13 +207,54 @@ class Object(Placeable):
             pass
         self._bl_object.hide_render = False
 
-    def set_metallic_value(self, value):
-        for shader_node in self.shader_nodes:
-            shader_node.inputs["Metallic"].default_value = value  # type: ignore
+    def get_appearance(self, appearance: ObjectAppearance) -> float:
+        if appearance.value in [
+            _ObjectAppearance.METALLIC.value,
+            _ObjectAppearance.ROUGHNESS.value,
+        ]:
+            return self.shader_nodes[0].inputs[appearance.value].default_value  # type: ignore
+        elif appearance.value in [
+            _ObjectAppearance.HUE.value,
+            _ObjectAppearance.SATURATION.value,
+            _ObjectAppearance.VALUE.value,
+        ]:
+            return self.hsv_nodes[0].inputs[appearance.value].default_value  # type: ignore
+        else:
+            raise ValueError(f"Unknown appearance: {appearance}")
 
-    def set_roughness_value(self, value):
-        for shader_node in self.shader_nodes:
-            shader_node.inputs["Roughness"].default_value = value  # type: ignore
+    def set_appearance(self, appearance: ObjectAppearance, value, set_default=True):
+        if set_default:
+            self._bl_object[f"default_{appearance.value}"] = value
+
+        if appearance.value in [
+            _ObjectAppearance.METALLIC.value,
+            _ObjectAppearance.ROUGHNESS.value,
+        ]:
+            for shader_node in self.shader_nodes:
+                shader_node.inputs[appearance.value].default_value = value  # type: ignore
+
+        elif appearance.value in [
+            _ObjectAppearance.HUE.value,
+            _ObjectAppearance.SATURATION.value,
+            _ObjectAppearance.VALUE.value,
+        ]:
+            for hsv_node in self.hsv_nodes:
+                hsv_node.inputs[appearance.value].default_value = value  # type: ignore
+
+    def set_metallic(self, value, set_default=True):
+        self.set_appearance(_ObjectAppearance.METALLIC, value, set_default=set_default)
+
+    def set_roughness(self, value, set_default=True):
+        self.set_appearance(_ObjectAppearance.ROUGHNESS, value, set_default=set_default)
+
+    def set_hue(self, value, set_default=True):
+        self.set_appearance(_ObjectAppearance.HUE, value, set_default=set_default)
+
+    def set_saturation(self, value, set_default=True):
+        self.set_appearance(_ObjectAppearance.SATURATION, value, set_default=set_default)
+
+    def set_value(self, value, set_default=True):
+        self.set_appearance(_ObjectAppearance.VALUE, value, set_default=set_default)
 
     def get_name(self) -> str:
         return self._bl_object.name
@@ -294,6 +351,28 @@ class Object(Placeable):
             # set current material output to cycles only
             mat_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes["Material Output"]  # type: ignore
             mat_output.target = "CYCLES"
+
+            # insert hsv node in between current color and bsdf node
+            hsv_node: bpy.types.ShaderNodeHueSaturation = tree.nodes.new("ShaderNodeHueSaturation")  # type: ignore
+            hsv_node.name = "sp_hsv"
+            hsv_node.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)  # type: ignore
+            hsv_node.inputs["Saturation"].default_value = 0.0  # type: ignore
+            hsv_node.inputs["Value"].default_value = 1.0  # type: ignore
+            hsv_node.location = (-300, 0)
+
+            # find node that is connected to base color of bsdf node
+            prev_color_node = None
+            assert tree.nodes["Principled BSDF"].inputs["Base Color"].links is not None
+            for link in tree.nodes["Principled BSDF"].inputs["Base Color"].links:
+                prev_color_node = link.from_node
+                output_socket_name = link.from_socket.name
+                prev_color_node.location = (-600, 0)
+
+            if prev_color_node is not None:
+                tree.links.new(prev_color_node.outputs[output_socket_name], hsv_node.inputs["Color"])  # type: ignore
+                # connect hsv node to bsdf node
+
+                tree.links.new(hsv_node.outputs["Color"], tree.nodes["Principled BSDF"].inputs["Base Color"])  # type: ignore
 
             #          | vl > 0 | vl == 0
             # vl == oi |    1   |   0 or oi
@@ -402,4 +481,6 @@ class Object(Placeable):
         obj.set_location((0.0, 0.0, 0.0))
         obj.set_rotation(R.from_euler("x", 0, degrees=True))
 
+        # set defaults
+        obj.set_appearance(_ObjectAppearance.METALLIC, 0.0, set_default=True)
         return obj

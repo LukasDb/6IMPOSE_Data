@@ -30,21 +30,21 @@ def main(
     if not overwrite:
         existing_files = Path(output_path).joinpath("gt").glob("*.json")
         existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
-        all_inds = np.setdiff1d(np.arange(start, end + 1), existing_ids)
+        all_indices = np.setdiff1d(np.arange(start, end + 1), existing_ids)
     else:
-        all_inds = np.arange(start, end + 1)
+        all_indices = np.arange(start, end + 1)
 
-    if len(all_inds) == 0:
+    if len(all_indices) == 0:
         logging.info("No images to render.")
         return
 
-    n_workers = min(n_workers, len(all_inds))
-    logging.info("Rendering %d images with %d workers.", len(all_inds), n_workers)
-    inds = np.array_split(all_inds, n_workers)
+    n_workers = min(n_workers, len(all_indices))
+    logging.info("Rendering %d images with %d workers.", len(all_indices), n_workers)
+    indices = np.array_split(all_indices, n_workers)
 
     queue = mp.Queue()
     for i in range(n_workers):
-        queue.put((inds[i], Path(output_path), Path(main_obj_path), scale))
+        queue.put((indices[i], Path(output_path), Path(main_obj_path), scale))
 
     for _ in range(n_workers):
         queue.put(None)
@@ -65,7 +65,7 @@ def process(queue: mp.Queue):
         generate_data(*job)
 
 
-def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: float):
+def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: float):
     import simpose as sp
     from tqdm import tqdm
     from scipy.spatial.transform import Rotation as R
@@ -78,6 +78,11 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     shapenet_root = Path.home().joinpath("data/shapenet/ShapeNetCore")
     shapenet = sp.random.ShapenetLoader(
         scene, sp.CallbackType.NONE, shapenet_root=shapenet_root, num_objects=20
+    )
+
+    appearance_randomizer = sp.random.AppearanceRandomizer(
+        scene,
+        sp.CallbackType.BEFORE_RENDER,
     )
 
     cam = scene.create_camera("Camera")
@@ -102,13 +107,16 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
     main_obj = scene.create_object(
         obj_path, mass=0.2, friction=friction, add_semantics=True, scale=scale
     )
-    main_obj.set_metallic_value(0.0)
-    main_obj.set_roughness_value(0.5)
+    main_obj.set_metallic(0.0)
+    main_obj.set_roughness(0.5)
 
     main_objs = [main_obj]
 
     for i in range(19):
         main_objs.append(scene.create_copy(main_obj))
+
+    for obj in main_objs:
+        appearance_randomizer.add(obj)
 
     # data generation params
     dt = 1 / 4.0
@@ -118,7 +126,7 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
 
     i = 0
     if mp.current_process().name == "Process-1":
-        bar = tqdm(total=len(inds), desc="Process-1", smoothing=0.0)
+        bar = tqdm(total=len(indices), desc="Process-1", smoothing=0.0)
 
         # export one scene for debugging (only process-1)
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=friction)
@@ -143,7 +151,10 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
         bar = None
 
     while True:
-        drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=friction)
+        new_objs = shapenet.get_objects(mass=0.1, friction=friction)
+        for new_obj in new_objs:
+            appearance_randomizer.add(new_obj)
+        drop_objects = main_objs + new_objs
         random.shuffle(drop_objects)
 
         for j, obj in enumerate(drop_objects):
@@ -180,13 +191,13 @@ def generate_data(inds: List[int], output_path: Path, obj_path: Path, scale: flo
                 )  # minor rotation noise
 
                 for obj in drop_objects:
-                    obj.set_metallic_value(np.random.uniform(0, 1.0))
-                    obj.set_roughness_value(np.random.uniform(0, 1.0))
+                    obj.set_metallic(np.random.uniform(0, 1.0))
+                    obj.set_roughness(np.random.uniform(0, 1.0))
 
-                writer.generate_data(inds[i])
+                writer.generate_data(indices[i])
 
                 i += 1
-                if i == len(inds):
+                if i == len(indices):
                     if bar is not None:
                         bar.close()
                     return

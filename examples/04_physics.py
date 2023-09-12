@@ -32,8 +32,6 @@ rand_scene = sp.random.BackgroundRandomizer(
 
 obj_path = Path("meshes/cpsduck/cpsduck.obj")
 duck = scene.create_object(obj_path, mass=0.2, add_semantics=True)
-duck.set_metallic_value(0.0)
-duck.set_roughness_value(0.5)
 
 
 ducks = [duck]

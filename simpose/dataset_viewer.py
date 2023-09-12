@@ -27,7 +27,17 @@ def get_idx(img_dir):
 @click.command()
 @click.argument("data_dir", type=click.Path(exists=True))
 def main(data_dir: Path):
-    img_dir = st.text_input("Image directory", str(data_dir))
+    st.set_page_config(layout="wide", page_title="Dataset Viewer")
+
+    c1, c2 = st.columns(2)
+    img_dir = c1.text_input(
+        "Image directory",
+        str(data_dir),
+        label_visibility="collapsed",
+        placeholder="Dataset directory",
+    )
+    if c2.button("Re-index"):
+        st.cache_data.clear()
 
     indices = get_idx(img_dir)
     idx = st.select_slider("Image", indices, value=indices[0], key="idx")
