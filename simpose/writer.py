@@ -38,7 +38,6 @@ class Writer:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._scene.set_output_path(self._output_dir)
 
-
     def generate_data(self, dataset_index: int):
         """dont allow CTRl+C during data generation"""
         with DelayedKeyboardInterrupt(dataset_index):
@@ -129,14 +128,6 @@ class Writer:
         return [x1, y1, x2, y2]
 
     def _cleanup(self, dataset_index):
-        # writer generates:
-        # - mask/mask_{dataset_index:04}.exr
-        # - depth/depth_{dataset_index:04}.exr
-        # - mask/mask_{object_id:04}_{dataset_index:04}.exr
-        # - gt/gt_{dataset_index:05}.json
-        # - rgb/rgb_{dataset_index:04}.png
-        # possibly for stereo also
-
         gt_path = self._data_dir / f"gt_{dataset_index:05}.json"
         if gt_path.exists():
             logging.debug(f"Removing {gt_path}")
@@ -146,6 +137,11 @@ class Writer:
         if rgb_path.exists():
             logging.debug(f"Removing {rgb_path}")
             rgb_path.unlink()
+
+        rgb_R_path = self._output_dir / "rgb" / f"rgb_{dataset_index:04}_R.png"
+        if rgb_R_path.exists():
+            logging.debug(f"Removing {rgb_R_path}")
+            rgb_R_path.unlink()
 
         mask_path = self._output_dir / "mask" / f"mask_{dataset_index:04}.exr"
         if mask_path.exists():

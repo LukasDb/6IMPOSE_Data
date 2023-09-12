@@ -8,20 +8,26 @@ from scipy.spatial.transform import Rotation as R
 from pathlib import Path
 import streamlit as st
 import minexr
+import click
 
 
 @st.cache_data(show_spinner="Globbing...")
 def get_idx(img_dir):
-    idxs = [
-        int(x.stem.split("_")[1])
-        for x in Path(img_dir + "/rgb").glob("*.png")  # will be problematic with stereo
-    ]
+    idxs = list(
+        set(
+            int(x.stem.split("_")[1])
+            for x in Path(img_dir + "/rgb").glob("*.png")  # will be problematic with stereo
+        )
+    )
+    assert len(idxs) > 0, "No images found! Is it the correct directory?"
     idxs.sort()
     return idxs
 
 
-def main():
-    img_dir = st.text_input("Image directory", "/home/lukas/data/6IMPOSE/lm_cam")
+@click.command()
+@click.argument("data_dir", type=click.Path(exists=True))
+def main(data_dir: Path):
+    img_dir = st.text_input("Image directory", str(data_dir))
 
     idxs = get_idx(img_dir)
     idx = st.select_slider("Image", idxs, value=idxs[0], key="idx")
