@@ -68,6 +68,14 @@ class Scene(Callbacks):
     def resolution(self):
         return np.array((self._bl_scene.render.resolution_x, self._bl_scene.render.resolution_y))
 
+    @property
+    def resolution_x(self):
+        return self._bl_scene.render.resolution_x
+
+    @property
+    def resolution_y(self):
+        return self._bl_scene.render.resolution_y
+
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
         num_steps = np.floor(24 * dt).astype(int)

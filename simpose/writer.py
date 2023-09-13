@@ -106,12 +106,13 @@ class Writer:
         cam = self._scene.get_cameras()[0]  # TODO in the future save all cameras
         cam_pos = cam.location
         cam_rot = cam.rotation
-        cam_matrix = cam.get_calibration_matrix_K_from_blender()
+        cam_matrix = cam.calculate_intrinsics(self._scene.resolution_x, self._scene.resolution_y)
 
         meta_dict = {
             "cam_rotation": list(cam_rot.as_quat(canonical=True)),
             "cam_location": list(cam_pos),
             "cam_matrix": np.array(cam_matrix).tolist(),
+            "stereo_baseline": "none" if not cam.is_stereo_camera() else cam.baseline,
             "objs": list(obj_list),
         }
 

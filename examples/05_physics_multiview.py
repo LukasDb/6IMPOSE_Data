@@ -87,7 +87,7 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
 
     # cam = scene.create_camera("Camera")
     cam = scene.create_stereo_camera("Camera", baseline=0.063)
-    cam.set_from_hfov(70, scene.resolution[0], scene.resolution[1], degrees=True)
+    cam.set_from_hfov(70, scene.resolution_x, scene.resolution_y, degrees=True)
 
     rand_lights = sp.random.LightRandomizer(
         scene,

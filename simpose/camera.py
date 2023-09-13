@@ -126,7 +126,7 @@ class Camera(Placeable):
 
         return np.array([[alpha_u, 0.0, u_0], [0, alpha_v, v_0], [0, 0, 1]])
 
-    def set_from_hfov(self, hfov, img_w, img_h, degrees: bool = False):
+    def set_from_hfov(self, hfov: float, img_w: int, img_h: int, degrees: bool = False):
         """Set camera intrinsics from horizontal field of view"""
         if degrees:
             hfov = np.deg2rad(hfov)
