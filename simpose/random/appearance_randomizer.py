@@ -32,9 +32,13 @@ class AppearanceRandomizer(simpose.Callback):
         self._subjects.add(object)
 
     def callback(self):
-        for obj in self._subjects:
+        for obj in list(self._subjects)[:]:
             for appearance in simpose.Object.ObjectAppearance:
-                default = obj.get_default_appearance(appearance)
+                try:
+                    default = obj.get_default_appearance(appearance)
+                except ReferenceError:
+                    self._subjects.remove(obj)
+                    break
                 r = self._ranges[appearance]
                 random_value = np.random.uniform(default - r, default + r)
 

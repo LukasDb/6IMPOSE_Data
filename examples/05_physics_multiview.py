@@ -71,7 +71,7 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
     from scipy.spatial.transform import Rotation as R
     import random
 
-    scene = sp.Scene()
+    scene = sp.Scene(img_h=1080, img_w=1920)
 
     writer = sp.Writer(scene, output_path)
 
@@ -87,6 +87,7 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
 
     # cam = scene.create_camera("Camera")
     cam = scene.create_stereo_camera("Camera", baseline=0.063)
+    cam.set_from_hfov(70, scene.resolution[0], scene.resolution[1], degrees=True)
 
     rand_lights = sp.random.LightRandomizer(
         scene,
@@ -111,7 +112,7 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
     )
     main_obj.set_metallic(0.0)
     main_obj.set_roughness(0.5)
-    
+
     if mp.current_process().name == "Process-1":
         scene.export_meshes(output_path / "meshes")
 
@@ -200,6 +201,7 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
                     return
                 if bar is not None:
                     bar.update(1)
+
 
 if __name__ == "__main__":
     main()

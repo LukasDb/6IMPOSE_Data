@@ -132,14 +132,14 @@ def main(data_dir: Path):
     st.title(f"Datapoint: {idx:05}/{len(indices):05}")
     c1, c2 = st.columns(2)
     with c1:
-        st.image(rgb, caption="RGB")
+        st.image(rgb, caption=f"RGB {rgb.shape}, {rgb.dtype}")
         if rgb_R is not None:
-            st.image(rgb_R, caption=f"RGB_R")
-        st.image(colored_depth, caption=f"Depth")
+            st.image(rgb_R, caption=f"RGB_R {rgb_R.shape}, {rgb_R.dtype}")
+        st.image(colored_depth, caption=f"Depth {depth.shape}, {depth.dtype}")
 
     with c2:
-        st.image(colored_mask_rgb, caption=f"Instance Mask")
-        st.image(colored_semantic_mask_rgb, caption=f"Semantic Mask")
+        st.image(colored_mask_rgb, caption=f"Instance Mask {mask.shape}, {mask.dtype}")
+        st.image(colored_semantic_mask_rgb, caption=f"Semantic Mask {mask.shape}, {mask.dtype}")
 
 
 if __name__ == "__main__":

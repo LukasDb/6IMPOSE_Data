@@ -50,7 +50,7 @@ scene.export_blend(str(Path("scene.blend").resolve()))
 for i in tqdm.trange(10):
     writer.generate_data(i)  # Save the rendered image to the specified file path
 
-print(cam.get_calibration_matrix_K_from_blender())
+print(cam.calculate_intrinsics(scene.resolution[0], scene.resolution[1]))
 
 # export Scene as .blend file, so we can open it in Blender and check results
 scene.export_blend(str(Path("scene.blend").resolve()))

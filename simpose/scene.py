@@ -19,7 +19,7 @@ from simpose.callback import Callback, Callbacks, CallbackType
 
 
 class Scene(Callbacks):
-    def __init__(self, img_h: int = 480, img_w: int = 640, use_stereo: bool = False) -> None:
+    def __init__(self, img_h: int = 480, img_w: int = 640) -> None:
         Callbacks.__init__(self)
         # self._bl_scene = bpy.data.scenes.new("6impose Scene")
         self._bl_scene: bpy.types.Scene = bpy.context.window.scene
@@ -145,13 +145,11 @@ class Scene(Callbacks):
 
     def create_camera(self, cam_name: str) -> Camera:
         cam = Camera.create(cam_name, baseline=None)
-        # add camera to "Cameras" collection
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam
 
     def create_stereo_camera(self, cam_name: str, baseline: float) -> Camera:
         cam = Camera.create(cam_name, baseline=baseline)
-        # add camera to "Cameras" collection
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam
 
