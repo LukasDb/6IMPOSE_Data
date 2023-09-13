@@ -1,26 +1,21 @@
+import copy
 import os
 import sys
+import contextlib
 from contextlib import contextmanager
 import logging
+import multiprocessing as mp
 
 
 @contextmanager
-def redirect_stdout(to=os.devnull):
-    """
-    https://blender.stackexchange.com/questions/6119/suppress-output-of-python-operators-bpy-ops
-
-    import os
-
-    with stdout_redirected(to=filename):
-        print("from Python")
-        os.system("echo non-Python applications are also supported")
-    """
-    if logging.getLogger().level < logging.DEBUG:
-        yield
-        return
+def redirect_stdout():
+    # if logging.getLogger().level < logging.DEBUG:
+    #     yield
+    #     return
 
     fd = sys.stdout.fileno()
 
+    # THIS IS IMPORTANT. OVERWRITING SYS.STDOUT IS NOT ENOUGH
     ##### assert that Python and C stdio write using the same file descriptor
     ####assert libc.fileno(ctypes.c_void_p.in_dll(libc, "stdout")) == fd == 1
 
@@ -30,7 +25,8 @@ def redirect_stdout(to=os.devnull):
         sys.stdout = os.fdopen(fd, "w")  # Python writes to fd
 
     with os.fdopen(os.dup(fd), "w") as old_stdout:
-        with open(to, "w") as file:
+        # with open(os.devnull, "w") as file:
+        with open(f"{mp.current_process().name}.log", "a") as file:
             _redirect_stdout(to=file)
         try:
             yield  # allow code to be run with the redirected stdout

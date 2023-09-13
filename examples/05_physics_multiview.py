@@ -6,8 +6,8 @@ import logging
 import click
 from typing import List
 
-logging.getLogger().setLevel(logging.DEBUG)
-# logging.getLogger().setLevel(0)
+# logging.getLogger().setLevel(logging.DEBUG)
+logging.getLogger().setLevel(0)
 
 
 @click.command()
@@ -67,9 +67,15 @@ def process(queue: mp.Queue):
 
 def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: float):
     import simpose as sp
+    import logging
+
     from tqdm import tqdm
     from scipy.spatial.transform import Rotation as R
     import random
+
+    fh = logging.FileHandler(f"{mp.current_process().name}.log")
+    fh.setLevel(0)
+    logging.getLogger().addHandler(fh)
 
     scene = sp.Scene(img_h=1080, img_w=1920)
 

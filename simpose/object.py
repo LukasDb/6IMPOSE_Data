@@ -1,7 +1,5 @@
 import bpy
 from bpy.types import ShaderNodeBsdfPrincipled, Material, ShaderNodeHueSaturation
-import mathutils
-import math
 from scipy.spatial.transform import Rotation as R
 from typing import Tuple, List
 from .placeable import Placeable
@@ -87,7 +85,7 @@ class Object(Placeable):
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
-            bpy.ops.wm.obj_import(filepath=str(filepath.resolve()))
+            bpy.ops.import_scene.obj(filepath=str(filepath.resolve()))
         try:
             bl_object = bpy.context.selected_objects[0]
         except IndexError:
