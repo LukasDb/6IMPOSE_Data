@@ -2,6 +2,7 @@
 Streamlined package of the 6IMPOSE data generation pipeline. Easier to install, use and to extend.
 
 ## Setup
+If you encouter problems with OpenEXR try: `conda install -c conda-forge openexr-python` 
 install this package with 
 `pip install -e .`
 

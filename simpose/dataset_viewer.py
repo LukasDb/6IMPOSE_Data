@@ -7,8 +7,8 @@ import cv2
 from scipy.spatial.transform import Rotation as R
 from pathlib import Path
 import streamlit as st
-import minexr
 import click
+from simpose.exr import EXR
 
 
 @st.cache_data(show_spinner="Reading files...")
@@ -69,10 +69,8 @@ def main(data_dir: Path):
     except Exception:
         bgr_R = None
 
-    with Path(img_dir).joinpath(f"mask/mask_{idx:04}.exr").open("rb") as F:
-        reader = minexr.load(F)
-
-    mask = reader.select(["visib.R"]).astype(np.uint8)
+    mask_path = Path(img_dir).joinpath(f"mask/mask_{idx:04}.exr")
+    mask = EXR(mask_path).read("visib.R").astype(np.uint8)
 
     colored_mask_bgr = cv2.applyColorMap(
         cv2.convertScaleAbs(mask, alpha=255.0 / np.max(mask)),  # type: ignore
@@ -85,6 +83,7 @@ def main(data_dir: Path):
             cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
         )
     ).astype(np.float32)
+
     depth[depth > 50.0] = 0.0
     colored_depth = cv2.applyColorMap(
         cv2.convertScaleAbs(depth, alpha=255 / np.max(depth)), cv2.COLORMAP_JET  # type: ignore
@@ -97,7 +96,7 @@ def main(data_dir: Path):
     for obj in objs:
         # semantics
         cls = obj["class"]
-        colored_semantic_mask_bgr[mask[..., 0] == obj["object id"]] = cls_colors[cls]
+        colored_semantic_mask_bgr[mask == obj["object id"]] = cls_colors[cls]
 
         # bbox
         bbox = obj["bbox_visib"]

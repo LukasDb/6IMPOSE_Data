@@ -3,13 +3,10 @@ import json
 import simpose
 import numpy as np
 from pathlib import Path
-from .redirect_stdout import redirect_stdout
 import cv2
 import logging
-import minexr
-
-
 import signal
+from .exr import EXR
 
 
 class DelayedKeyboardInterrupt:
@@ -58,11 +55,6 @@ class Writer:
         objs = self._scene.get_labelled_objects()
         self._scene.render()
 
-        with Path(self._output_dir / f"mask/mask_{dataset_index:04}.exr").open("rb") as F:
-            reader = minexr.load(F)
-
-        mask = reader.select(["visib.R"])[..., 0]
-
         depth = np.array(
             cv2.imread(
                 str(Path(self._output_dir, "depth", f"depth_{dataset_index:04}.exr")),
@@ -71,6 +63,8 @@ class Writer:
         )[..., 0].astype(np.float32)
         depth[depth > 100.0] = 0.0
 
+        mask_path = Path(self._output_dir / f"mask/mask_{dataset_index:04}.exr")
+        mask = EXR(mask_path).read("visib.R")
         obj_list = []
         for obj in objs:
             px_count_visib = np.count_nonzero(mask == obj.object_id)
@@ -80,7 +74,7 @@ class Writer:
             px_count_valid = 0.0
             visib_fract = 0.0
 
-            obj_mask = reader.select([f"{obj.object_id:04}.R"])[..., 0]
+            obj_mask = EXR(mask_path).read(f"{obj.object_id:04}.R")
 
             bbox_obj = self._get_bbox(obj_mask, 1)
             px_count_all = np.count_nonzero(obj_mask == 1)

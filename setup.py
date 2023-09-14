@@ -8,8 +8,8 @@ package_list = [
     "click",
     "pybullet",
     "coloredlogs",
-    "minexr",
     "streamlit",
+    "openexr",
 ]
 
 # check if opencv-contrib-python is installed

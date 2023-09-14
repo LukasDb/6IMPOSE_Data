@@ -389,5 +389,4 @@ class Scene(Callbacks):
         mask_output.inputs.remove(mask_output.inputs[0])
         mask_output.format.file_format = "OPEN_EXR_MULTILAYER"
         mask_output.format.color_depth = "16"
-        # mask_output.format.exr_codec = "ZIP"
-        mask_output.format.exr_codec = "NONE"
+        mask_output.format.exr_codec = "ZIP"
