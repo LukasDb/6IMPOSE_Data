@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 package_list = [
     "tqdm",
-    "bpy==3.5",
+    "bpy==3.6",
     "fake-bpy-module-latest",
     "scipy",
     "click",

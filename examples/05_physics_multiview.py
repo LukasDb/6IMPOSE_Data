@@ -1,10 +1,8 @@
-import time
 import numpy as np
 import multiprocessing as mp
 from pathlib import Path
 import logging
 import click
-from typing import List
 
 # logging.getLogger().setLevel(logging.DEBUG)
 logging.getLogger().setLevel(0)
@@ -39,20 +37,27 @@ def main(
         return
 
     n_workers = min(n_workers, len(all_indices))
+
+    if n_workers == 1:
+        logging.info("Using single process.")
+        generate_data(all_indices.tolist(), Path(output_path), Path(main_obj_path), scale)
+        return
+
     logging.info("Rendering %d images with %d workers.", len(all_indices), n_workers)
     indices = np.array_split(all_indices, n_workers)
 
     queue = mp.Queue()
-    for i in range(n_workers):
-        queue.put((indices[i], Path(output_path), Path(main_obj_path), scale))
-
-    for _ in range(n_workers):
-        queue.put(None)
-
     processes = [mp.Process(target=process, args=(queue,)) for _ in range(n_workers)]
     for p in processes:
         p.start()
-        time.sleep(10)  # 'load balancing'
+
+    # load jobs
+    for i in range(n_workers):
+        queue.put((indices[i], Path(output_path), Path(main_obj_path), scale))
+    # send stop signal
+    for _ in range(n_workers):
+        queue.put(None)
+
     for p in processes:
         p.join()
 
@@ -65,7 +70,7 @@ def process(queue: mp.Queue):
         generate_data(*job)
 
 
-def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: float):
+def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: float):
     import simpose as sp
     import logging
 
@@ -76,6 +81,9 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
     fh = logging.FileHandler(f"{mp.current_process().name}.log")
     fh.setLevel(0)
     logging.getLogger().addHandler(fh)
+
+    proc_name = mp.current_process().name
+    is_primary_worker = proc_name == "Process-1" or proc_name == "MainProcess"
 
     scene = sp.Scene(img_h=1080, img_w=1920)
 
@@ -119,7 +127,7 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
     main_obj.set_metallic(0.0)
     main_obj.set_roughness(0.5)
 
-    if mp.current_process().name == "Process-1":
+    if is_primary_worker:
         scene.export_meshes(output_path / "meshes")
 
     main_objs = [main_obj]
@@ -137,7 +145,7 @@ def generate_data(indices: List[int], output_path: Path, obj_path: Path, scale: 
     num_cam_locs = 1  # 20
 
     i = 0
-    if mp.current_process().name == "Process-1":
+    if is_primary_worker:
         bar = tqdm(total=len(indices), desc="Process-1", smoothing=0.0)
         # export one scene for debugging (only process-1)
         drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=friction)

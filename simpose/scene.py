@@ -1,4 +1,3 @@
-from typing import Dict
 from .redirect_stdout import redirect_stdout
 
 with redirect_stdout():
@@ -11,7 +10,6 @@ from simpose.light import Light
 from simpose.object import Object
 import numpy as np
 import logging
-from typing import List, Tuple
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
@@ -32,7 +30,7 @@ class Scene(Callbacks):
         bpy.ops.object.delete(use_global=False)
 
         # bpy.context.window.scene= self._bl_scene
-        self._randomize: List[Callback] = []
+        self._randomize: list[Callback] = []
 
         # create a lights collection
         scene.collection.children.link(bpy.data.collections.new("Lights"))
@@ -148,7 +146,7 @@ class Scene(Callbacks):
         self.output_node.base_path = str((self.output_dir).resolve())
         self.mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
 
-    def get_cameras(self) -> List[Camera]:
+    def get_cameras(self) -> list[Camera]:
         return [Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects]
 
     def create_camera(self, cam_name: str) -> Camera:
@@ -161,11 +159,11 @@ class Scene(Callbacks):
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam
 
-    def get_active_objects(self) -> List[Object]:
+    def get_active_objects(self) -> list[Object]:
         objects = [Object(x) for x in self._bl_scene.collection.children["Objects"].objects]
         return list([x for x in objects if not x.is_hidden])
 
-    def get_labelled_objects(self) -> List[Object]:
+    def get_labelled_objects(self) -> list[Object]:
         return list([x for x in self.get_active_objects() if x.has_semantics])
 
     def create_object(
