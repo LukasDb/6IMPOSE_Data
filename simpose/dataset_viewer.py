@@ -42,16 +42,19 @@ def main(data_dir: Path):
     indices = get_idx(img_dir)
     idx = st.select_slider("Image", indices, value=indices[0], key="idx")
 
-    cls_colors = {
-        "cpsduck": (0, 250, 250),
-        "stapler": (162, 2, 20),
-        "glue": (215, 235, 250),
-        "chew_toy": (7, 7, 116),
-        "wrench_13": (150, 150, 150),
-        "pliers": (240, 255, 31),
-        "lm_cam": (133, 133, 133),
-        "lm_holepuncher": (242, 40, 13),
-    }  # BGR
+    if "cls_colors" not in st.session_state:
+        st.session_state["cls_colors"] = {
+            "cpsduck": (0, 250, 250),
+            "stapler": (162, 2, 20),
+            "glue": (215, 235, 250),
+            "chew_toy": (7, 7, 116),
+            "wrench_13": (150, 150, 150),
+            "pliers": (240, 255, 31),
+            "lm_cam": (133, 133, 133),
+            "lm_holepuncher": (242, 40, 13),
+        }  # BGR
+
+    cls_colors = st.session_state["cls_colors"]
 
     with open(os.path.join(img_dir, "gt", f"gt_{idx:05}.json")) as F:
         shot = json.load(F)
@@ -96,6 +99,7 @@ def main(data_dir: Path):
     for obj in objs:
         # semantics
         cls = obj["class"]
+        cls_colors.setdefault(cls, np.random.randint(0, 255, size=3).astype(np.uint8).tolist())
         colored_semantic_mask_bgr[mask == obj["object id"]] = cls_colors[cls]
 
         # bbox
