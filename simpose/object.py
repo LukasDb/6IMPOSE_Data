@@ -354,6 +354,8 @@ class Object(Placeable):
             mat_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes["Material Output"]  # type: ignore
             mat_output.target = "CYCLES"
 
+            Object.add_ID_to_material(material)
+
             # insert hsv node in between current color and bsdf node
             hsv_node: bpy.types.ShaderNodeHueSaturation = tree.nodes.new("ShaderNodeHueSaturation")  # type: ignore
             hsv_node.name = "sp_hsv"
@@ -364,8 +366,9 @@ class Object(Placeable):
 
             # find node that is connected to base color of bsdf node
             prev_color_node = None
-            assert tree.nodes["Principled BSDF"].inputs["Base Color"].links is not None
-            for link in tree.nodes["Principled BSDF"].inputs["Base Color"].links:
+            rgb_shader = tree.nodes["Principled BSDF"]
+            assert rgb_shader.inputs["Base Color"].links is not None
+            for link in rgb_shader.inputs["Base Color"].links:
                 prev_color_node = link.from_node
                 output_socket_name = link.from_socket.name
                 prev_color_node.location = (-600, 0)
@@ -373,71 +376,7 @@ class Object(Placeable):
             if prev_color_node is not None:
                 tree.links.new(prev_color_node.outputs[output_socket_name], hsv_node.inputs["Color"])  # type: ignore
                 # connect hsv node to bsdf node
-
-                tree.links.new(hsv_node.outputs["Color"], tree.nodes["Principled BSDF"].inputs["Base Color"])  # type: ignore
-
-            #          | vl > 0 | vl == 0
-            # vl == oi |    1   |   0 or oi
-            # vl != oi |  trans | oi
-
-            # --> vl == 0 -> oi
-            # else:
-            #  if vl == oi: 1
-            #  if vl != oi: trans
-
-            # add eevee output with above truth table (vl == view_layer["Object Index"]; oi == object_index)
-            vl: bpy.types.ShaderNodeAttribute = tree.nodes.new("ShaderNodeAttribute")  # type: ignore
-            vl.attribute_type = "VIEW_LAYER"
-            vl.attribute_name = "object_index"
-            vl.location = (300, 100)
-
-            oi = tree.nodes.new("ShaderNodeObjectInfo")
-            oi.location = (300, -200)
-
-            vl_is_0: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")  # type: ignore
-            vl_is_0.operation = "COMPARE"
-            vl_is_0.inputs[2].default_value = 0.1  # type: ignore
-            vl_is_0.inputs[1].default_value = 0  # type: ignore
-            vl_is_0.location = (600, 100)
-
-            vl_is_oi: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")  # type: ignore
-            vl_is_oi.operation = "COMPARE"
-            vl_is_oi.inputs[2].default_value = 0.1  # type: ignore
-            vl_is_oi.location = (600, -200)
-
-            id_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes.new(
-                "ShaderNodeOutputMaterial"
-            )  # type: ignore
-            id_output.target = "EEVEE"
-            id_output.location = (1100, 0)
-
-            transparent = tree.nodes.new("ShaderNodeBsdfTransparent")
-            transparent.location = (600, -100)
-            mix_shader = tree.nodes.new("ShaderNodeMixShader")
-            mix_shader.location = (1000, 0)
-            mix_shader2 = tree.nodes.new("ShaderNodeMixShader")
-            mix_shader2.location = (800, -200)
-
-            # connect vl_is_0
-            tree.links.new(vl.outputs[0], vl_is_0.inputs[0])
-            # connect result to mix shader1
-            tree.links.new(vl_is_0.outputs[0], mix_shader.inputs[0])
-            # if vl_is_0 -> return oi -> output of mix shader is output
-            tree.links.new(oi.outputs["Object Index"], mix_shader.inputs[2])
-            tree.links.new(mix_shader.outputs[0], id_output.inputs[0])
-
-            # if vl is not 0 then the other mix input is used, which is either transparent or 1 (from mix2)
-            tree.links.new(mix_shader2.outputs[0], mix_shader.inputs[1])
-
-            # connect vl_is_oi
-            tree.links.new(vl.outputs[0], vl_is_oi.inputs[0])
-            tree.links.new(oi.outputs["Object Index"], vl_is_oi.inputs[1])
-            # connect result to mix shader2
-            tree.links.new(vl_is_oi.outputs[0], mix_shader2.inputs[0])
-            # connect transparent shader to mix2 shader (if vl != oi)
-            tree.links.new(transparent.outputs[0], mix_shader2.inputs[1])
-            # else we return 1 which is also the result of vl_is_oi
-            tree.links.new(vl_is_oi.outputs[0], mix_shader2.inputs[2])
+                tree.links.new(hsv_node.outputs["Color"], rgb_shader.inputs["Base Color"])  # type: ignore
 
         obj = Object(bl_object)
         if mass is not None:
@@ -490,3 +429,71 @@ class Object(Placeable):
         obj.set_saturation(1.0, set_default=True)
         obj.set_value(1.0, set_default=True)
         return obj
+
+    @staticmethod
+    def add_ID_to_material(mat: bpy.types.Material):
+        tree = mat.node_tree
+
+        # create material output
+        mat_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes.new("ShaderNodeOutputMaterial")  # type: ignore
+        mat_output.location = (1200, 0)
+        mat_output.target = "EEVEE"
+
+        # view layer object index: -1: rgb, 0: visb, 1: obj1, 2: obj2, ...
+        vl: bpy.types.ShaderNodeAttribute = tree.nodes.new("ShaderNodeAttribute")  # type: ignore
+        vl.attribute_type = "VIEW_LAYER"
+        vl.attribute_name = "object_index"
+        vl.location = (300, 100)
+
+        oi = tree.nodes.new("ShaderNodeObjectInfo")
+        oi.location = (300, -200)
+
+        # object_index_shader = tree.nodes.new("ShaderNodeEmission")
+        # tree.links.new(oi.outputs["Object Index"], object_index_shader.inputs["Color"])
+
+        # shader_1 = tree.nodes.new("ShaderNodeEmission")
+        # shader_1.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)  # type: ignore
+
+        # check if view layer is 0 -> object index mode
+        vl_is_object_index: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")  # type: ignore
+        vl_is_object_index.operation = "COMPARE"
+        vl_is_object_index.inputs[2].default_value = 0.1  # type: ignore
+        vl_is_object_index.inputs[1].default_value = 0  # type: ignore
+        vl_is_object_index.location = (600, 100)
+        tree.links.new(vl.outputs[0], vl_is_object_index.inputs[0])  # connect to view layer
+
+        # check if view layer== object_index -> 1 if object_index==self.index else 0
+        vl_is_current_object: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")  # type: ignore
+        vl_is_current_object.operation = "COMPARE"
+        vl_is_current_object.inputs[2].default_value = 0.1  # type: ignore
+        vl_is_current_object.location = (600, -200)
+        # connect to view layer
+        tree.links.new(vl.outputs[0], vl_is_current_object.inputs[0])
+        # connect to own object index
+        tree.links.new(oi.outputs["Object Index"], vl_is_current_object.inputs[1])
+
+        transparent = tree.nodes.new("ShaderNodeBsdfTransparent")
+        transparent.location = (600, -100)
+
+        # if not in RGB and not in object_index mode, 1 or transparent
+        choose_1_or_transparent = tree.nodes.new("ShaderNodeMixShader")
+        choose_1_or_transparent.location = (800, -200)
+        # if current object is chosen
+        tree.links.new(vl_is_current_object.outputs[0], choose_1_or_transparent.inputs[0])
+        # if true: emit 1 (from the if statement)
+        tree.links.new(vl_is_current_object.outputs[0], choose_1_or_transparent.inputs[2])
+        # else: emit transparent
+        tree.links.new(transparent.outputs[0], choose_1_or_transparent.inputs[1])
+
+        # if not in RGB mode, choose transparent, 1, or object index
+        choose_index_or_else = tree.nodes.new("ShaderNodeMixShader")
+        choose_index_or_else.location = (1000, 0)
+        # if object index mode
+        tree.links.new(vl_is_object_index.outputs[0], choose_index_or_else.inputs[0])
+        # if true: emit object index
+        tree.links.new(oi.outputs["Object Index"], choose_index_or_else.inputs[2])
+        # else: emit 1 or transparent
+        tree.links.new(choose_1_or_transparent.outputs[0], choose_index_or_else.inputs[1])
+
+        # connect to material output
+        tree.links.new(choose_index_or_else.outputs[0], mat_output.inputs["Surface"])  # type: ignore

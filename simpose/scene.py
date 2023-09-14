@@ -76,6 +76,7 @@ class Scene(Callbacks):
 
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
+        logging.debug(f"Stepping pyhysics for {dt} seconds")
         num_steps = np.floor(24 * dt).astype(int)
         for _ in range(max(1, num_steps)):
             p.stepSimulation()
@@ -224,7 +225,8 @@ class Scene(Callbacks):
 
         # new layer with id_material override and object index
         self._bl_scene.view_layers.new(name=layer_name)
-        self._bl_scene.view_layers[layer_name]["object_index"] = id
+        view_layer = self._bl_scene.view_layers[layer_name]
+        view_layer["object_index"] = id
 
         # add file output to compositor
         tree = self._bl_scene.node_tree
@@ -305,7 +307,8 @@ class Scene(Callbacks):
         self._bl_scene.cycles.samples = 64
         self._bl_scene.cycles.caustics_reflective = False
         self._bl_scene.cycles.caustics_refractive = False
-        self._bl_scene.cycles.use_auto_tile = False
+        self._bl_scene.cycles.use_auto_tile = True
+        self._bl_scene.cycles.tile_size = 256
 
         self._bl_scene.eevee.taa_render_samples = 1
         self._bl_scene.eevee.taa_samples = 1
