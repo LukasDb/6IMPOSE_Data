@@ -71,6 +71,10 @@ def process(queue: mp.Queue):
 
 
 def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: float):
+    import numpy as np
+
+    np.random.seed(mp.current_process().pid)
+
     import simpose as sp
     import logging
 

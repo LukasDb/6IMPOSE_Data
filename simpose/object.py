@@ -355,7 +355,7 @@ class Object(Placeable):
             baseCollisionShapeIndex=coll_id,
             basePosition=[0.0, 0.0, 0.0],
         )
-        p.changeDynamics(pb_id, -1, lateralFriction=friction)
+        p.changeDynamics(pb_id, -1, lateralFriction=friction, spinningFriction=friction)
         p.resetBasePositionAndOrientation(
             pb_id, self._bl_object.location, self.rotation.as_quat(canonical=True)
         )

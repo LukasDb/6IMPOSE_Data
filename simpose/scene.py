@@ -18,6 +18,7 @@ from simpose.callback import Callback, Callbacks, CallbackType
 
 logger = logging.getLogger(__name__)
 
+
 class Scene(Callbacks):
     def __init__(self, img_h: int = 480, img_w: int = 640) -> None:
         Callbacks.__init__(self)
@@ -60,7 +61,8 @@ class Scene(Callbacks):
         p.setPhysicsEngineParameter(fixedTimeStep=1 / 24.0, numSubSteps=10)
 
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.loadURDF("plane.urdf")  # XY ground plane
+        plane = p.loadURDF("plane.urdf")  # XY ground plane
+        p.changeDynamics(plane, -1, lateralFriction=0.8, restitution=0.0)
 
         self.call_callback(CallbackType.ON_SCENE_CREATED)
 
