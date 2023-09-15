@@ -1,6 +1,9 @@
+import logging, coloredlogs
+
+coloredlogs.install(logging.DEBUG, fmt="%(asctime)s %(levelname)s %(message)s")
+
 import simpose as sp
 from pathlib import Path
-import logging
 from tqdm import tqdm
 import multiprocessing
 import random
@@ -8,8 +11,6 @@ import time
 import numpy as np
 
 from simpose.callback import CallbackType
-
-logging.basicConfig(level=logging.WARN)
 
 
 def launch_multiple_instances(output_path, num_instances, frames_per_instance):
@@ -32,7 +33,6 @@ def launch_multiple_instances(output_path, num_instances, frames_per_instance):
 def render_frames(output_path, start_frame, end_frame, index):
     seed = int(time.time()) + index
     random.seed(seed)
-    np.random.seed(seed)  # Set seed for numpy's random number generator
 
     scene = sp.Scene()
     writer = sp.Writer(scene, Path(output_path))

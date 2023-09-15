@@ -1,11 +1,13 @@
+import logging, coloredlogs
+
+coloredlogs.install(logging.DEBUG, fmt="%(asctime)s %(levelname)s %(message)s")
+
 import simpose as sp
 from pathlib import Path
-import logging
 import numpy as np
 from tqdm import tqdm, trange
 from scipy.spatial.transform import Rotation as R
 
-logging.basicConfig(level=logging.WARN)
 
 scene = sp.Scene()
 

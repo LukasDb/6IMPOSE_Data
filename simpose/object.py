@@ -11,6 +11,8 @@ import numpy as np
 import pybullet as p
 from enum import Enum
 
+logger = logging.getLogger(__name__)
+
 
 class _ObjectAppearance(Enum):
     METALLIC = "Metallic"
@@ -102,6 +104,44 @@ class Object(Placeable):
         return obj
 
     @staticmethod
+    def from_gltf(
+        filepath: Path,
+        add_semantics: bool = False,
+        mass: float | None = None,
+        friction: float = 0.5,
+        scale: float = 1.0,
+    ):
+        # clear selection
+        bpy.ops.object.select_all(action="DESELECT")
+        with redirect_stdout():
+            bpy.ops.import_scene.gltf(filepath=str(filepath.resolve()))
+
+        try:
+            bl_object = bpy.context.selected_objects[0]
+        except IndexError:
+            raise RuntimeError(f"Could not import {filepath}")
+
+        collision_obj_path = filepath.with_suffix(".obj").resolve()
+        with redirect_stdout():
+            if not collision_obj_path.exists():
+                bpy.ops.wm.obj_export(
+                    filepath=str(collision_obj_path),
+                    export_materials=False,
+                    export_colors=False,
+                    export_normals=True,
+                )
+
+        obj = Object._initialize_bl_object(
+            bl_object=bl_object,
+            scale=scale,
+            mass=mass,
+            obj_path=collision_obj_path,
+            add_semantics=add_semantics,
+            friction=friction,
+        )
+        return obj
+
+    @staticmethod
     def from_ply(
         filepath: Path,
         add_semantics: bool = False,
@@ -119,9 +159,7 @@ class Object(Placeable):
             raise RuntimeError(f"Could not import {filepath}")
 
         # convert ply to .obj for pybullet
-        collision_obj_path = (
-            filepath.with_name("collision_" + filepath.name).with_suffix(".obj").resolve()
-        )
+        collision_obj_path = filepath.with_suffix(".obj").resolve()
         with redirect_stdout():
             if not collision_obj_path.exists():
                 bpy.ops.wm.obj_export(
@@ -146,9 +184,6 @@ class Object(Placeable):
         # add to object
         bl_object.data.materials.append(material)  # type: ignore
 
-        # shade smooth
-        bpy.ops.object.shade_smooth()
-
         obj = Object._initialize_bl_object(
             bl_object=bl_object,
             scale=scale,
@@ -159,7 +194,7 @@ class Object(Placeable):
         )
         return obj
 
-    def export_mesh(self, output_dir: Path):
+    def export_as_ply(self, output_dir: Path):
         """export mesh as ply file"""
         output_dir.mkdir(parents=True, exist_ok=True)
         bpy.ops.object.select_all(action="DESELECT")
@@ -183,7 +218,7 @@ class Object(Placeable):
                 self.set_location(old_loc)
                 self.set_rotation(old_rot)
 
-        logging.info("Exported mesh to " + str(output_dir / f"{self.get_class()}.ply"))
+        logger.info("Exported mesh to " + str(output_dir / f"{self.get_class()}.ply"))
 
     def hide(self):
         if self.is_hidden:
@@ -348,7 +383,7 @@ class Object(Placeable):
         materials: list[bpy.types.Material] = bl_object.data.materials  # type: ignore
         for material in materials:
             tree: bpy.types.NodeTree = material.node_tree
-            material.blend_method = "BLEND"
+            material.blend_method = "CLIP"
 
             # set current material output to cycles only
             mat_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes["Material Output"]  # type: ignore
@@ -380,11 +415,9 @@ class Object(Placeable):
 
         obj = Object(bl_object)
         if mass is not None:
-            # use vhacd to create collision shape
             out_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
             if not out_path.exists():
                 # hierarchical decomposition for dynamic collision of concave objects
-                # logging.info(f"running vhacd for {obj_path}...")
                 with redirect_stdout():
                     p.vhacd(
                         str(obj_path.resolve()),
@@ -393,7 +426,6 @@ class Object(Placeable):
                     )
             else:
                 pass
-                # logging.info(f"Reusing vhacd from {out_path}")
 
             try:
                 with redirect_stdout():
@@ -403,7 +435,7 @@ class Object(Placeable):
             except Exception as e:
                 import traceback
 
-                logging.error(
+                logger.error(
                     f"Collision shape from {out_path} failed, using convex hull from {obj_path} instead!\n{e}\n{traceback.format_exc()}"
                 )
                 with redirect_stdout():

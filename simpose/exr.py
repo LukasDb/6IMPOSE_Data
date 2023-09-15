@@ -1,8 +1,5 @@
-import stat
 import OpenEXR as exr
 import Imath
-import array
-import logging
 from pathlib import Path
 import numpy as np
 
@@ -19,8 +16,6 @@ class EXR:
         try:
             header = exr_file.header()
             channels = header["channels"]
-            logging.debug(f"Reading {self.filepath} with header: {header}")
-
             height, width = header["dataWindow"].max.y + 1, header["dataWindow"].max.x + 1
 
             exr_channel = channels[channel_name]
@@ -70,8 +65,6 @@ class EXR:
             raise ValueError(f"Unsupported dtype do write to EXR: {img.dtype}")
 
         header["channels"] = dict({k: Imath.Channel(exr_type) for k in channels.keys()})
-
-        logging.debug(f"Writing {self.filepath} with header: {header}")
 
         exr_file = exr.OutputFile(str(self.filepath), header)
         try:

@@ -1,7 +1,5 @@
 import os
-import coloredlogs, logging
 
-coloredlogs.install(fmt="%(asctime)s %(levelname)s %(message)s", level="INFO")
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 from simpose.callback import CallbackType, Callback, Callbacks

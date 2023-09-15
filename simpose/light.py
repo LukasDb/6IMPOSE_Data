@@ -1,9 +1,6 @@
+from scipy.spatial.transform import Rotation as R
 import bpy
 from .placeable import Placeable
-import logging
-import numpy as np
-import math
-from mathutils import Vector
 
 
 class Light(Placeable):
@@ -24,6 +21,11 @@ class Light(Placeable):
         bl_light = bpy.data.objects.new(name=name, object_data=light_data)
         bl_light.name = name
         return Light(bl_light)
+
+    def set_rotation(self, rotation: R):
+        """set rotation, with z+ pointing"""
+        rot = rotation * R.from_euler("x", 180, degrees=True)
+        return super().set_rotation(rot)
 
     @property
     def light_data(

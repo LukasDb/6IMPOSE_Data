@@ -9,9 +9,6 @@ import multiprocessing as mp
 
 @contextmanager
 def redirect_stdout():
-    # if logging.getLogger().level < logging.DEBUG:
-    #     yield
-    #     return
 
     fd = sys.stdout.fileno()
 

@@ -1,4 +1,3 @@
-import bpy
 import json
 import simpose
 import numpy as np
@@ -7,6 +6,8 @@ import cv2
 import logging
 import signal
 from .exr import EXR
+
+logger = logging.getLogger(__name__)
 
 
 class DelayedKeyboardInterrupt:
@@ -19,7 +20,7 @@ class DelayedKeyboardInterrupt:
 
     def handler(self, sig, frame) -> None:
         self.signal_received = (sig, frame)
-        logging.warn(f"SIGINT received. Finishing rendering {self.index}...")
+        logger.warn(f"SIGINT received. Finishing rendering {self.index}...")
 
     def __exit__(self, type, value, traceback) -> None:
         signal.signal(signal.SIGINT, self.old_handler)
@@ -42,13 +43,13 @@ class Writer:
                 self._generate_data(dataset_index)
             except Exception as e:
                 # clean up possibly corrupted data
-                logging.error(f"Error while generating data no. {dataset_index}")
-                logging.error(e)
+                logger.error(f"Error while generating data no. {dataset_index}")
+                logger.error(e)
                 self._cleanup(dataset_index)
                 raise e
 
     def _generate_data(self, dataset_index: int):
-        logging.debug(f"Generating data for {dataset_index}")
+        logger.debug(f"Generating data for {dataset_index}")
         self._scene.frame_set(dataset_index)  # this sets the suffix for file names
 
         # for each object, deactivate all but one and render mask
@@ -126,31 +127,31 @@ class Writer:
     def _cleanup(self, dataset_index):
         gt_path = self._data_dir / f"gt_{dataset_index:05}.json"
         if gt_path.exists():
-            logging.debug(f"Removing {gt_path}")
+            logger.debug(f"Removing {gt_path}")
             gt_path.unlink()
 
         rgb_path = self._output_dir / "rgb" / f"rgb_{dataset_index:04}.png"
         if rgb_path.exists():
-            logging.debug(f"Removing {rgb_path}")
+            logger.debug(f"Removing {rgb_path}")
             rgb_path.unlink()
 
         rgb_R_path = self._output_dir / "rgb" / f"rgb_{dataset_index:04}_R.png"
         if rgb_R_path.exists():
-            logging.debug(f"Removing {rgb_R_path}")
+            logger.debug(f"Removing {rgb_R_path}")
             rgb_R_path.unlink()
 
         mask_path = self._output_dir / "mask" / f"mask_{dataset_index:04}.exr"
         if mask_path.exists():
-            logging.debug(f"Removing {mask_path}")
+            logger.debug(f"Removing {mask_path}")
             mask_path.unlink()
 
         depth_path = self._output_dir / "depth" / f"depth_{dataset_index:04}.exr"
         if depth_path.exists():
-            logging.debug(f"Removing {depth_path}")
+            logger.debug(f"Removing {depth_path}")
             depth_path.unlink()
 
         mask_paths = (self._output_dir / "mask").glob(f"mask_*_{dataset_index:04}.exr")
         for mask_path in mask_paths:
             if mask_path.exists():
-                logging.debug(f"Removing {mask_path}")
+                logger.debug(f"Removing {mask_path}")
                 mask_path.unlink()

@@ -3,7 +3,6 @@ import numpy as np
 from typing import List
 import logging
 from scipy.spatial.transform import Rotation as R
-import bpy
 
 
 class CameraFrustumRandomizer(simpose.Callback):
@@ -53,7 +52,9 @@ class CameraFrustumRandomizer(simpose.Callback):
             pos = np.array([x, y, z]) @ cam_rot.as_matrix() + np.array(cam_origin)
             subject.set_location(pos)
 
-            logging.debug(f"randomize_in_camera_frustum: {subject} randomized to {pos}")
+            logging.getLogger(__name__).debug(
+                f"randomize_in_camera_frustum: {subject} randomized to {pos}"
+            )
 
     def _randomize_orientation(self):
         for subject in self._subjects:

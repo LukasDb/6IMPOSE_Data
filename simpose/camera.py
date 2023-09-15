@@ -5,6 +5,7 @@ import mathutils
 import numpy as np
 import logging
 
+logger = logging.getLogger(__name__)
 
 class Camera(Placeable):
     """This is just a functional wrapper around the blender object.
@@ -93,14 +94,6 @@ class Camera(Placeable):
     def __str__(self) -> str:
         return f"Camera(name={self._bl_object.name})"
 
-    def point_at(self, location: np.ndarray):
-        """point camera towards location with z-axis pointing up"""
-        to_point = self.location - location
-        yaw = np.arctan2(to_point[1], to_point[0]) + np.pi / 2
-        pitch = -np.pi / 2 - np.arctan2(to_point[2], np.linalg.norm(to_point[:2]))
-        towards_origin = R.from_euler("ZYX", [yaw, 0.0, pitch])
-        self.set_rotation(towards_origin)
-
     def calculate_intrinsics(self, img_w: int, img_h: int) -> np.ndarray:
         return self._calculate_intrinsics(self.data, img_w, img_h)
 
@@ -147,11 +140,11 @@ class Camera(Placeable):
 
     def set_from_intrinsics(self, intrinsic_matrix: np.ndarray, img_w: int, img_h: int):
         if np.abs(intrinsic_matrix[1][1] - intrinsic_matrix[0][0]) > 0.001:
-            logging.warning(
+            logger.warning(
                 "Intrinsic matrix is not symmetric. At the moment only square pixels are supported."
             )
 
-        logging.info(f"Setting {self} intrinsics to {intrinsic_matrix}, (h,w): ({img_h}, {img_w})")
+        logger.info(f"Setting {self} intrinsics to {intrinsic_matrix}, (h,w): ({img_h}, {img_w})")
         self._set_intrinsics(self.data, intrinsic_matrix, img_w, img_h)
         if self.is_stereo_camera():
             self._set_intrinsics(self.right_camera.data, intrinsic_matrix, img_w, img_h)  # type: ignore

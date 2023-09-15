@@ -1,11 +1,11 @@
+import logging, coloredlogs
+
+coloredlogs.install(logging.DEBUG, fmt="%(asctime)s %(levelname)s %(message)s")
+
 import numpy as np
 import multiprocessing as mp
 from pathlib import Path
-import logging
 import click
-
-# logging.getLogger().setLevel(logging.DEBUG)
-logging.getLogger().setLevel(0)
 
 
 @click.command()
@@ -89,9 +89,18 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
 
     writer = sp.Writer(scene, output_path)
 
-    shapenet_root = Path.home().joinpath("data/shapenet/ShapeNetCore")
-    shapenet = sp.random.ShapenetLoader(
-        scene, sp.CallbackType.NONE, shapenet_root=shapenet_root, num_objects=20
+    # shapenet_root = Path.home().joinpath("data/shapenet/ShapeNetCore")
+    # model_loader = sp.random.ModelLoader(
+    #     scene, sp.CallbackType.NONE, root=shapenet_root, num_objects=20
+    # )
+    ycb_root = Path.home().joinpath("data/ycb_models")
+    model_loader = sp.random.ModelLoader(
+        scene,
+        sp.CallbackType.NONE,
+        root=ycb_root,
+        num_objects=20,
+        model_source=sp.random.ModelSource.YCB,
+        scale_range=(0.5, 2.0),
     )
 
     appearance_randomizer = sp.random.AppearanceRandomizer(
@@ -145,32 +154,12 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
     num_cam_locs = 1  # 20
 
     i = 0
-    if is_primary_worker:
-        bar = tqdm(total=len(indices), desc="Process-1", smoothing=0.0)
-        # export one scene for debugging (only process-1)
-        drop_objects = main_objs + shapenet.get_objects(mass=0.1, friction=friction)
-        random.shuffle(drop_objects)
-
-        for j, obj in enumerate(drop_objects):
-            obj.show()
-            obj.set_location(
-                (
-                    np.random.uniform(-0.05, 0.05),
-                    np.random.uniform(-0.05, 0.05),
-                    j * 0.05 + 0.1,
-                )
-            )
-            obj.set_rotation(R.random())
-        scene.step_physics(1.0)  # initial fall
-        scene.export_blend()
-    else:
-        bar = None
-
+    bar = tqdm(total=len(indices), desc="Process-1", smoothing=0.0, disable=not is_primary_worker)
     while True:
-        new_objs = shapenet.get_objects(mass=0.1, friction=friction)
+        new_objs = model_loader.get_objects(mass=0.1, friction=friction)
         for new_obj in new_objs:
             appearance_randomizer.add(new_obj)
-        drop_objects = main_objs + new_objs
+        drop_objects = main_objs  # + new_objs
         random.shuffle(drop_objects)
 
         for j, obj in enumerate(drop_objects):
@@ -185,6 +174,9 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
             obj.set_rotation(R.random())
 
         scene.step_physics(1.0)  # initial fall
+
+        if i == 0 and is_primary_worker:
+            scene.export_blend()
 
         for _ in range(num_dt_step):
             scene.step_physics(dt)
@@ -192,7 +184,7 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
             # sample 20 camera locations in upper hemisphere
             rots = R.random(num=num_cam_locs)
             cam_view = np.array([0.0, 0.0, 1.0])
-            radius = np.random.uniform(0.5, 1.5, size=(num_cam_locs,))
+            radius = np.random.uniform(0.3, 1.5, size=(num_cam_locs,))
 
             cam_locations = rots.apply(cam_view) * radius[:, None]
             cam_locations[:, 2] *= np.sign(cam_locations[:, 2])
@@ -210,11 +202,10 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
 
                 i += 1
                 if i == len(indices):
-                    if bar is not None:
-                        bar.close()
+                    bar.close()
                     return
-                if bar is not None:
-                    bar.update(1)
+
+                bar.update(1)
 
 
 if __name__ == "__main__":

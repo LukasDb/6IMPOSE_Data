@@ -1,6 +1,5 @@
 import bpy
 import mathutils
-import math
 from scipy.spatial.transform import Rotation as R
 from typing import Tuple
 import numpy as np
@@ -35,6 +34,14 @@ class Placeable:
         # blender: scalar first, scipy: scalar last
         blender_quat = [r[3], r[0], r[1], r[2]]
         self._bl_object.rotation_quaternion = blender_quat
+
+    def point_at(self, location: np.ndarray):
+        """point z+ towards location with world z-axis pointing up"""
+        to_point = self.location - location
+        yaw = np.arctan2(to_point[1], to_point[0]) + np.pi / 2
+        pitch = -np.pi / 2 - np.arctan2(to_point[2], np.linalg.norm(to_point[:2]))
+        towards_origin = R.from_euler("ZYX", [yaw, 0.0, pitch])
+        self.set_rotation(towards_origin)
 
     def apply_global_offset(self, offset: Tuple | np.ndarray):
         """Apply offset to location."""

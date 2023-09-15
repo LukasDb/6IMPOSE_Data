@@ -1,42 +1,67 @@
+from ast import Assert
+import logging, coloredlogs
+
+coloredlogs.install(logging.DEBUG, fmt="%(asctime)s %(levelname)s %(message)s")
+
 from pathlib import Path
 import multiprocessing as mp
+from turtle import st
 from tqdm import tqdm
 from simpose.redirect_stdout import redirect_stdout
 import logging
 import pybullet as p
-
-logging.getLogger().setLevel(logging.INFO)
-
-
-def process_type(obj_type: Path):
-    from simpose.redirect_stdout import redirect_stdout
-
-    objs = list(obj_type.iterdir())
-    for obj_path in objs:
-        obj_path = obj_path.joinpath("models/model_normalized.obj")
-        out_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
-        if not out_path.exists():
-            print(f"VHACD for {obj_path}")
-            with redirect_stdout():
-                p.vhacd(
-                    str(obj_path.resolve()),
-                    str(out_path),
-                    str(obj_path.parent.joinpath("log.txt").resolve()),
-                )
+import subprocess
+import shutil
 
 
-def process_single(obj_path: Path):
-    obj_path = obj_path.joinpath("models/model_normalized.obj")
-    out_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
-    if not out_path.exists():
-        # print(f"VHACD for {obj_path}")
-        with redirect_stdout():
-            p.vhacd(
-                str(obj_path.resolve()),
-                str(out_path),
-                str(obj_path.parent.joinpath("log.txt").resolve()),
-                depth=5,  # default = 10
+def remove(folder: Path):
+    shutil.rmtree(folder)
+
+
+def process(folder: Path):
+    # validates, converts to gltf and creates vhacd collision shape
+    obj_path = folder.joinpath("models/model_normalized.obj")
+    if not obj_path.exists():
+        print("model_normalized.obj not found")
+        remove(folder)
+        return
+
+    vhacd_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
+    if not vhacd_path.exists():
+        try:
+            subprocess.run(
+                [
+                    "python",
+                    "-c",
+                    f"import pybullet as p;p.vhacd(\"{str(obj_path.resolve())}\",\"{str(vhacd_path)}\",\"{str(obj_path.parent.joinpath('log.txt').resolve())}\",depth=5,)",
+                ],
+                timeout=30.0,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
+        except subprocess.TimeoutExpired:
+            print("Error while creating vhacd: ", obj_path)
+            remove(folder)
+            return
+
+    gltf_path = obj_path.resolve().with_suffix(".gltf")
+
+    return
+    if not gltf_path.exists():
+        try:
+            result = subprocess.run(
+                ["obj2gltf", "-i", str(obj_path), "-o", str(gltf_path)],
+                stdout=subprocess.DEVNULL,
+                timeout=30.0,
+            )
+        except subprocess.TimeoutExpired:
+            print("Error while converting to gltf: ", obj_path)
+            remove(folder)
+            return
+
+        if result.returncode != 0:
+            print("ERROR while converting to gltf: ", obj_path)
+            remove(folder)
 
 
 if __name__ == "__main__":
@@ -47,15 +72,18 @@ if __name__ == "__main__":
 
     obj_paths = []
     print("looking for objs...")
-    for type in tqdm(_shapenet_types):
-        obj_paths += list(type.iterdir())
+
+    for obj_type in tqdm(_shapenet_types):
+        sublist = list(obj_type.iterdir())
+        obj_paths += [x for x in sublist if x.is_dir()]
+
     print(f"Found {len(obj_paths)} objs.")
-    # for obj_type in _shapenet_types:
-    #    process_type(obj_type)
+
+    # single process for debugging
+    # for obj_type in tqdm(obj_paths):
+    #     process(obj_type)
+    # exit()
+
     with mp.Pool() as pool:
-        # pool.map_async(process_type, _shapenet_types).get()
-
-        pool.map_async(process_single, tqdm(obj_paths, smoothing=0.0), chunksize=100).get()
-        # , total=len(obj_paths), smoothing=0.0))
-
+        pool.map_async(process, tqdm(obj_paths, smoothing=0.0), chunksize=100).get()
         pool.join()

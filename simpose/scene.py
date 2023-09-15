@@ -1,7 +1,8 @@
 from .redirect_stdout import redirect_stdout
 
+import bpy
+
 with redirect_stdout():
-    import bpy
     import pybullet as p
     import pybullet_data
 
@@ -15,12 +16,13 @@ from scipy.spatial.transform import Rotation as R
 
 from simpose.callback import Callback, Callbacks, CallbackType
 
+logger = logging.getLogger(__name__)
 
 class Scene(Callbacks):
     def __init__(self, img_h: int = 480, img_w: int = 640) -> None:
         Callbacks.__init__(self)
         # self._bl_scene = bpy.data.scenes.new("6impose Scene")
-        self._bl_scene: bpy.types.Scene = bpy.context.window.scene
+        self._bl_scene: bpy.types.Scene = bpy.data.scenes["Scene"]
 
         scene = self._bl_scene
         self.__id_counter = 0
@@ -76,7 +78,7 @@ class Scene(Callbacks):
 
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
-        logging.debug(f"Stepping pyhysics for {dt} seconds")
+        logger.debug(f"Stepping pyhysics for {dt} seconds")
         num_steps = np.floor(24 * dt).astype(int)
         for _ in range(max(1, num_steps)):
             p.stepSimulation()
@@ -93,7 +95,7 @@ class Scene(Callbacks):
         self.call_callback(CallbackType.ON_PHYSICS_STEP)
 
     def render(self):
-        logging.getLogger().debug("Rendering")
+        logger.debug("Rendering")
         self.call_callback(CallbackType.BEFORE_RENDER)
 
         # render RGB, depth using cycles
@@ -191,6 +193,14 @@ class Scene(Callbacks):
                 friction=friction,
                 scale=scale,
             )
+        elif obj_path.suffix == ".gltf":
+            obj = Object.from_gltf(
+                filepath=obj_path,
+                add_semantics=add_semantics,
+                mass=mass,
+                friction=friction,
+                scale=scale,
+            )
         else:
             raise NotImplementedError("Only .obj and .ply files are supported")
 
@@ -260,7 +270,7 @@ class Scene(Callbacks):
                 chosen_type = type
                 break
 
-        logging.info("Rendering device: " + chosen_type)
+        logger.info("Rendering device: " + chosen_type)
         # Set GPU rendering mode to detected one
         pref.compute_device_type = chosen_type  # type: ignore
 
@@ -272,7 +282,7 @@ class Scene(Callbacks):
             if i in selected_devices:
                 dev.use = True
 
-        logging.debug(f"Available devices: {available_devices}")
+        logger.debug(f"Available devices: {available_devices}")
 
         if chosen_type == "OPTIX":
             self._bl_scene.cycles.denoiser = "OPTIX"
@@ -286,7 +296,7 @@ class Scene(Callbacks):
         self.current_bg_img = bpy.data.images.load(str(filepath.resolve()))
         self.bg_image_node.image = self.current_bg_img
         # scale_to_fit = np.max(self.resolution / np.array(self.current_bg_img.size))
-        logging.debug(f"Set background to {filepath}")
+        logger.debug(f"Set background to {filepath}")
 
     def export_blend(self, filepath=str(Path("scene.blend").resolve())):
         with redirect_stdout():
@@ -295,7 +305,7 @@ class Scene(Callbacks):
     def export_meshes(self, output_dir: Path):
         """export meshes as ply files in 'meshes' folder"""
         for obj in self.get_labelled_objects():
-            obj.export_mesh(output_dir)
+            obj.export_as_ply(output_dir)
 
     def _setup_compositor(self):
         self._bl_scene.use_nodes = True

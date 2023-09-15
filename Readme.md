@@ -32,6 +32,10 @@ simpose view <dataset_directory>
 - Physics using PyBullet
 - Check out the examples!
 
+## Models and Meshes 
+- You can use the simpose.random.ModelLoader to retrieve random objects with .get_objects from the ShapeNet dataset. Please request and download the dataset from ShapeNet on your own and specify the path to the dataset in the ShapenetLoader.
+- A script to download and extract Models from the YCB dataset is provided. The models can then be used in a similar fashion with the simpose.random.ModelLoader.
+
 ## Notes
 - GT labels are only written for objects with `add_semantics=True`
 - multiprocessing works, if you import simpose in the worker processes. Check memory usage!

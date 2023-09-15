@@ -41,6 +41,4 @@ class AppearanceRandomizer(simpose.Callback):
                     break
                 r = self._ranges[appearance]
                 random_value = np.random.uniform(default - r, default + r)
-
-                logging.debug(f"{obj}.{appearance}: %f", random_value)
                 obj.set_appearance(appearance, random_value, set_default=False)

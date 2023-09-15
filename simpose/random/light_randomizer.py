@@ -39,7 +39,7 @@ class LightRandomizer(simpose.Callback):
             light.set_location(pos)
             light.color = np.random.uniform(*self._color_range, size=(3,))
 
-        logging.debug(f"Created {n_lights} lights")
+        logging.getLogger(__name__).debug(f"Created {n_lights} lights")
 
     def _get_random_position_rel_to_camera(self, cam: simpose.Camera):
         dist = np.random.uniform(*self._distance_range)
