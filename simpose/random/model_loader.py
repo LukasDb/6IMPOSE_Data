@@ -92,15 +92,15 @@ class ModelLoader(simpose.Callback):
 
     def get_object(self, **kwargs) -> simpose.Object:
         if len(self._additional_loaders) > 1:
-            i = np.random.randint(0, len(self._additional_loaders) - 1)
+            i = np.random.randint(0, len(self._additional_loaders))
             loader = self._additional_loaders[i]
         else:
             loader = self
         return loader._get_object(**kwargs)
 
     def _get_object(self, **kwargs) -> simpose.Object:
-        model_path = np.random.choice(self._model_paths, replace=True)  # type: ignore
-        print(f"CHOSE: {model_path}")
+        i = np.random.randint(0, len(self._model_paths))
+        model_path = self._model_paths[i]
         obj = self._scene.create_object(
             model_path,
             add_semantics=False,

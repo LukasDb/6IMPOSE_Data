@@ -17,6 +17,7 @@ class LightRandomizer(simpose.Callback):
         energy_range: Tuple[int, int],
         color_range: Tuple[float, float],
         distance_range: Tuple[float, float],
+        size_range: Tuple[float, float],
     ):
         super().__init__(scene, cb_type)
         self._scene = scene
@@ -25,6 +26,7 @@ class LightRandomizer(simpose.Callback):
         self._energy_range = energy_range
         self._color_range = color_range
         self._distance_range = distance_range
+        self._size_range = size_range
 
     def callback(self):
         """generates random point lights arond cam"""
@@ -42,6 +44,7 @@ class LightRandomizer(simpose.Callback):
             light.set_location(pos)
             light.point_at(np.array([0.0, 0.0, 0.0]))
             light.color = np.random.uniform(*self._color_range, size=(3,))
+            light.size = np.random.uniform(*self._size_range)
 
         logging.getLogger("simpose").debug(f"Created {n_lights} lights")
 

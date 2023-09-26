@@ -53,3 +53,13 @@ class Light(Placeable):
     @color.setter
     def color(self, color):
         self.light_data.color = color
+
+    @property
+    def size(self):
+        assert isinstance(self.light_data, bpy.types.AreaLight), "Not an area light"
+        return self.light_data.size
+
+    @size.setter
+    def size(self, size):
+        assert isinstance(self.light_data, bpy.types.AreaLight), "Not an area light"
+        self.light_data.size = size

@@ -4,11 +4,12 @@ import bpy
 
 with redirect_stdout():
     import pybullet as p
-    import pybullet_data
 
 from simpose.camera import Camera
 from simpose.light import Light
 from simpose.object import Object
+from simpose.plane import Plane
+
 import numpy as np
 import logging
 import time
@@ -62,12 +63,7 @@ class Scene(Callbacks):
         p.resetSimulation()
         p.setGravity(0, 0, -9.81)
         p.setRealTimeSimulation(0)
-        # set timestep to 1/24. with 10substeps
         p.setPhysicsEngineParameter(fixedTimeStep=1 / 240.0, numSubSteps=1)
-
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        plane = p.loadURDF("plane.urdf")  # XY ground plane
-        p.changeDynamics(plane, -1, lateralFriction=0.5, restitution=0.8)
 
         self.call_callback(CallbackType.ON_SCENE_CREATED)
 
@@ -85,7 +81,7 @@ class Scene(Callbacks):
 
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
-        logger.debug(f"Stepping pyhysics for {dt} seconds")
+        logger.debug(f"Stepping physics for {dt} seconds")
         self.call_callback(CallbackType.BEFORE_PHYSICS_STEP)
 
         num_steps = np.floor(240 * dt).astype(int)
@@ -166,6 +162,11 @@ class Scene(Callbacks):
         self.output_dir = output_dir
         self.output_node.base_path = str((self.output_dir).resolve())
         self.mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
+
+    def create_plane(self, size: float = 2, with_physics: bool = True):
+        plane = Plane.create(size, with_physics)
+        bpy.data.collections["Objects"].objects.link(plane._bl_object)
+        return plane
 
     def get_cameras(self) -> list[Camera]:
         return [Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects]

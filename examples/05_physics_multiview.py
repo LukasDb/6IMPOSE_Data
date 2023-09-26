@@ -1,11 +1,18 @@
 import logging, coloredlogs
-
-coloredlogs.install(logging.DEBUG, fmt="%(asctime)s %(levelname)s %(message)s")
+from random import Random
 
 import numpy as np
 import multiprocessing as mp
 from pathlib import Path
 import click
+
+logger = logging.getLogger("simpose")
+
+coloredlogs.install(
+    logging.DEBUG,
+    fmt="%(asctime)s %(levelname)s %(message)s",
+    logger=logger,
+)
 
 
 @click.command()
@@ -28,7 +35,7 @@ def main(
     debug: bool = False,
 ):
     if debug:
-        logging.getLogger().setLevel(0)
+        logger.setLevel(0)
         scene = generate_data([0], Path("/tmp/debug_6IMPOSE"), main_obj_path, scale=scale)
         scene.export_blend()
         scene.run_simulation()
@@ -42,17 +49,17 @@ def main(
         all_indices = np.arange(start, end + 1)
 
     if len(all_indices) == 0:
-        logging.info("No images to render.")
+        logger.info("No images to render.")
         return
 
     n_workers = min(n_workers, len(all_indices))
 
     if n_workers == 1:
-        logging.info("Using single process.")
+        logger.info("Using single process.")
         generate_data(all_indices.tolist(), output_path, main_obj_path, scale)
         return
 
-    logging.info("Rendering %d images with %d workers.", len(all_indices), n_workers)
+    logger.info("Rendering %d images with %d workers.", len(all_indices), n_workers)
     indices = np.array_split(all_indices, n_workers)
 
     queue = mp.Queue()
@@ -85,20 +92,51 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
     np.random.seed(mp.current_process().pid)
 
     import simpose as sp
-    import logging
+    import logging, coloredlogs
 
     from tqdm import tqdm
     from scipy.spatial.transform import Rotation as R
     import random
 
+    coloredlogs.install(
+        logging.DEBUG,
+        fmt="%(asctime)s %(levelname)s %(message)s",
+        logger=logger,
+    )
+
     fh = logging.FileHandler(f"{mp.current_process().name}.log")
     fh.setLevel(0)
-    logging.getLogger().addHandler(fh)
+    logger.addHandler(fh)
 
     proc_name = mp.current_process().name
     is_primary_worker = proc_name == "Process-1" or proc_name == "MainProcess"
 
+    class RandomImagePicker(sp.Callback):
+        def __init__(
+            self,
+            caller: sp.Callbacks,
+            type: sp.CallbackType,
+            img_paths: list[Path],
+            plane: sp.Plane,
+        ) -> None:
+            super().__init__(caller, type)
+            self._plane = plane
+            self._img_paths = img_paths
+
+        def callback(self):
+            i = np.random.randint(0, len(self._img_paths))
+            img_path = self._img_paths[i]
+            self._plane.set_image(str(img_path.resolve()))
+
     scene = sp.Scene(img_h=1080, img_w=1920)
+    plane = scene.create_plane()
+
+    RandomImagePicker(
+        scene,
+        sp.CallbackType.BEFORE_RENDER,
+        [x for x in Path.home().joinpath("Pictures/textures").iterdir() if "norm" not in x.name],
+        plane,
+    )
 
     writer = sp.Writer(scene, output_path)
 
@@ -126,6 +164,7 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
         scene,
         sp.CallbackType.BEFORE_RENDER,
     )
+    appearance_randomizer.add(plane)
 
     # cam = scene.create_camera("Camera")
     cam = scene.create_stereo_camera("Camera", baseline=0.063)
@@ -135,10 +174,11 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
         scene,
         cam,
         sp.CallbackType.BEFORE_RENDER,
-        no_of_lights_range=(3, 6),
+        no_of_lights_range=(2, 4),
         energy_range=(300, 1000),
         color_range=(0.8, 1.0),
         distance_range=(3.0, 10.0),
+        size_range=(0.8, 2),
     )
 
     sp.random.BackgroundRandomizer(
@@ -180,24 +220,6 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
 
     while True:
         model_loader.reset()
-        # new_objs = model_loader.get_objects(mass=0.1, friction=friction)
-        # for new_obj in new_objs:
-        #     appearance_randomizer.add(new_obj)
-
-        # random.shuffle(new_objs)
-        # drop_objects = new_objs + main_objs
-
-        # for j, obj in enumerate(drop_objects):
-        #     obj.show()
-        #     obj.set_location(
-        #         (
-        #             np.random.uniform(-0.05, 0.05),
-        #             np.random.uniform(-0.05, 0.05),
-        #             j * 0.1 + 0.1,
-        #         )
-        #     )
-        #     obj.set_rotation(R.random())
-        # scene.step_physics(1.0)  # initial fall
 
         # add 20 objects and let fall
         for obj in model_loader.get_objects(40, mass=1, friction=friction, hide=True):
@@ -211,7 +233,7 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
                 )
             )
             obj.set_rotation(R.random())
-            scene.step_physics(0.5)  # initial fall
+            scene.step_physics(0.4)  # initial fall
 
         # mix main_objects and a few distractors
         distractors = model_loader.get_objects(5, mass=0.2, friction=friction, hide=True)
@@ -233,7 +255,7 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
                 )
             )
             obj.set_rotation(R.random())
-            scene.step_physics(0.5)
+            scene.step_physics(0.4)
 
         for _ in range(num_dt_step):
             scene.step_physics(dt)
@@ -252,8 +274,8 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
                 cam.point_at(np.array([0.0, 0.0, 0.0]))  # with z up
 
                 cam.apply_local_rotation_offset(
-                    R.from_euler("z", np.random.uniform(-5, 5), degrees=True)
-                )  # minor rotation noise
+                    R.from_euler("z", np.random.uniform(-20, 20), degrees=True)
+                )
 
                 writer.generate_data(indices[i])
 

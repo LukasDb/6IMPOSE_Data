@@ -32,25 +32,32 @@ def main(data_dir: Path):
     st.set_page_config(layout="wide", page_title="Dataset Viewer")
 
     c1, c2, c3 = st.columns(3)
+
+    # c1
     img_dir = c1.text_input(
         "Image directory",
         str(data_dir.resolve()),
         label_visibility="collapsed",
         placeholder="Dataset directory",
     )
+    indices = get_idx(img_dir)
+    if len(indices) == 1:
+        indices += [indices[0]]
+    idx = c1.select_slider("Select image", indices, value=indices[0], key="idx")
+
+    # c2
     if c2.button("↻"):
         st.cache_data.clear()
 
-    indices = get_idx(img_dir)
-
-    if len(indices) == 1:
-        indices += [indices[0]]
-
-    idx = c1.select_slider("Select image", indices, value=indices[0], key="idx")
+    # c3
+    with c3:
+        use_bbox = st.toggle("BBox", value=False)
+        use_pose = st.toggle("Pose", value=False)
 
     st.header(f"Datapoint: #{idx:05} (of total {len(indices)} images)")
 
-    data = load_data(img_dir, idx)
+    data = load_data(img_dir, idx, use_bbox=use_bbox, use_pose=use_pose)
+
     rgb = data["rgb"]
     rgb_R = data["rgb_R"]
     depth = data["depth"]
@@ -117,7 +124,7 @@ def main(data_dir: Path):
         st.image(colored_semantic_mask_rgb, caption=f"Semantic Mask {mask.shape}, {mask.dtype}")
 
 
-def load_data(img_dir, idx):
+def load_data(img_dir, idx, use_bbox=False, use_pose=False):
     if "cls_colors" not in st.session_state:
         st.session_state["cls_colors"] = {
             "cpsduck": (0, 250, 250),
@@ -175,32 +182,40 @@ def load_data(img_dir, idx):
     for obj in objs:
         # semantics
         cls = obj["class"]
-        cls_colors.setdefault(cls, np.random.randint(0, 255, size=3).astype(np.uint8).tolist())
+        cls_colors.setdefault(cls, np.random.randint(0, 256, size=3).astype(np.uint8).tolist())
         colored_semantic_mask_bgr[mask == obj["object id"]] = cls_colors[cls]
 
         # bbox
-        bbox = obj["bbox_visib"]
-        # bbox_size = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-        # "visib_fract": visib_fract,
-        if obj["visib_fract"] > 0.1:
-            cv2.rectangle(
+        if use_bbox:
+            bbox = obj["bbox_visib"]
+            # bbox_size = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            # "visib_fract": visib_fract,
+            if obj["visib_fract"] > 0.1:
+                cv2.rectangle(
+                    bgr,
+                    (bbox[0], bbox[1]),
+                    (bbox[2], bbox[3]),
+                    color=cls_colors[cls],
+                    thickness=2,
+                )
+
+        if use_pose:
+            obj_pos = np.array(obj["pos"])
+            quat = obj["rotation"]
+            obj_rot = R.from_quat(quat).as_matrix()  # w, x, y, z -> x, y, z, w
+            t = cam_rot.T @ (obj_pos - cam_pos)
+            RotM = cam_rot.T @ obj_rot
+
+            rotV, _ = cv2.Rodrigues(RotM)
+            cv2.drawFrameAxes(
                 bgr,
-                (bbox[0], bbox[1]),
-                (bbox[2], bbox[3]),
-                color=cls_colors[cls],
+                cameraMatrix=cam_matrix,
+                rvec=rotV,
+                tvec=t,
+                distCoeffs=0,
+                length=0.05,
                 thickness=2,
             )
-
-        obj_pos = np.array(obj["pos"])
-        quat = obj["rotation"]
-        obj_rot = R.from_quat(quat).as_matrix()  # w, x, y, z -> x, y, z, w
-        t = cam_rot.T @ (obj_pos - cam_pos)
-        RotM = cam_rot.T @ obj_rot
-
-        rotV, _ = cv2.Rodrigues(RotM)
-        cv2.drawFrameAxes(
-            bgr, cameraMatrix=cam_matrix, rvec=rotV, tvec=t, distCoeffs=0, length=0.05, thickness=1
-        )
 
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     rgb_R = cv2.cvtColor(bgr_R, cv2.COLOR_BGR2RGB) if bgr_R is not None else None
