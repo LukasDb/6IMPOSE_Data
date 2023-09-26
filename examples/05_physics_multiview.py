@@ -9,24 +9,33 @@ import click
 
 
 @click.command()
-@click.argument("output_path", type=str)
-@click.argument("main_obj_path", type=str)
+@click.argument("output_path", type=click.Path(path_type=Path))
+@click.argument("main_obj_path", type=click.Path(path_type=Path))
 @click.option("--scale", default=1.0, help="Scale of the object.", type=float)
 @click.option("--start", default=0, help="Start index for rendering.", type=int)
 @click.option("--end", default=19999, help="End index for rendering.", type=int)
 @click.option("--n_workers", default=8, type=int, help="Number of workers.")
 @click.option("--overwrite", is_flag=True, default=False, help="Overwrite existing files.")
+@click.option("--debug", is_flag=True, default=False, help="Debug mode.")
 def main(
     start: int,
     end: int,
     n_workers: int,
-    output_path: str,
-    main_obj_path: str,
+    output_path: Path,
+    main_obj_path: Path,
     scale: float,
     overwrite: bool,
+    debug: bool = False,
 ):
+    if debug:
+        logging.getLogger().setLevel(0)
+        scene = generate_data([0], Path("/tmp/debug_6IMPOSE"), main_obj_path, scale=scale)
+        scene.export_blend()
+        scene.run_simulation()
+        exit()
+
     if not overwrite:
-        existing_files = Path(output_path).joinpath("gt").glob("*.json")
+        existing_files = output_path.joinpath("gt").glob("*.json")
         existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
         all_indices = np.setdiff1d(np.arange(start, end + 1), existing_ids)
     else:
@@ -40,7 +49,7 @@ def main(
 
     if n_workers == 1:
         logging.info("Using single process.")
-        generate_data(all_indices.tolist(), Path(output_path), Path(main_obj_path), scale)
+        generate_data(all_indices.tolist(), output_path, main_obj_path, scale)
         return
 
     logging.info("Rendering %d images with %d workers.", len(all_indices), n_workers)
@@ -53,7 +62,7 @@ def main(
 
     # load jobs
     for i in range(n_workers):
-        queue.put((indices[i], Path(output_path), Path(main_obj_path), scale))
+        queue.put((indices[i], output_path, main_obj_path, scale))
     # send stop signal
     for _ in range(n_workers):
         queue.put(None)
@@ -94,18 +103,24 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
     writer = sp.Writer(scene, output_path)
 
     # shapenet_root = Path.home().joinpath("data/shapenet/ShapeNetCore")
-    # model_loader = sp.random.ModelLoader(
-    #     scene, sp.CallbackType.NONE, root=shapenet_root, num_objects=20
-    # )
     ycb_root = Path.home().joinpath("data/ycb_models")
+    ugreal_root = Path.home().joinpath("data/SynthDet")
+
     model_loader = sp.random.ModelLoader(
         scene,
         sp.CallbackType.NONE,
         root=ycb_root,
-        num_objects=20,
         model_source=sp.random.ModelSource.YCB,
-        scale_range=(0.5, 2.0),
+    ) + sp.random.ModelLoader(
+        scene,
+        sp.CallbackType.NONE,
+        root=ugreal_root,
+        model_source=sp.random.ModelSource.SYNTHDET,
+        scale_range=(0.25, 1),
     )
+    # + model_loader = sp.random.ModelLoader(
+    #     scene, sp.CallbackType.NONE, root=shapenet_root, num_objects=20
+    # )
 
     appearance_randomizer = sp.random.AppearanceRandomizer(
         scene,
@@ -116,7 +131,7 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
     cam = scene.create_stereo_camera("Camera", baseline=0.063)
     cam.set_from_hfov(70, scene.resolution_x, scene.resolution_y, degrees=True)
 
-    rand_lights = sp.random.LightRandomizer(
+    sp.random.LightRandomizer(
         scene,
         cam,
         sp.CallbackType.BEFORE_RENDER,
@@ -126,13 +141,13 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
         distance_range=(3.0, 10.0),
     )
 
-    rand_bg = sp.random.BackgroundRandomizer(
+    sp.random.BackgroundRandomizer(
         scene,
         sp.CallbackType.BEFORE_RENDER,
         backgrounds_dir=Path.home().joinpath("data/backgrounds"),
     )
 
-    friction = 0.8
+    friction = 0.5
 
     main_obj = scene.create_object(
         obj_path, mass=0.2, friction=friction, add_semantics=True, scale=scale
@@ -150,6 +165,7 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
 
     for obj in main_objs:
         appearance_randomizer.add(obj)
+        obj.hide()
 
     # data generation params
     dt = 1 / 4.0
@@ -159,28 +175,65 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
 
     i = 0
     bar = tqdm(total=len(indices), desc="Process-1", smoothing=0.0, disable=not is_primary_worker)
-    while True:
-        new_objs = model_loader.get_objects(mass=0.1, friction=friction)
-        for new_obj in new_objs:
-            appearance_randomizer.add(new_obj)
-        drop_objects = main_objs  # + new_objs
-        random.shuffle(drop_objects)
 
-        for j, obj in enumerate(drop_objects):
+    drop_height = 0.8
+
+    while True:
+        model_loader.reset()
+        # new_objs = model_loader.get_objects(mass=0.1, friction=friction)
+        # for new_obj in new_objs:
+        #     appearance_randomizer.add(new_obj)
+
+        # random.shuffle(new_objs)
+        # drop_objects = new_objs + main_objs
+
+        # for j, obj in enumerate(drop_objects):
+        #     obj.show()
+        #     obj.set_location(
+        #         (
+        #             np.random.uniform(-0.05, 0.05),
+        #             np.random.uniform(-0.05, 0.05),
+        #             j * 0.1 + 0.1,
+        #         )
+        #     )
+        #     obj.set_rotation(R.random())
+        # scene.step_physics(1.0)  # initial fall
+
+        # add 20 objects and let fall
+        for obj in model_loader.get_objects(40, mass=1, friction=friction, hide=True):
+            appearance_randomizer.add(obj)
             obj.show()
             obj.set_location(
                 (
                     np.random.uniform(-0.05, 0.05),
                     np.random.uniform(-0.05, 0.05),
-                    j * 0.05 + 0.1,
+                    drop_height,
                 )
             )
             obj.set_rotation(R.random())
+            scene.step_physics(0.5)  # initial fall
 
-        scene.step_physics(1.0)  # initial fall
+        # mix main_objects and a few distractors
+        distractors = model_loader.get_objects(5, mass=0.2, friction=friction, hide=True)
+        for obj in distractors:
+            appearance_randomizer.add(obj)
 
-        if i == 0 and is_primary_worker:
-            scene.export_blend()
+        drop_objects = main_objs + distractors
+        random.shuffle(drop_objects)
+
+        for obj in drop_objects:
+            obj.show()
+            appearance_randomizer.add(obj)
+
+            obj.set_location(
+                (
+                    np.random.uniform(-0.05, 0.05),
+                    np.random.uniform(-0.05, 0.05),
+                    drop_height,
+                )
+            )
+            obj.set_rotation(R.random())
+            scene.step_physics(0.5)
 
         for _ in range(num_dt_step):
             scene.step_physics(dt)
@@ -207,7 +260,7 @@ def generate_data(indices: list[int], output_path: Path, obj_path: Path, scale: 
                 i += 1
                 if i == len(indices):
                     bar.close()
-                    return
+                    return scene
 
                 bar.update(1)
 

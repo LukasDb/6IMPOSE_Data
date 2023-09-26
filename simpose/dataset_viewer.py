@@ -10,6 +10,8 @@ import streamlit as st
 import click
 from simpose.exr import EXR
 
+from streamlit_image_comparison import image_comparison
+
 
 @st.cache_data(show_spinner="Reading files...")
 def get_idx(img_dir):
@@ -25,23 +27,97 @@ def get_idx(img_dir):
 
 
 @click.command()
-@click.argument("data_dir", type=click.Path(exists=True))
+@click.argument("data_dir", type=click.Path(exists=True, path_type=Path))
 def main(data_dir: Path):
     st.set_page_config(layout="wide", page_title="Dataset Viewer")
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     img_dir = c1.text_input(
         "Image directory",
-        str(data_dir),
+        str(data_dir.resolve()),
         label_visibility="collapsed",
         placeholder="Dataset directory",
     )
-    if c2.button("Re-index"):
+    if c2.button("↻"):
         st.cache_data.clear()
 
     indices = get_idx(img_dir)
-    idx = st.select_slider("Image", indices, value=indices[0], key="idx")
 
+    if len(indices) == 1:
+        indices += [indices[0]]
+
+    idx = c1.select_slider("Select image", indices, value=indices[0], key="idx")
+
+    st.header(f"Datapoint: #{idx:05} (of total {len(indices)} images)")
+
+    data = load_data(img_dir, idx)
+    rgb = data["rgb"]
+    rgb_R = data["rgb_R"]
+    depth = data["depth"]
+    colored_depth = data["colored_depth"]
+    colored_mask_rgb = data["colored_mask_rgb"]
+    colored_semantic_mask_rgb = data["colored_semantic_mask_rgb"]
+    mask = data["mask"]
+
+    img2name = {
+        "rgb": "RGB",
+        "rgb_R": "RGB_R",
+        "colored_depth": "Depth",
+        "colored_mask_rgb": "Instance",
+        "colored_semantic_mask_rgb": "Semantic",
+    }
+    if data["rgb_R"] is None:
+        img2name.pop("rgb_R")
+
+    chose_col1, chose_col2 = c2.columns(2)
+    chosen_left = chose_col1.selectbox(
+        "Select view",
+        options=list(img2name.keys()),
+        index=0,
+        format_func=lambda x: img2name[x],
+        key="view_left",
+    )
+    chosen_right = chose_col2.selectbox(
+        "Select view",
+        options=list(img2name.keys()),
+        index=1,
+        format_func=lambda x: img2name[x],
+        key="view_right",
+    )
+    if chosen_left is None:
+        chosen_left = "rgb"
+
+    if chosen_right is None:
+        chosen_right = "colored_depth"
+
+    left_img = data[chosen_left]
+    right_img = data[chosen_right]
+
+    # create preview, with rgb and mask
+    image_comparison(
+        img1=left_img,
+        img2=right_img,
+        label1=chosen_left,
+        label2=chosen_right,
+        starting_position=50,
+        show_labels=True,
+        make_responsive=True,
+        in_memory=True,
+    )
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.image(rgb, caption=f"RGB {rgb.shape}, {rgb.dtype}")
+        if rgb_R is not None:
+            st.image(rgb_R, caption=f"RGB_R {rgb_R.shape}, {rgb_R.dtype}")
+        st.image(colored_depth, caption=f"Depth {depth.shape}, {depth.dtype}")
+
+    with c2:
+        st.image(colored_mask_rgb, caption=f"Instance Mask {mask.shape}, {mask.dtype}")
+        st.image(colored_semantic_mask_rgb, caption=f"Semantic Mask {mask.shape}, {mask.dtype}")
+
+
+def load_data(img_dir, idx):
     if "cls_colors" not in st.session_state:
         st.session_state["cls_colors"] = {
             "cpsduck": (0, 250, 250),
@@ -126,23 +202,19 @@ def main(data_dir: Path):
             bgr, cameraMatrix=cam_matrix, rvec=rotV, tvec=t, distCoeffs=0, length=0.05, thickness=1
         )
 
-    # create preview, with rgb and mask
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     rgb_R = cv2.cvtColor(bgr_R, cv2.COLOR_BGR2RGB) if bgr_R is not None else None
     colored_mask_rgb = cv2.cvtColor(colored_mask_bgr, cv2.COLOR_BGR2RGB)
     colored_semantic_mask_rgb = cv2.cvtColor(colored_semantic_mask_bgr, cv2.COLOR_BGR2RGB)
-
-    st.title(f"Datapoint: {idx:05}/{len(indices):05}")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.image(rgb, caption=f"RGB {rgb.shape}, {rgb.dtype}")
-        if rgb_R is not None:
-            st.image(rgb_R, caption=f"RGB_R {rgb_R.shape}, {rgb_R.dtype}")
-        st.image(colored_depth, caption=f"Depth {depth.shape}, {depth.dtype}")
-
-    with c2:
-        st.image(colored_mask_rgb, caption=f"Instance Mask {mask.shape}, {mask.dtype}")
-        st.image(colored_semantic_mask_rgb, caption=f"Semantic Mask {mask.shape}, {mask.dtype}")
+    return {
+        "rgb": rgb,
+        "rgb_R": rgb_R,
+        "mask": mask,
+        "colored_mask_rgb": colored_mask_rgb,
+        "colored_semantic_mask_rgb": colored_semantic_mask_rgb,
+        "depth": depth,
+        "colored_depth": colored_depth,
+    }
 
 
 if __name__ == "__main__":
