@@ -35,6 +35,7 @@ simpose view <dataset_directory>
 ## Models and Meshes 
 - You can use the simpose.random.ModelLoader to retrieve random objects with .get_objects from the ShapeNet dataset. Please request and download the dataset from ShapeNet on your own and specify the path to the dataset in the ShapenetLoader.
 - A script to download and extract Models from the YCB dataset is provided. The models can then be used in a similar fashion with the simpose.random.ModelLoader.
+- The objects from [SynthDet](https://github.com/Unity-Technologies/SynthDet) can also be used as distractor objects. Download the "SynthDet/SynthDet/Assets/Foreground Objects" folder and convert the ASCII Fbx files to binary FBX files (for example, using [this](https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-2020-0?us_oa=akn-us&us_si=9066be5d-863a-4cd3-b98f-87bda034316b&us_st=fbx%20sdk))and specify the model source for the `simpose.random.ModelLoader`.
 
 ## Notes
 - GT labels are only written for objects with `add_semantics=True`

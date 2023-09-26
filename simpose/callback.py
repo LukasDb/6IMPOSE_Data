@@ -7,7 +7,8 @@ class CallbackType(Enum):
     NONE = auto()
     ON_SCENE_CREATED = auto()
     ON_OBJECT_CREATED = auto()
-    ON_PHYSICS_STEP = auto()
+    BEFORE_PHYSICS_STEP = auto()
+    AFTER_PHYSICS_STEP = auto()
     BEFORE_RENDER = auto()
     AFTER_RENDER = auto()
 

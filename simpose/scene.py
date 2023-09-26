@@ -11,12 +11,13 @@ from simpose.light import Light
 from simpose.object import Object
 import numpy as np
 import logging
+import time
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
 from simpose.callback import Callback, Callbacks, CallbackType
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("simpose")
 
 
 class Scene(Callbacks):
@@ -44,7 +45,7 @@ class Scene(Callbacks):
         scene.render.resolution_x = img_w
         scene.render.resolution_y = img_h
         scene.render.resolution_percentage = 100
-        scene.render.use_persistent_data = True
+        scene.render.use_persistent_data = False  # HACK
         scene.view_layers[0].cycles.use_denoising = True
 
         self.current_bg_img: bpy.types.Image | None = None
@@ -53,16 +54,20 @@ class Scene(Callbacks):
         self._setup_compositor()
         self._register_new_id("visib")
 
-        p.connect(p.DIRECT)
+        if logger.level >= logging.DEBUG:
+            p.connect(p.DIRECT)
+        else:
+            p.connect(p.GUI)
+
         p.resetSimulation()
         p.setGravity(0, 0, -9.81)
         p.setRealTimeSimulation(0)
         # set timestep to 1/24. with 10substeps
-        p.setPhysicsEngineParameter(fixedTimeStep=1 / 24.0, numSubSteps=10)
+        p.setPhysicsEngineParameter(fixedTimeStep=1 / 240.0, numSubSteps=1)
 
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         plane = p.loadURDF("plane.urdf")  # XY ground plane
-        p.changeDynamics(plane, -1, lateralFriction=0.8, restitution=0.0)
+        p.changeDynamics(plane, -1, lateralFriction=0.5, restitution=0.8)
 
         self.call_callback(CallbackType.ON_SCENE_CREATED)
 
@@ -81,20 +86,30 @@ class Scene(Callbacks):
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
         logger.debug(f"Stepping pyhysics for {dt} seconds")
-        num_steps = np.floor(24 * dt).astype(int)
+        self.call_callback(CallbackType.BEFORE_PHYSICS_STEP)
+
+        num_steps = np.floor(240 * dt).astype(int)
         for _ in range(max(1, num_steps)):
             p.stepSimulation()
         # now apply transform to objects
+        self._apply_simulation()
+        self.call_callback(CallbackType.AFTER_PHYSICS_STEP)
+
+    def run_simulation(self, with_export=False):
+        p.setRealTimeSimulation(1)
+        while True:
+            time.sleep(1 / 60.0)
+            if not with_export:
+                continue
+            self._apply_simulation()
+            self.export_blend()
+
+    def _apply_simulation(self):
         for obj in self.get_active_objects():
             try:
-                pb_id = obj._bl_object["pb_id"]
-                pos, orn = p.getBasePositionAndOrientation(pb_id)
-                obj.set_location(pos)
-                obj.set_rotation(R.from_quat(orn))
+                obj.apply_pybullet_pose()
             except KeyError:
                 pass
-
-        self.call_callback(CallbackType.ON_PHYSICS_STEP)
 
     def render(self):
         logger.debug("Rendering")
@@ -124,6 +139,7 @@ class Scene(Callbacks):
         # for left image and the labels
         self._bl_scene.camera = camera.left_camera
         with redirect_stdout():
+            logger.debug(f"Rendering left to {self.output_dir}")
             bpy.ops.render.render(write_still=False)
 
         # render mask into a single EXR using eevee
@@ -178,6 +194,7 @@ class Scene(Callbacks):
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
+        hide: bool = False,
     ) -> Object:
         if obj_path.suffix == ".obj":
             obj = Object.from_obj(
@@ -203,13 +220,24 @@ class Scene(Callbacks):
                 friction=friction,
                 scale=scale,
             )
+        elif obj_path.suffix == ".fbx":
+            obj = Object.from_fbx(
+                filepath=obj_path,
+                add_semantics=add_semantics,
+                mass=mass,
+                friction=friction,
+                scale=scale,
+            )
         else:
-            raise NotImplementedError("Only .obj and .ply files are supported")
+            raise NotImplementedError(f"Unsupported file format: {obj_path.suffix}")
 
         if add_semantics:
             new_id = self.get_new_object_id()
             obj.set_semantic_id(new_id)
             self._register_new_id(new_id)
+
+        if hide:
+            obj.hide()
 
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
 
@@ -300,9 +328,11 @@ class Scene(Callbacks):
         # scale_to_fit = np.max(self.resolution / np.array(self.current_bg_img.size))
         logger.debug(f"Set background to {filepath}")
 
-    def export_blend(self, filepath=str(Path("scene.blend").resolve())):
+    def export_blend(self, filepath: Path = Path("scene.blend")):
+        self._bl_scene.render.engine = "CYCLES"
         with redirect_stdout():
-            bpy.ops.wm.save_as_mainfile(filepath=filepath)
+            bpy.ops.wm.save_as_mainfile(filepath=str(filepath.resolve()))
+        logger.debug(f"Export scene to {filepath.resolve()}")
 
     def export_meshes(self, output_dir: Path):
         """export meshes as ply files in 'meshes' folder"""
@@ -312,6 +342,8 @@ class Scene(Callbacks):
     def _setup_compositor(self):
         self._bl_scene.use_nodes = True
         self._bl_scene.render.film_transparent = True
+        self._bl_scene.render.use_simplify = True
+
         self._bl_scene.view_layers["ViewLayer"].use_pass_z = True
         self._bl_scene.view_layers["ViewLayer"].use_pass_combined = True
         self._bl_scene.render.engine = "CYCLES"
@@ -321,6 +353,10 @@ class Scene(Callbacks):
         self._bl_scene.cycles.caustics_refractive = False
         self._bl_scene.cycles.use_auto_tile = True
         self._bl_scene.cycles.tile_size = 256
+        self._bl_scene.cycles.caustics_reflective = True
+        self._bl_scene.cycles.caustics_refractive = True
+        self._bl_scene.cycles.use_camera_cull = True
+        self._bl_scene.cycles.use_distance_cull = True
 
         self._bl_scene.eevee.taa_render_samples = 1
         self._bl_scene.eevee.taa_samples = 1

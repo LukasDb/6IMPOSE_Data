@@ -10,6 +10,11 @@ class Light(Placeable):
     It has no internal state, everything is delegated to the blender object.
     """
 
+    TYPE_POINT = "POINT"
+    TYPE_SUN = "SUN"
+    TYPE_SPOT = "SPOT"
+    TYPE_AREA = "AREA"
+
     def __init__(self, bl_light):
         super().__init__(bl_object=bl_light)
 

@@ -7,7 +7,7 @@ import logging
 import signal
 from .exr import EXR
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("simpose")
 
 
 class DelayedKeyboardInterrupt:

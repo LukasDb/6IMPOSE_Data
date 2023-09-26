@@ -11,7 +11,7 @@ import numpy as np
 import pybullet as p
 from enum import Enum
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("simpose")
 
 
 class _ObjectAppearance(Enum):
@@ -87,7 +87,7 @@ class Object(Placeable):
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
-            bpy.ops.import_scene.obj(filepath=str(filepath.resolve()))
+            bpy.ops.import_scene.obj(filepath=str(filepath.resolve()), use_split_objects=False)
         try:
             bl_object = bpy.context.selected_objects[0]
         except IndexError:
@@ -129,6 +129,59 @@ class Object(Placeable):
                     export_materials=False,
                     export_colors=False,
                     export_normals=True,
+                    export_selected_objects=True,
+                    apply_modifiers=False,
+                )
+
+        obj = Object._initialize_bl_object(
+            bl_object=bl_object,
+            scale=scale,
+            mass=mass,
+            obj_path=collision_obj_path,
+            add_semantics=add_semantics,
+            friction=friction,
+        )
+        return obj
+
+    @staticmethod
+    def from_fbx(
+        filepath: Path,
+        add_semantics: bool = False,
+        mass: float | None = None,
+        friction: float = 0.5,
+        scale: float = 1.0,
+    ):
+        # clear selection
+        bpy.ops.object.select_all(action="DESELECT")
+        with redirect_stdout():
+            bpy.ops.import_scene.fbx(filepath=str(filepath.resolve()), use_anim=False)
+
+        # how many objects are selected?
+        if len(bpy.context.selected_objects) > 1:
+            # choose active object to be joined to
+            # select the one not containing "transparent" -> more likely to have a proper name
+            bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
+            for obj in bpy.context.selected_objects:
+                if "transparent" not in obj.name:
+                    bpy.context.view_layer.objects.active = obj
+                    break
+            bpy.ops.object.join()
+
+        try:
+            bl_object = bpy.context.selected_objects[0]
+        except IndexError:
+            raise RuntimeError(f"Could not import {filepath}")
+
+        collision_obj_path = filepath.with_suffix(".obj").resolve()
+        with redirect_stdout():
+            if not collision_obj_path.exists():
+                bpy.ops.wm.obj_export(
+                    filepath=str(collision_obj_path),
+                    export_materials=False,
+                    export_colors=False,
+                    export_normals=True,
+                    export_selected_objects=True,
+                    apply_modifiers=False,
                 )
 
         obj = Object._initialize_bl_object(
@@ -167,6 +220,8 @@ class Object(Placeable):
                     export_materials=False,
                     export_colors=False,
                     export_normals=True,
+                    export_selected_objects=True,
+                    apply_modifiers=False,
                 )
         # create new material for object
         material: bpy.types.Material = bpy.data.materials.new(name="sp_Material")
@@ -306,22 +361,38 @@ class Object(Placeable):
 
     def set_location(self, location: Tuple | np.ndarray):
         try:
-            # update physics representation
-            pb_id = self._bl_object["pb_id"]
-            q = self._bl_object.rotation_quaternion
-            p.resetBasePositionAndOrientation(pb_id, location, [q.x, q.y, q.z, q.w])  # type: ignore
+            self._set_pybullet_pose(location, self.rotation)
         except KeyError:
             pass
         return super().set_location(location)
 
     def set_rotation(self, rotation: R):
         try:
-            # update physics representation
-            pb_id = self._bl_object["pb_id"]
-            p.resetBasePositionAndOrientation(pb_id, self._bl_object.location, rotation.as_quat())  # type: ignore
+            self._set_pybullet_pose(self.location, rotation)
         except KeyError:
             pass
         return super().set_rotation(rotation)
+
+    def _set_pybullet_pose(self, location: Tuple | np.ndarray, rotation: R):
+        try:
+            # update physics representation
+            pb_id = self._bl_object["pb_id"]
+            com = np.array(self._bl_object["COM"])
+
+            loc = np.array(location) - rotation.apply(np.array(com))
+            p.resetBasePositionAndOrientation(pb_id, loc, rotation.as_quat(canonical=True))
+        except KeyError:
+            pass
+
+    def apply_pybullet_pose(self):
+        pb_id = self._bl_object["pb_id"]
+        com = np.array(self._bl_object["COM"])
+        pos, orn = p.getBasePositionAndOrientation(pb_id)
+
+        location = pos + self.rotation.apply(np.array(com))
+
+        self.set_location(location)
+        self.set_rotation(R.from_quat(orn))
 
     def remove(self):
         try:
@@ -349,17 +420,21 @@ class Object(Placeable):
         coll_id = self._bl_object["coll_id"]
         mass = self._bl_object["mass"]
         friction = self._bl_object["friction"]
-
+        
         pb_id = p.createMultiBody(
             baseMass=mass,
             baseCollisionShapeIndex=coll_id,
-            basePosition=[0.0, 0.0, 0.0],
+            baseInertialFramePosition=[0.0, 0.0, 0.0],
+            useMaximalCoordinates=True,
         )
-        p.changeDynamics(pb_id, -1, lateralFriction=friction, spinningFriction=friction)
-        p.resetBasePositionAndOrientation(
-            pb_id, self._bl_object.location, self.rotation.as_quat(canonical=True)
+        p.changeDynamics(
+            pb_id,
+            -1,
+            lateralFriction=friction,
+            spinningFriction=friction,
         )
         self._bl_object["pb_id"] = pb_id
+        self._set_pybullet_pose(self.location, self.rotation)
         return pb_id
 
     def _remove_pybullet_object(self):
@@ -413,7 +488,21 @@ class Object(Placeable):
                 # connect hsv node to bsdf node
                 tree.links.new(hsv_node.outputs["Color"], rgb_shader.inputs["Base Color"])  # type: ignore
 
+        # initialize object
         obj = Object(bl_object)
+        obj.set_location((0.0, 0.0, 0.0))
+        obj.set_rotation(R.from_euler("x", 0, degrees=True))
+        obj._bl_object["semantics"] = add_semantics
+        obj._bl_object.pass_index = 0
+
+        # set defaults for appearance
+        obj.set_metallic(0.0, set_default=True)
+        obj.set_roughness(0.5, set_default=True)
+        obj.set_hue(0.5, set_default=True)
+        obj.set_saturation(1.0, set_default=True)
+        obj.set_value(1.0, set_default=True)
+
+        # load physics object if given
         if mass is not None:
             out_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
             if not out_path.exists():
@@ -424,13 +513,20 @@ class Object(Placeable):
                         str(out_path),
                         str(obj_path.parent.joinpath("log.txt").resolve()),
                     )
-            else:
-                pass
+
+            # find the center of gravity
+            bpy.ops.object.origin_set(type="ORIGIN_CENTER_OF_VOLUME")
+            offset = -np.array(bl_object.location)
+            bpy.context.scene.cursor.location = (0.0, 0.0, 0.0)
+            bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
 
             try:
                 with redirect_stdout():
                     coll_id = p.createCollisionShape(
-                        p.GEOM_MESH, fileName=str(out_path), meshScale=[scale] * 3
+                        p.GEOM_MESH,
+                        fileName=str(out_path),
+                        meshScale=[scale] * 3,
+                        collisionFramePosition=offset,
                     )
             except Exception as e:
                 import traceback
@@ -438,28 +534,21 @@ class Object(Placeable):
                 logger.error(
                     f"Collision shape from {out_path} failed, using convex hull from {obj_path} instead!\n{e}\n{traceback.format_exc()}"
                 )
+                # find center of mass of the object
+
                 with redirect_stdout():
                     coll_id = p.createCollisionShape(
-                        p.GEOM_MESH, fileName=str(obj_path.resolve()), meshScale=[scale] * 3
+                        p.GEOM_MESH,
+                        fileName=str(obj_path.resolve()),
+                        meshScale=[scale] * 3,
+                        collisionFramePosition=offset,
                     )
 
             obj._bl_object["coll_id"] = coll_id
             obj._bl_object["mass"] = mass
             obj._bl_object["friction"] = friction
+            obj._bl_object["COM"] = offset.tolist()
             obj._add_pybullet_object()
-
-        obj._bl_object["semantics"] = add_semantics
-        obj._bl_object.pass_index = 0
-
-        obj.set_location((0.0, 0.0, 0.0))
-        obj.set_rotation(R.from_euler("x", 0, degrees=True))
-
-        # set defaults
-        obj.set_metallic(0.0, set_default=True)
-        obj.set_roughness(0.5, set_default=True)
-        obj.set_hue(0.5, set_default=True)
-        obj.set_saturation(1.0, set_default=True)
-        obj.set_value(1.0, set_default=True)
         return obj
 
     @staticmethod
@@ -479,12 +568,6 @@ class Object(Placeable):
 
         oi = tree.nodes.new("ShaderNodeObjectInfo")
         oi.location = (300, -200)
-
-        # object_index_shader = tree.nodes.new("ShaderNodeEmission")
-        # tree.links.new(oi.outputs["Object Index"], object_index_shader.inputs["Color"])
-
-        # shader_1 = tree.nodes.new("ShaderNodeEmission")
-        # shader_1.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0)  # type: ignore
 
         # check if view layer is 0 -> object index mode
         vl_is_object_index: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")  # type: ignore

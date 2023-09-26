@@ -10,8 +10,8 @@ class AppearanceRandomizer(simpose.Callback):
         scene: simpose.Scene,
         cb_type: simpose.CallbackType,
         *,
-        metallic_range: float = 0.3,  # standard deviation 68% <, 95% <<, 99.7% <<<
-        roughness_range: float = 0.3,
+        metallic_range: float = 0.25,  # standard deviation 68% <, 95% <<, 99.7% <<<
+        roughness_range: float = 0.25,
         hue_range: float = 0.04,
         saturation_range: float = 0.24,
         value_range: float = 0.24,

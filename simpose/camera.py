@@ -5,7 +5,7 @@ import mathutils
 import numpy as np
 import logging
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("simpose")
 
 class Camera(Placeable):
     """This is just a functional wrapper around the blender object.

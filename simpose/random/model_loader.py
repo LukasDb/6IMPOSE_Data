@@ -5,15 +5,17 @@ import numpy as np
 import logging
 from enum import Enum, auto
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("simpose")
 
 
 class ModelSource(Enum):
     YCB = auto()
     SHAPENET = auto()
+    SYNTHDET = auto()
     GENERIC_OBJ = "obj"
     GENERIC_PLY = "ply"
     GENERIC_GLTF = "gltf"
+    GENERIC_FBX = "fbx"
 
 
 class ModelLoader(simpose.Callback):
@@ -25,18 +27,17 @@ class ModelLoader(simpose.Callback):
         cb_type: simpose.CallbackType,
         *,
         root: Path,
-        num_objects: int,
         model_source: ModelSource = ModelSource.SHAPENET,
-        scale_range: tuple[float, float] = (0.08, 0.3),
+        scale_range: tuple[float, float] = (0.5, 2),
     ):
         super().__init__(scene, cb_type)
         self._scene = scene
 
         # find .obj files in shapenet root
         # because folder structure at root defines type of object and not all types are equally represented choose type first, then random object
-        self._num_objects = num_objects
         self._root = root
         self._scale_range = scale_range
+        self._additional_loaders: list["ModelLoader"] = []
         self._objects: list[simpose.Object] = []
 
         if model_source == ModelSource.SHAPENET:
@@ -48,14 +49,26 @@ class ModelLoader(simpose.Callback):
             for model_path in model_paths:
                 if not model_path.exists():
                     logger.warning(f"Model path {model_path} does not exist.")
+            # shapenet scale is in weird "normalized range", so that diagonal = 1
+            # we scale to 0.2m which is more in the range of objects for robotic grasping
+            to_scale = 0.2
+            self._scale_range = (scale_range[0] * to_scale, scale_range[1] * to_scale)
 
         elif model_source == ModelSource.YCB:
             model_paths = list([x / "google_16k/textured.obj" for x in self._root.iterdir()])
+            # scale is in m
+
+        elif model_source == ModelSource.SYNTHDET:
+            model_paths = list((root / "Models").glob("*.fbx"))
+            # units are in INCHES! apply conversion factor to m to scale_range
+            to_scale = 0.0254
+            self._scale_range = (scale_range[0] * to_scale, scale_range[1] * to_scale)
 
         elif model_source in [
             ModelSource.GENERIC_OBJ,
             ModelSource.GENERIC_PLY,
             ModelSource.GENERIC_GLTF,
+            ModelSource.GENERIC_FBX,
         ]:
             # will ignore generated _vhacd models, and converted objs for collision
             model_paths = list(
@@ -71,25 +84,44 @@ class ModelLoader(simpose.Callback):
 
         logger.debug(f"Found {len(self._model_paths)} models ({model_source}).")
 
-    def get_objects(self, **kwargs) -> list[simpose.Object]:
+    def get_objects(self, num_objects: int, **kwargs) -> list[simpose.Object]:
         """renews the list of objects and returns it"""
+        for _ in range(num_objects):
+            self.get_object(**kwargs)
+        return self._objects
+
+    def get_object(self, **kwargs) -> simpose.Object:
+        if len(self._additional_loaders) > 1:
+            i = np.random.randint(0, len(self._additional_loaders) - 1)
+            loader = self._additional_loaders[i]
+        else:
+            loader = self
+        return loader._get_object(**kwargs)
+
+    def _get_object(self, **kwargs) -> simpose.Object:
+        model_path = np.random.choice(self._model_paths, replace=True)  # type: ignore
+        print(f"CHOSE: {model_path}")
+        obj = self._scene.create_object(
+            model_path,
+            add_semantics=False,
+            scale=np.random.uniform(*self._scale_range),
+            **kwargs,
+        )
+        self._objects.append(obj)
+        logger.debug(f"Added object: {model_path}")
+        return obj
+
+    def reset(self):
         for obj in self._objects:
             obj.remove()
         self._objects.clear()
 
-        for _ in range(self._num_objects):
-            model_path = np.random.choice(self._model_paths, replace=False)  # type: ignore
-
-            obj = self._scene.create_object(
-                model_path,
-                add_semantics=False,
-                scale=np.random.uniform(*self._scale_range),
-                **kwargs,
-            )
-            self._objects.append(obj)
-            logger.debug(f"Added Shapenet object: {model_path}")
-
-        return self._objects
+        for other in self._additional_loaders:
+            other.reset()
 
     def callback(self):
-        logger.debug(f"Added objects: ")
+        raise NotImplementedError
+
+    def __add__(self, other):
+        self._additional_loaders.append(other)
+        return self
