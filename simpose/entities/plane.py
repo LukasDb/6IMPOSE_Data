@@ -1,8 +1,8 @@
-from .redirect_stdout import redirect_stdout
-from simpose.object import Object
+import simpose as sp
+from .object import Object
 import bpy
 
-with redirect_stdout():
+with sp.redirect_stdout():
     import pybullet as p
     import pybullet_data
 

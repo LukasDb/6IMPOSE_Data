@@ -5,25 +5,20 @@ import bpy
 with redirect_stdout():
     import pybullet as p
 
-from simpose.camera import Camera
-from simpose.light import Light
-from simpose.object import Object
-from simpose.plane import Plane
-
 import numpy as np
 import logging
 import time
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
-from simpose.callback import Callback, Callbacks, CallbackType
+import simpose as sp
 
 logger = logging.getLogger("simpose")
 
 
-class Scene(Callbacks):
+class Scene(sp.Callbacks):
     def __init__(self, img_h: int = 480, img_w: int = 640) -> None:
-        Callbacks.__init__(self)
+        sp.Callbacks.__init__(self)
         # self._bl_scene = bpy.data.scenes.new("6impose Scene")
         self._bl_scene: bpy.types.Scene = bpy.data.scenes["Scene"]
 
@@ -35,7 +30,7 @@ class Scene(Callbacks):
         bpy.ops.object.delete(use_global=False)
 
         # bpy.context.window.scene= self._bl_scene
-        self._randomize: list[Callback] = []
+        self._randomize: list[sp.Callback] = []
 
         # create a lights collection
         scene.collection.children.link(bpy.data.collections.new("Lights"))
@@ -65,7 +60,7 @@ class Scene(Callbacks):
         p.setRealTimeSimulation(0)
         p.setPhysicsEngineParameter(fixedTimeStep=1 / 240.0, numSubSteps=1)
 
-        self.call_callback(CallbackType.ON_SCENE_CREATED)
+        self.call_callback(sp.CallbackType.ON_SCENE_CREATED)
 
     @property
     def resolution(self):
@@ -82,14 +77,14 @@ class Scene(Callbacks):
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
         logger.debug(f"Stepping physics for {dt} seconds")
-        self.call_callback(CallbackType.BEFORE_PHYSICS_STEP)
+        self.call_callback(sp.CallbackType.BEFORE_PHYSICS_STEP)
 
         num_steps = np.floor(240 * dt).astype(int)
         for _ in range(max(1, num_steps)):
             p.stepSimulation()
         # now apply transform to objects
         self._apply_simulation()
-        self.call_callback(CallbackType.AFTER_PHYSICS_STEP)
+        self.call_callback(sp.CallbackType.AFTER_PHYSICS_STEP)
 
     def run_simulation(self, with_export=False):
         p.setRealTimeSimulation(1)
@@ -109,7 +104,7 @@ class Scene(Callbacks):
 
     def render(self):
         logger.debug("Rendering")
-        self.call_callback(CallbackType.BEFORE_RENDER)
+        self.call_callback(sp.CallbackType.BEFORE_RENDER)
 
         # render RGB, depth using cycles
         # disable all view layers except 'ViewLayer'
@@ -149,7 +144,7 @@ class Scene(Callbacks):
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)
 
-        self.call_callback(CallbackType.AFTER_RENDER)
+        self.call_callback(sp.CallbackType.AFTER_RENDER)
 
     def get_new_object_id(self) -> int:
         self.__id_counter += 1
@@ -164,28 +159,28 @@ class Scene(Callbacks):
         self.mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
 
     def create_plane(self, size: float = 2, with_physics: bool = True):
-        plane = Plane.create(size, with_physics)
+        plane = sp.Plane.create(size, with_physics)
         bpy.data.collections["Objects"].objects.link(plane._bl_object)
         return plane
 
-    def get_cameras(self) -> list[Camera]:
-        return [Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects]
+    def get_cameras(self) -> list[sp.Camera]:
+        return [sp.Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects]
 
-    def create_camera(self, cam_name: str) -> Camera:
-        cam = Camera.create(cam_name, baseline=None)
+    def create_camera(self, cam_name: str) -> sp.Camera:
+        cam = sp.Camera.create(cam_name, baseline=None)
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam
 
-    def create_stereo_camera(self, cam_name: str, baseline: float) -> Camera:
-        cam = Camera.create(cam_name, baseline=baseline)
+    def create_stereo_camera(self, cam_name: str, baseline: float) -> sp.Camera:
+        cam = sp.Camera.create(cam_name, baseline=baseline)
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam
 
-    def get_active_objects(self) -> list[Object]:
-        objects = [Object(x) for x in self._bl_scene.collection.children["Objects"].objects]
+    def get_active_objects(self) -> list[sp.Object]:
+        objects = [sp.Object(x) for x in self._bl_scene.collection.children["Objects"].objects]
         return list([x for x in objects if not x.is_hidden])
 
-    def get_labelled_objects(self) -> list[Object]:
+    def get_labelled_objects(self) -> list[sp.Object]:
         return list([x for x in self.get_active_objects() if x.has_semantics])
 
     def create_object(
@@ -196,9 +191,9 @@ class Scene(Callbacks):
         friction: float = 0.5,
         scale: float = 1.0,
         hide: bool = False,
-    ) -> Object:
+    ) -> sp.Object:
         if obj_path.suffix == ".obj":
-            obj = Object.from_obj(
+            obj = sp.Object.from_obj(
                 filepath=obj_path,
                 add_semantics=add_semantics,
                 mass=mass,
@@ -206,7 +201,7 @@ class Scene(Callbacks):
                 scale=scale,
             )
         elif obj_path.suffix == ".ply":
-            obj = Object.from_ply(
+            obj = sp.Object.from_ply(
                 filepath=obj_path,
                 add_semantics=add_semantics,
                 mass=mass,
@@ -214,7 +209,7 @@ class Scene(Callbacks):
                 scale=scale,
             )
         elif obj_path.suffix == ".gltf":
-            obj = Object.from_gltf(
+            obj = sp.Object.from_gltf(
                 filepath=obj_path,
                 add_semantics=add_semantics,
                 mass=mass,
@@ -222,7 +217,7 @@ class Scene(Callbacks):
                 scale=scale,
             )
         elif obj_path.suffix == ".fbx":
-            obj = Object.from_fbx(
+            obj = sp.Object.from_fbx(
                 filepath=obj_path,
                 add_semantics=add_semantics,
                 mass=mass,
@@ -242,17 +237,17 @@ class Scene(Callbacks):
 
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
 
-        self.call_callback(CallbackType.ON_OBJECT_CREATED)
+        self.call_callback(sp.CallbackType.ON_OBJECT_CREATED)
         return obj
 
-    def create_copy(self, object: Object) -> Object:
+    def create_copy(self, object: sp.Object) -> sp.Object:
         obj = object.copy()
         if obj.has_semantics:
             new_id = self.get_new_object_id()
             obj.set_semantic_id(new_id)
             self._register_new_id(new_id)
 
-        self.call_callback(CallbackType.ON_OBJECT_CREATED)
+        self.call_callback(sp.CallbackType.ON_OBJECT_CREATED)
         return obj
 
     def _register_new_id(self, new_id: str | int):
@@ -278,8 +273,8 @@ class Scene(Callbacks):
         self.mask_output.file_slots.new(layer_name)
         tree.links.new(layer_node.outputs["Image"], self.mask_output.inputs[layer_name])
 
-    def create_light(self, light_name: str, energy: float, type="POINT") -> Light:
-        light = Light.create(light_name, energy, type)
+    def create_light(self, light_name: str, energy: float, type="POINT") -> sp.Light:
+        light = sp.Light.create(light_name, energy, type)
         bpy.data.collections["Lights"].objects.link(light._bl_object)
         return light
 

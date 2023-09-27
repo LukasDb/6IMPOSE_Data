@@ -4,12 +4,13 @@ from scipy.spatial.transform import Rotation as R
 from typing import Tuple, List
 from .placeable import Placeable
 import logging
-from .redirect_stdout import redirect_stdout
 import re
 from pathlib import Path
 import numpy as np
 import pybullet as p
 from enum import Enum
+
+from simpose import redirect_stdout
 
 logger = logging.getLogger("simpose")
 
@@ -420,7 +421,7 @@ class Object(Placeable):
         coll_id = self._bl_object["coll_id"]
         mass = self._bl_object["mass"]
         friction = self._bl_object["friction"]
-        
+
         pb_id = p.createMultiBody(
             baseMass=mass,
             baseCollisionShapeIndex=coll_id,
