@@ -26,6 +26,7 @@ class RandomImagePicker(Randomizer):
     def call(self, _: sp.Scene):
         i = np.random.randint(0, len(self._img_paths))
         img_path = self._img_paths[i]
+        sp.logger.debug(f"Set plane texture to {img_path.name}")
         self._plane.set_image(img_path)
 
 
@@ -70,8 +71,6 @@ class DroppedObjects(Generator):
 
         # -- SCENE --
         self.scene = scene = sp.Scene(img_h=p.img_h, img_w=p.img_w, debug=debug)
-        for _, randomizer in self.randomizers.items():
-            randomizer.listen_to(scene)
         plane = scene.create_plane()
 
         # -- CAMERA --
@@ -82,10 +81,13 @@ class DroppedObjects(Generator):
         cam.set_from_hfov(p.cam_hfov, scene.resolution_x, scene.resolution_y, degrees=True)
 
         # -- RANDOMIZERS --
+        for _, randomizer in self.randomizers.items():
+            randomizer.listen_to(scene)
         cfg = RandomImagerPickerConfig(
             img_dir=Path("~/Pictures/textures").expanduser(), trigger=sp.Event.BEFORE_RENDER
         )
         randimages = RandomImagePicker(cfg)
+        randimages.listen_to(scene)
         randimages.randomize_plane(plane)
 
         appearance_randomizer: sp.random.AppearanceRandomizer = self.randomizers["appearance"]  # type: ignore
@@ -143,6 +145,8 @@ class DroppedObjects(Generator):
                     i += 1
                     if i == len(indices):
                         bar.close()
+                        if debug:
+                            scene.export_blend()
                         return scene
 
                     bar.update(1)

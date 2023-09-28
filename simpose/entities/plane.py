@@ -73,7 +73,10 @@ class Plane(Object):
         return obj
 
     def set_image(self, filepath: Path):
+        import bpy
+
         image_node: bpy.types.ShaderNodeTexImage = self.materials[0].node_tree.nodes["sp_image"]  # type: ignore
-        bpy.data.images.remove(image_node.image)
+        if image_node.image is not None:
+            bpy.data.images.remove(image_node.image)
         self.img = bpy.data.images.load(str(filepath.expanduser().resolve()))
         image_node.image = self.img

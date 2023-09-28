@@ -20,7 +20,17 @@ def view(data_dir: Path):
 
     # run streamlit run dataset_viewer
     subprocess.run(
-        ["streamlit", "run", ds_viewer.__file__, "--server.runOnSave", "true", "--", data_dir]
+        [
+            "streamlit",
+            "run",
+            ds_viewer.__file__,
+            "--server.runOnSave",
+            "true",
+            "--server.headless",
+            "true",
+            "--",
+            data_dir,
+        ]
     )
 
 
