@@ -4,29 +4,32 @@ from typing import List
 import logging
 from scipy.spatial.transform import Rotation as R
 
+from .randomizer import Randomizer, RandomizerConfig
 
-class CameraFrustumRandomizer(simpose.Callback):
+
+class CameraFrustumRandomizerConfig(RandomizerConfig):
+    r_range: tuple
+    yp_limit: tuple
+
+
+class CameraFrustumRandomizer(Randomizer):
     def __init__(
         self,
-        scene: simpose.Scene,
-        cam: simpose.Camera,
-        cb_type: simpose.CallbackType,
-        *,
-        r_range,
-        yp_limit=(0.9, 0.9),
+        params: CameraFrustumRandomizerConfig,
     ) -> None:
-        super().__init__(scene, cb_type)
-        self._scene = scene
-        self._cam = cam
-        self._r_range = r_range
-        self._yp_limit = yp_limit
+        super().__init__(params)
+        self._r_range = params.r_range
+        self._yp_limit = params.yp_limit
         self._subjects: List[simpose.Object] = []
 
-    def add(self, object):
+    def add_object(self, object):
         self._subjects.append(object)
 
-    def callback(self):
-        aspect_ratio = self._scene.resolution[0] / self._scene.resolution[1]
+    def set_to_camera(self, camera: simpose.Camera):
+        self._cam = camera
+
+    def call(self, scene: simpose.Scene):
+        aspect_ratio = scene.resolution[0] / scene.resolution[1]
         cam_data = self._cam.data
         hfov = cam_data.angle_x / 2.0
         vfov = cam_data.angle_x / 2.0 / aspect_ratio
@@ -52,11 +55,10 @@ class CameraFrustumRandomizer(simpose.Callback):
             pos = np.array([x, y, z]) @ cam_rot.as_matrix() + np.array(cam_origin)
             subject.set_location(pos)
 
-            logging.getLogger("simpose").debug(
+            simpose.logger.debug(
                 f"randomize_in_camera_frustum: {subject} randomized to {pos}"
             )
 
     def _randomize_orientation(self):
         for subject in self._subjects:
             subject.set_rotation(R.random())
-            

@@ -1,11 +1,15 @@
-import bpy
 from scipy.spatial.transform import Rotation as R
 from .placeable import Placeable
-import mathutils
+
 import numpy as np
 import logging
+import simpose as sp
 
-logger = logging.getLogger("simpose")
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import bpy
+
 
 class Camera(Placeable):
     """This is just a functional wrapper around the blender object.
@@ -17,13 +21,15 @@ class Camera(Placeable):
     """
 
     def __init__(self, bl_cam):
-        super().__init__(bl_object=bl_cam)
+        Placeable.__init__(self, bl_object=bl_cam)
 
     @staticmethod
     def create(
         name: str,
         baseline: float | None = None,
     ):
+        import bpy, mathutils
+
         # create empty blender
         bpy.ops.object.empty_add(type="PLAIN_AXES")
         frame = bpy.context.selected_objects[0]
@@ -67,7 +73,7 @@ class Camera(Placeable):
         return self._bl_object["sp_baseline"]
 
     @property
-    def left_camera(self) -> bpy.types.Object:
+    def left_camera(self) -> "bpy.types.Object":
         child = None
         for child in self._bl_object.children:
             if child.name == self.name + "_L":
@@ -76,7 +82,7 @@ class Camera(Placeable):
         return child  # type: ignore
 
     @property
-    def right_camera(self) -> bpy.types.Object:
+    def right_camera(self) -> "bpy.types.Object":
         child = None
         for child in self._bl_object.children:
             if child.name == self.name + "_R":
@@ -85,7 +91,7 @@ class Camera(Placeable):
         return child
 
     @property
-    def data(self) -> bpy.types.Camera:
+    def data(self) -> "bpy.types.Camera":
         return self.left_camera.data  # type: ignore
 
     def is_stereo_camera(self) -> bool:
@@ -98,7 +104,7 @@ class Camera(Placeable):
         return self._calculate_intrinsics(self.data, img_w, img_h)
 
     @staticmethod
-    def _calculate_intrinsics(cam_data: bpy.types.Camera, img_w, img_h):
+    def _calculate_intrinsics(cam_data: "bpy.types.Camera", img_w, img_h):
         cam_data.lens_unit = "MILLIMETERS"  # switch to focal length
         cam_data.sensor_fit = (
             "HORIZONTAL"  # sensor width is fixed, height is variable, depending on aspect ratio
@@ -128,7 +134,7 @@ class Camera(Placeable):
             self._set_from_hfov(self.right_camera.data, hfov, img_w, img_h)  # type: ignore
 
     @staticmethod
-    def _set_from_hfov(cam_data: bpy.types.Camera, hfov, img_w, img_h):
+    def _set_from_hfov(cam_data: "bpy.types.Camera", hfov, img_w, img_h):
         """Set camera intrinsics from horizontal field of view"""
         cam_data.sensor_fit = (
             "HORIZONTAL"  # sensor width is fixed, height is variable, depending on aspect ratio
@@ -140,18 +146,20 @@ class Camera(Placeable):
 
     def set_from_intrinsics(self, intrinsic_matrix: np.ndarray, img_w: int, img_h: int):
         if np.abs(intrinsic_matrix[1][1] - intrinsic_matrix[0][0]) > 0.001:
-            logger.warning(
+            sp.logger.warning(
                 "Intrinsic matrix is not symmetric. At the moment only square pixels are supported."
             )
 
-        logger.info(f"Setting {self} intrinsics to {intrinsic_matrix}, (h,w): ({img_h}, {img_w})")
+        sp.logger.info(
+            f"Setting {self} intrinsics to {intrinsic_matrix}, (h,w): ({img_h}, {img_w})"
+        )
         self._set_intrinsics(self.data, intrinsic_matrix, img_w, img_h)
         if self.is_stereo_camera():
             self._set_intrinsics(self.right_camera.data, intrinsic_matrix, img_w, img_h)  # type: ignore
 
     @staticmethod
     def _set_intrinsics(
-        cam_data: bpy.types.Camera, intrinsic_matrix: np.ndarray, img_w: int, img_h: int
+        cam_data: "bpy.types.Camera", intrinsic_matrix: np.ndarray, img_w: int, img_h: int
     ):
         cam_data.lens_unit = "MILLIMETERS"  # switch to focal length
         cam_data.sensor_fit = (

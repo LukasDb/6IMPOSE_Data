@@ -3,22 +3,31 @@ import numpy as np
 from pathlib import Path
 from typing import List
 import logging
+from pydantic import validator
+
+from .randomizer import Randomizer, RandomizerConfig
 
 
-class BackgroundRandomizer(simpose.Callback):
+class BackgroundRandomizerConfig(RandomizerConfig):
+    backgrounds_dir: Path
+
+    @validator("backgrounds_dir")
+    def validate_path(cls, v):
+        return Path(v)
+
+
+class BackgroundRandomizer(Randomizer):
     def __init__(
         self,
-        scene: simpose.Scene,
-        cb_type: simpose.CallbackType,
-        *,
-        backgrounds_dir: Path = Path("backgrounds"),
+        params: BackgroundRandomizerConfig,
     ) -> None:
-        super().__init__(scene, cb_type)
-        self._scene = scene
-        self._backgrounds_dir: Path = backgrounds_dir
+        super().__init__(params)
+        self._backgrounds_dir: Path = params.backgrounds_dir.expanduser()
         self._backgrounds: List = list(self._backgrounds_dir.glob("*.jpg"))
-        logging.getLogger("simpose").debug(f"Loaded {len(self._backgrounds)} backgrounds from {self._backgrounds_dir}")
+        simpose.logger.debug(
+            f"Loaded {len(self._backgrounds)} backgrounds from {self._backgrounds_dir}"
+        )
 
-    def callback(self):
+    def call(self, scene: simpose.Scene):
         bg = np.random.choice(self._backgrounds)
-        self._scene.set_background(bg)
+        scene.set_background(bg)

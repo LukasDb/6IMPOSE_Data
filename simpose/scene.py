@@ -1,36 +1,35 @@
 from .redirect_stdout import redirect_stdout
 
-import bpy
-
 with redirect_stdout():
     import pybullet as p
 
 import numpy as np
-import logging
 import time
 from pathlib import Path
-from scipy.spatial.transform import Rotation as R
 
 import simpose as sp
+from simpose.observers import Observable, Event
+from typing import TYPE_CHECKING
 
-logger = logging.getLogger("simpose")
+if TYPE_CHECKING:
+    import bpy
 
 
-class Scene(sp.Callbacks):
-    def __init__(self, img_h: int = 480, img_w: int = 640) -> None:
-        sp.Callbacks.__init__(self)
-        # self._bl_scene = bpy.data.scenes.new("6impose Scene")
+class Scene(Observable):
+    def __init__(self, img_h: int = 480, img_w: int = 640, debug=False) -> None:
+        Observable.__init__(self)
+        import bpy
+
         self._bl_scene: bpy.types.Scene = bpy.data.scenes["Scene"]
+        sp.logger.debug(f"Created scene: {self._bl_scene}")
 
         scene = self._bl_scene
         self.__id_counter = 0
+        self._observers: list[sp.random.Randomizer] = []
 
-        # delete old cup, light, camera and scene
+        # delete cube, light, camera
         bpy.ops.object.select_all(action="SELECT")
         bpy.ops.object.delete(use_global=False)
-
-        # bpy.context.window.scene= self._bl_scene
-        self._randomize: list[sp.Callback] = []
 
         # create a lights collection
         scene.collection.children.link(bpy.data.collections.new("Lights"))
@@ -50,17 +49,17 @@ class Scene(sp.Callbacks):
         self._setup_compositor()
         self._register_new_id("visib")
 
-        if logger.level >= logging.DEBUG:
-            p.connect(p.DIRECT)
-        else:
+        if debug:
             p.connect(p.GUI)
+        else:
+            p.connect(p.DIRECT)
 
         p.resetSimulation()
         p.setGravity(0, 0, -9.81)
         p.setRealTimeSimulation(0)
         p.setPhysicsEngineParameter(fixedTimeStep=1 / 240.0, numSubSteps=1)
 
-        self.call_callback(sp.CallbackType.ON_SCENE_CREATED)
+        self.notify(Event.ON_SCENE_CREATED)
 
     @property
     def resolution(self):
@@ -76,15 +75,15 @@ class Scene(sp.Callbacks):
 
     def step_physics(self, dt):
         """steps 1/240sec of physics simulation"""
-        logger.debug(f"Stepping physics for {dt} seconds")
-        self.call_callback(sp.CallbackType.BEFORE_PHYSICS_STEP)
+        sp.logger.debug(f"Stepping physics for {dt} seconds")
+        self.notify(Event.BEFORE_PHYSICS_STEP)
 
         num_steps = np.floor(240 * dt).astype(int)
         for _ in range(max(1, num_steps)):
             p.stepSimulation()
         # now apply transform to objects
         self._apply_simulation()
-        self.call_callback(sp.CallbackType.AFTER_PHYSICS_STEP)
+        self.notify(Event.AFTER_PHYSICS_STEP)
 
     def run_simulation(self, with_export=False):
         p.setRealTimeSimulation(1)
@@ -103,8 +102,9 @@ class Scene(sp.Callbacks):
                 pass
 
     def render(self):
-        logger.debug("Rendering")
-        self.call_callback(sp.CallbackType.BEFORE_RENDER)
+        import bpy
+
+        self.notify(Event.BEFORE_RENDER)
 
         # render RGB, depth using cycles
         # disable all view layers except 'ViewLayer'
@@ -130,7 +130,7 @@ class Scene(sp.Callbacks):
         # for left image and the labels
         self._bl_scene.camera = camera.left_camera
         with redirect_stdout():
-            logger.debug(f"Rendering left to {self.output_dir}")
+            sp.logger.debug(f"Rendering left to {self.output_dir}")
             bpy.ops.render.render(write_still=False)
 
         # render mask into a single EXR using eevee
@@ -144,7 +144,7 @@ class Scene(sp.Callbacks):
         with redirect_stdout():
             bpy.ops.render.render(write_still=False)
 
-        self.call_callback(sp.CallbackType.AFTER_RENDER)
+        self.notify(Event.AFTER_RENDER)
 
     def get_new_object_id(self) -> int:
         self.__id_counter += 1
@@ -159,6 +159,8 @@ class Scene(sp.Callbacks):
         self.mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
 
     def create_plane(self, size: float = 2, with_physics: bool = True):
+        import bpy
+
         plane = sp.Plane.create(size, with_physics)
         bpy.data.collections["Objects"].objects.link(plane._bl_object)
         return plane
@@ -167,11 +169,15 @@ class Scene(sp.Callbacks):
         return [sp.Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects]
 
     def create_camera(self, cam_name: str) -> sp.Camera:
+        import bpy
+
         cam = sp.Camera.create(cam_name, baseline=None)
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam
 
     def create_stereo_camera(self, cam_name: str, baseline: float) -> sp.Camera:
+        import bpy
+
         cam = sp.Camera.create(cam_name, baseline=baseline)
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam
@@ -192,6 +198,9 @@ class Scene(sp.Callbacks):
         scale: float = 1.0,
         hide: bool = False,
     ) -> sp.Object:
+        import bpy
+
+        obj_path = obj_path.expanduser()
         if obj_path.suffix == ".obj":
             obj = sp.Object.from_obj(
                 filepath=obj_path,
@@ -237,7 +246,7 @@ class Scene(sp.Callbacks):
 
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
 
-        self.call_callback(sp.CallbackType.ON_OBJECT_CREATED)
+        self.notify(Event.ON_OBJECT_CREATED)
         return obj
 
     def create_copy(self, object: sp.Object) -> sp.Object:
@@ -247,7 +256,7 @@ class Scene(sp.Callbacks):
             obj.set_semantic_id(new_id)
             self._register_new_id(new_id)
 
-        self.call_callback(sp.CallbackType.ON_OBJECT_CREATED)
+        self.notify(Event.ON_OBJECT_CREATED)
         return obj
 
     def _register_new_id(self, new_id: str | int):
@@ -274,11 +283,18 @@ class Scene(sp.Callbacks):
         tree.links.new(layer_node.outputs["Image"], self.mask_output.inputs[layer_name])
 
     def create_light(self, light_name: str, energy: float, type="POINT") -> sp.Light:
+        import bpy
+
         light = sp.Light.create(light_name, energy, type)
         bpy.data.collections["Lights"].objects.link(light._bl_object)
         return light
 
+    def get_lights(self):
+        return [sp.Light(x) for x in self._bl_scene.collection.children["Lights"].objects]
+
     def _setup_rendering_device(self):
+        import bpy
+
         self._bl_scene.cycles.device = "GPU"
         pref = bpy.context.preferences.addons["cycles"].preferences
         pref.get_devices()  # type: ignore
@@ -296,7 +312,7 @@ class Scene(sp.Callbacks):
                 chosen_type = type
                 break
 
-        logger.info("Rendering device: " + chosen_type)
+        sp.logger.info("Rendering device: " + chosen_type)
         # Set GPU rendering mode to detected one
         pref.compute_device_type = chosen_type  # type: ignore
 
@@ -308,7 +324,7 @@ class Scene(sp.Callbacks):
             if i in selected_devices:
                 dev.use = True
 
-        logger.debug(f"Available devices: {available_devices}")
+        sp.logger.debug(f"Available devices: {available_devices}")
 
         if chosen_type == "OPTIX":
             self._bl_scene.cycles.denoiser = "OPTIX"
@@ -316,19 +332,23 @@ class Scene(sp.Callbacks):
             self._bl_scene.cycles.denoiser = "OPENIMAGEDENOISE"
 
     def set_background(self, filepath: Path):
+        import bpy
+
         # get composition node_tree
         if self.current_bg_img is not None:
             bpy.data.images.remove(self.current_bg_img)
         self.current_bg_img = bpy.data.images.load(str(filepath.resolve()))
         self.bg_image_node.image = self.current_bg_img
         # scale_to_fit = np.max(self.resolution / np.array(self.current_bg_img.size))
-        logger.debug(f"Set background to {filepath}")
+        sp.logger.debug(f"Set background to {filepath}")
 
     def export_blend(self, filepath: Path = Path("scene.blend")):
+        import bpy
+
         self._bl_scene.render.engine = "CYCLES"
         with redirect_stdout():
             bpy.ops.wm.save_as_mainfile(filepath=str(filepath.resolve()))
-        logger.debug(f"Export scene to {filepath.resolve()}")
+        sp.logger.debug(f"Export scene to {filepath.resolve()}")
 
     def export_meshes(self, output_dir: Path):
         """export meshes as ply files in 'meshes' folder"""
@@ -336,6 +356,8 @@ class Scene(sp.Callbacks):
             obj.export_as_ply(output_dir)
 
     def _setup_compositor(self):
+        import bpy
+
         self._bl_scene.use_nodes = True
         self._bl_scene.render.film_transparent = True
         self._bl_scene.render.use_simplify = True

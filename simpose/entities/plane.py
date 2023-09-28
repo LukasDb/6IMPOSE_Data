@@ -1,6 +1,6 @@
 import simpose as sp
 from .object import Object
-import bpy
+from pathlib import Path
 
 with sp.redirect_stdout():
     import pybullet as p
@@ -13,6 +13,8 @@ class Plane(Object):
 
     @staticmethod
     def create(size: float = 2, with_physics: bool = True):
+        import bpy
+
         if with_physics:
             p.setAdditionalSearchPath(pybullet_data.getDataPath())
             pb_id = p.loadURDF("plane.urdf")  # XY ground plane
@@ -33,15 +35,15 @@ class Plane(Object):
         material.use_nodes = True
         material.blend_method = "CLIP"
         # add material
-        bl_object.data.materials.append(material)
+        bl_object.data.materials.append(material)  # type: ignore
 
         tree = material.node_tree
-        rgb_output = tree.nodes["Material Output"]
+        rgb_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes["Material Output"]  # type: ignore
         rgb_output.target = "CYCLES"
         bsdf = tree.nodes["Principled BSDF"]
-        bsdf.inputs["Base Color"].default_value = (0.0, 0.0, 0.0, 1.0)
-        bsdf.inputs["Roughness"].default_value = 0.5
-        bsdf.inputs["Metallic"].default_value = 0.0
+        bsdf.inputs["Base Color"].default_value = (0.0, 0.0, 0.0, 1.0)  # type: ignore
+        bsdf.inputs["Roughness"].default_value = 0.5  # type: ignore
+        bsdf.inputs["Metallic"].default_value = 0.0  # type: ignore
         tree.links.new(bsdf.outputs["BSDF"], rgb_output.inputs["Surface"])
 
         hsv_node: bpy.types.ShaderNodeHueSaturation = tree.nodes.new("ShaderNodeHueSaturation")  # type: ignore
@@ -70,7 +72,8 @@ class Plane(Object):
 
         return obj
 
-    def set_image(self, filepath):
-        self._bl_object.data.materials[0].node_tree.nodes["sp_image"].image = bpy.data.images.load(
-            filepath
-        )
+    def set_image(self, filepath: Path):
+        image_node: bpy.types.ShaderNodeTexImage = self.materials[0].node_tree.nodes["sp_image"]  # type: ignore
+        bpy.data.images.remove(image_node.image)
+        self.img = bpy.data.images.load(str(filepath.expanduser().resolve()))
+        image_node.image = self.img

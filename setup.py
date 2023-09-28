@@ -10,6 +10,8 @@ package_list = [
     "coloredlogs",
     "streamlit",
     "openexr",
+    "pydantic",
+    "pyyaml",
 ]
 
 # check if opencv-contrib-python is installed
@@ -21,7 +23,7 @@ except ImportError:
 
 setup(
     name="simpose",
-    version="0.1.1",
+    version="1.0.0",
     description="Synthetic Image Generator based on Blender",
     url="todo",
     author="Lukas Dirnberger",

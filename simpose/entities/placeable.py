@@ -1,5 +1,3 @@
-import bpy
-import mathutils
 from scipy.spatial.transform import Rotation as R
 from typing import Tuple
 import numpy as np
@@ -9,10 +7,14 @@ class Placeable:
     """Object that can be placed in the 3D scene."""
 
     def __init__(self, bl_object) -> None:
+        import bpy
+
         self._bl_object: bpy.types.Object = bl_object  # reference to internal blender object
 
     @property
     def location(self) -> Tuple:
+        import mathutils
+
         loc: mathutils.Vector = self._bl_object.location  # type: ignore
         return loc.to_tuple()
 
@@ -24,6 +26,8 @@ class Placeable:
         return orn
 
     def set_location(self, location: Tuple | np.ndarray):
+        import mathutils
+
         if isinstance(location, np.ndarray):
             location = tuple(location)
         self._bl_object.location = mathutils.Vector(location)
@@ -45,12 +49,16 @@ class Placeable:
 
     def apply_global_offset(self, offset: Tuple | np.ndarray):
         """Apply offset to location."""
+        import mathutils
+
         if isinstance(offset, np.ndarray):
             offset = tuple(offset)
         self._bl_object.location += mathutils.Vector(offset)
 
     def apply_local_offset(self, offset: Tuple | np.ndarray):
         """Apply offset to location."""
+        import mathutils
+
         if isinstance(offset, np.ndarray):
             offset = tuple(offset)
         self._bl_object.rotation_mode = "QUATERNION"

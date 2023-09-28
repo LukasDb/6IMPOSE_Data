@@ -1,5 +1,3 @@
-import bpy
-from bpy.types import ShaderNodeBsdfPrincipled, Material, ShaderNodeHueSaturation
 from scipy.spatial.transform import Rotation as R
 from typing import Tuple, List
 from .placeable import Placeable
@@ -10,9 +8,13 @@ import numpy as np
 import pybullet as p
 from enum import Enum
 
+import simpose as sp
 from simpose import redirect_stdout
 
-logger = logging.getLogger("simpose")
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import bpy
 
 
 class _ObjectAppearance(Enum):
@@ -36,15 +38,15 @@ class Object(Placeable):
         super().__init__(bl_object)
 
     @property
-    def materials(self) -> List[Material]:
+    def materials(self) -> List["bpy.types.Material"]:
         return list(self._bl_object.data.materials)  # type: ignore
 
     @property
-    def shader_nodes(self) -> List[ShaderNodeBsdfPrincipled]:
+    def shader_nodes(self) -> List["bpy.types.ShaderNodeBsdfPrincipled"]:
         return [m.node_tree.nodes["Principled BSDF"] for m in self.materials]  # type: ignore
 
     @property
-    def hsv_nodes(self) -> List[ShaderNodeHueSaturation]:
+    def hsv_nodes(self) -> List["bpy.types.ShaderNodeHueSaturation"]:
         return [m.node_tree.nodes["sp_hsv"] for m in self.materials]  # type: ignore
 
     @property
@@ -61,6 +63,8 @@ class Object(Placeable):
 
     def copy(self) -> "Object":
         # clear blender selection
+        import bpy
+
         bpy.ops.object.select_all(action="DESELECT")
         # select object
         self._bl_object.select_set(True)
@@ -85,10 +89,12 @@ class Object(Placeable):
         friction: float = 0.5,
         scale: float = 1.0,
     ):
+        import bpy
+
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
-            bpy.ops.import_scene.obj(filepath=str(filepath.resolve()), use_split_objects=False)
+            bpy.ops.import_scene.obj(filepath=str(filepath.resolve()), use_split_objects=False)  # type: ignore
         try:
             bl_object = bpy.context.selected_objects[0]
         except IndexError:
@@ -112,6 +118,8 @@ class Object(Placeable):
         friction: float = 0.5,
         scale: float = 1.0,
     ):
+        import bpy
+
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
@@ -152,6 +160,8 @@ class Object(Placeable):
         friction: float = 0.5,
         scale: float = 1.0,
     ):
+        import bpy
+
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
@@ -203,6 +213,8 @@ class Object(Placeable):
         friction: float = 0.5,
         scale: float = 1.0,
     ):
+        import bpy
+
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with redirect_stdout():
@@ -252,6 +264,8 @@ class Object(Placeable):
 
     def export_as_ply(self, output_dir: Path):
         """export mesh as ply file"""
+        import bpy
+
         output_dir.mkdir(parents=True, exist_ok=True)
         bpy.ops.object.select_all(action="DESELECT")
         self._bl_object.select_set(True)
@@ -274,7 +288,7 @@ class Object(Placeable):
                 self.set_location(old_loc)
                 self.set_rotation(old_rot)
 
-        logger.info("Exported mesh to " + str(output_dir / f"{self.get_class()}.ply"))
+        sp.logger.info("Exported mesh to " + str(output_dir / f"{self.get_class()}.ply"))
 
     def hide(self):
         if self.is_hidden:
@@ -396,6 +410,8 @@ class Object(Placeable):
         self.set_rotation(R.from_quat(orn))
 
     def remove(self):
+        import bpy
+
         try:
             self._remove_pybullet_object()
         except KeyError:
@@ -447,7 +463,7 @@ class Object(Placeable):
 
     @staticmethod
     def _initialize_bl_object(
-        bl_object: bpy.types.Object,
+        bl_object: "bpy.types.Object",
         obj_path: Path,
         add_semantics: bool,
         scale: float,
@@ -455,8 +471,10 @@ class Object(Placeable):
         friction: float,
     ) -> "Object":
         # scale object
+        import bpy
+
         bl_object.scale = (scale, scale, scale)
-        materials: list[bpy.types.Material] = bl_object.data.materials  # type: ignore
+        materials: list[bpy.types.bpy.types.Material] = bl_object.data.materials  # type: ignore
         for material in materials:
             tree: bpy.types.NodeTree = material.node_tree
             material.blend_method = "CLIP"
@@ -468,7 +486,7 @@ class Object(Placeable):
             Object.add_ID_to_material(material)
 
             # insert hsv node in between current color and bsdf node
-            hsv_node: bpy.types.ShaderNodeHueSaturation = tree.nodes.new("ShaderNodeHueSaturation")  # type: ignore
+            hsv_node: bpy.types.bpy.types.ShaderNodeHueSaturation = tree.nodes.new("ShaderNodeHueSaturation")  # type: ignore
             hsv_node.name = "sp_hsv"
             hsv_node.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)  # type: ignore
             hsv_node.inputs["Saturation"].default_value = 0.0  # type: ignore
@@ -532,7 +550,7 @@ class Object(Placeable):
             except Exception as e:
                 import traceback
 
-                logger.error(
+                sp.logger.error(
                     f"Collision shape from {out_path} failed, using convex hull from {obj_path} instead!\n{e}\n{traceback.format_exc()}"
                 )
                 # find center of mass of the object
@@ -553,7 +571,9 @@ class Object(Placeable):
         return obj
 
     @staticmethod
-    def add_ID_to_material(mat: bpy.types.Material):
+    def add_ID_to_material(mat: "bpy.types.Material"):
+        import bpy
+
         tree = mat.node_tree
 
         # create material output

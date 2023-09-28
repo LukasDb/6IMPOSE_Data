@@ -1,70 +1,48 @@
 import json
-import simpose
+import simpose as sp
 import numpy as np
 from pathlib import Path
 import cv2
 import logging
-import signal
-from .exr import EXR
-
-logger = logging.getLogger("simpose")
+from ..exr import EXR
+from .writer import Writer, WriterParams
 
 
-class DelayedKeyboardInterrupt:
-    def __init__(self, index) -> None:
-        self.index = index
-
-    def __enter__(self) -> None:
-        self.signal_received = False
-        self.old_handler: signal._HANDLER = signal.signal(signal.SIGINT, self.handler)
-
-    def handler(self, sig, frame) -> None:
-        self.signal_received = (sig, frame)
-        logger.warn(f"SIGINT received. Finishing rendering {self.index}...")
-
-    def __exit__(self, type, value, traceback) -> None:
-        signal.signal(signal.SIGINT, self.old_handler)
-        if self.signal_received:
-            self.old_handler(*self.signal_received)  # type: ignore
-
-
-class Writer:
-    def __init__(self, scene: simpose.Scene, output_dir: Path):
-        self._output_dir = output_dir
-        self._data_dir = output_dir / "gt"
-        self._scene = scene
+class SimposeWriter(Writer):
+    def __init__(
+        self,
+        params: WriterParams,
+    ):
+        super().__init__(params)
+        self._data_dir = self.output_dir / "gt"
         self._data_dir.mkdir(parents=True, exist_ok=True)
-        self._scene.set_output_path(self._output_dir)
 
-    def generate_data(self, dataset_index: int):
-        """dont allow CTRl+C during data generation"""
-        with DelayedKeyboardInterrupt(dataset_index):
-            try:
-                self._generate_data(dataset_index)
-            except Exception as e:
-                # clean up possibly corrupted data
-                logger.error(f"Error while generating data no. {dataset_index}")
-                logger.error(e)
-                self._cleanup(dataset_index)
-                raise e
+    def get_pending_indices(self):
+        if not self.overwrite:
+            existing_files = self.output_dir.joinpath("gt").glob("*.json")
+            existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
+            indices = np.setdiff1d(np.arange(self.start_index, self.end_index + 1), existing_ids)
+        else:
+            indices = np.arange(self.start_index, self.end_index + 1)
+        return indices
 
-    def _generate_data(self, dataset_index: int):
-        logger.debug(f"Generating data for {dataset_index}")
-        self._scene.frame_set(dataset_index)  # this sets the suffix for file names
+    def _write_data(self, scene: sp.Scene, dataset_index: int):
+        sp.logger.debug(f"Generating data for {dataset_index}")
+        scene.frame_set(dataset_index)  # this sets the suffix for file names
 
         # for each object, deactivate all but one and render mask
-        objs = self._scene.get_labelled_objects()
-        self._scene.render()
+        objs = scene.get_labelled_objects()
+        scene.render()
 
         depth = np.array(
             cv2.imread(
-                str(Path(self._output_dir, "depth", f"depth_{dataset_index:04}.exr")),
+                str(Path(self.output_dir, "depth", f"depth_{dataset_index:04}.exr")),
                 cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
             )
         )[..., 0].astype(np.float32)
         depth[depth > 100.0] = 0.0
 
-        mask_path = Path(self._output_dir / f"mask/mask_{dataset_index:04}.exr")
+        mask_path = Path(self.output_dir / f"mask/mask_{dataset_index:04}.exr")
         mask = EXR(mask_path).read("visib.R")
         obj_list = []
         for obj in objs:
@@ -98,10 +76,10 @@ class Writer:
                 }
             )
 
-        cam = self._scene.get_cameras()[0]  # TODO in the future save all cameras
+        cam = scene.get_cameras()[0]  # TODO in the future save all cameras
         cam_pos = cam.location
         cam_rot = cam.rotation
-        cam_matrix = cam.calculate_intrinsics(self._scene.resolution_x, self._scene.resolution_y)
+        cam_matrix = cam.calculate_intrinsics(scene.resolution_x, scene.resolution_y)
 
         meta_dict = {
             "cam_rotation": list(cam_rot.as_quat(canonical=True)),
@@ -127,31 +105,31 @@ class Writer:
     def _cleanup(self, dataset_index):
         gt_path = self._data_dir / f"gt_{dataset_index:05}.json"
         if gt_path.exists():
-            logger.debug(f"Removing {gt_path}")
+            sp.logger.debug(f"Removing {gt_path}")
             gt_path.unlink()
 
-        rgb_path = self._output_dir / "rgb" / f"rgb_{dataset_index:04}.png"
+        rgb_path = self.output_dir / "rgb" / f"rgb_{dataset_index:04}.png"
         if rgb_path.exists():
-            logger.debug(f"Removing {rgb_path}")
+            sp.logger.debug(f"Removing {rgb_path}")
             rgb_path.unlink()
 
-        rgb_R_path = self._output_dir / "rgb" / f"rgb_{dataset_index:04}_R.png"
+        rgb_R_path = self.output_dir / "rgb" / f"rgb_{dataset_index:04}_R.png"
         if rgb_R_path.exists():
-            logger.debug(f"Removing {rgb_R_path}")
+            sp.logger.debug(f"Removing {rgb_R_path}")
             rgb_R_path.unlink()
 
-        mask_path = self._output_dir / "mask" / f"mask_{dataset_index:04}.exr"
+        mask_path = self.output_dir / "mask" / f"mask_{dataset_index:04}.exr"
         if mask_path.exists():
-            logger.debug(f"Removing {mask_path}")
+            sp.logger.debug(f"Removing {mask_path}")
             mask_path.unlink()
 
-        depth_path = self._output_dir / "depth" / f"depth_{dataset_index:04}.exr"
+        depth_path = self.output_dir / "depth" / f"depth_{dataset_index:04}.exr"
         if depth_path.exists():
-            logger.debug(f"Removing {depth_path}")
+            sp.logger.debug(f"Removing {depth_path}")
             depth_path.unlink()
 
-        mask_paths = (self._output_dir / "mask").glob(f"mask_*_{dataset_index:04}.exr")
+        mask_paths = (self.output_dir / "mask").glob(f"mask_*_{dataset_index:04}.exr")
         for mask_path in mask_paths:
             if mask_path.exists():
-                logger.debug(f"Removing {mask_path}")
+                sp.logger.debug(f"Removing {mask_path}")
                 mask_path.unlink()

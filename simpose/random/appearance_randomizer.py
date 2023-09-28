@@ -3,35 +3,38 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 import logging
 
+from .randomizer import Randomizer, RandomizerConfig
 
-class AppearanceRandomizer(simpose.Callback):
+
+class AppearanceRandomizerConfig(RandomizerConfig):
+    metallic_range: float = 0.25  # standard deviation 68% <, 95% <<, 99.7% <<<
+    roughness_range: float = 0.25
+    hue_range: float = 0.04
+    saturation_range: float = 0.24
+    value_range: float = 0.24
+
+
+class AppearanceRandomizer(Randomizer):
     def __init__(
         self,
-        scene: simpose.Scene,
-        cb_type: simpose.CallbackType,
-        *,
-        metallic_range: float = 0.25,  # standard deviation 68% <, 95% <<, 99.7% <<<
-        roughness_range: float = 0.25,
-        hue_range: float = 0.04,
-        saturation_range: float = 0.24,
-        value_range: float = 0.24,
+        params: AppearanceRandomizerConfig,
     ):
-        super().__init__(scene, cb_type)
-        self._scene = scene
+        super().__init__(params)
+
         self._subjects: set[simpose.Object] = set()
         app = simpose.Object.ObjectAppearance
         self._ranges = {
-            app.METALLIC: metallic_range,
-            app.ROUGHNESS: roughness_range,
-            app.HUE: hue_range,
-            app.SATURATION: saturation_range,
-            app.VALUE: value_range,
+            app.METALLIC: params.metallic_range,
+            app.ROUGHNESS: params.roughness_range,
+            app.HUE: params.hue_range,
+            app.SATURATION: params.saturation_range,
+            app.VALUE: params.value_range,
         }
 
     def add(self, object: simpose.Object):
         self._subjects.add(object)
 
-    def callback(self):
+    def call(self, _: simpose.Scene):
         for obj in list(self._subjects)[:]:
             for appearance in simpose.Object.ObjectAppearance:
                 try:
