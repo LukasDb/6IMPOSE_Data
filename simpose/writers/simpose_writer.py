@@ -5,13 +5,13 @@ from pathlib import Path
 import cv2
 import logging
 from ..exr import EXR
-from .writer import Writer, WriterParams
+from .writer import Writer, WriterConfig
 
 
 class SimposeWriter(Writer):
     def __init__(
         self,
-        params: WriterParams,
+        params: WriterConfig,
     ):
         super().__init__(params)
         self._data_dir = self.output_dir / "gt"

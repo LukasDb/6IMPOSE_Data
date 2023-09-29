@@ -4,9 +4,10 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel, validator
 from enum import Enum
 from simpose.observers import Observer, Event
+from simpose import base_config
 
 
-class RandomizerConfig(BaseModel, extra="forbid"):
+class RandomizerConfig(base_config.BaseConfig):
     trigger: Event
 
 

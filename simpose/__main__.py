@@ -35,9 +35,10 @@ def view(data_dir: Path):
 
 
 @run.command()
-@click.argument("config_file", type=click.Path(exists=True, path_type=Path))
-@click.option("-v", "--verbose", count=True)
-def generate(config_file: Path, verbose: int, **kwargs):
+@click.argument("config_file", type=click.Path(path_type=Path))
+@click.option("-v", "--verbose", count=True, help="Verbosity level")
+@click.option("-i", "--initialize", is_flag=True, help="Initialize a config file")
+def generate(config_file: Path, verbose: int, initialize: bool, **kwargs):
     if verbose == 0:
         level = 30
     elif verbose == 1:
@@ -52,8 +53,26 @@ def generate(config_file: Path, verbose: int, **kwargs):
 
     sp.logger.setLevel(level)
 
-    with config_file.open() as F:
-        config = yaml.safe_load(F)
+    if config_file.exists():
+        assert not initialize, f"{config_file} already exists."
+        with config_file.open() as F:
+            config = yaml.safe_load(F)
+        generator_type = config["Generator"]["type"]
+
+    # use the generator to initialize the config file
+    else:
+        assert initialize, f"{config_file} does not exist. Use -i to initialize."
+
+        generator_type = click.prompt(
+            "Generator type",
+            type=click.Choice(sp.generators.__generators__),
+            default=sp.generators.__generators__[0],
+        )
+        generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
+        template = generator_func.generate_template_config()
+        with config_file.open("w") as F:
+            F.write(template)
+        return
 
     # TODO config overwriting
 
@@ -64,17 +83,14 @@ def generate(config_file: Path, verbose: int, **kwargs):
 
     # load writer
     writer_name = config["Writer"]["type"]
-    writer_config = sp.writers.WriterParams.model_validate(config["Writer"]["params"])
+    writer_config = sp.writers.WriterConfig.model_validate(config["Writer"]["params"])
     writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
 
-    # initialize and run generator
-    generator_func: type[sp.generators.Generator] = getattr(
-        sp.generators, config["Generator"]["type"]
-    )
     params_func: type[sp.generators.GeneratorParams] = getattr(
         sp.generators, config["Generator"]["type"] + "Config"
     )
     gen_params = params_func.model_validate(config["Generator"]["params"])
+    generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
     generator = generator_func(writer=writer, randomizers=randomizers, params=gen_params)
 
     generator.start()

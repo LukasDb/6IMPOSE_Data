@@ -1,9 +1,8 @@
 from abc import ABC, abstractmethod
 import simpose as sp
 from pathlib import Path
-import logging
 import signal
-from pydantic import BaseModel
+from simpose import base_config
 
 
 class DelayedKeyboardInterrupt:
@@ -24,15 +23,24 @@ class DelayedKeyboardInterrupt:
             self.old_handler(*self.signal_received)  # type: ignore
 
 
-class WriterParams(BaseModel, extra="forbid"):
-    output_dir: Path
-    overwrite: bool
-    start_index: int
-    end_index: int
+class WriterConfig(base_config.BaseConfig):
+    output_dir: Path = Path("path/to/output_dir")
+    overwrite: bool = False
+    start_index: int = 0
+    end_index: int = 9
+
+    @staticmethod
+    def get_description() -> dict[str, str]:
+        return {
+            "output_dir": "Path to the output directory",
+            "overwrite": "If True, overwrite existing files",
+            "start_index": "Start index of the generated data",
+            "end_index": "End index of the generated data (including)",
+        }
 
 
 class Writer(ABC):
-    def __init__(self, params: WriterParams):
+    def __init__(self, params: WriterConfig):
         # self.scene = scene
         self.output_dir = params.output_dir.expanduser()
         # self.scene.set_output_path(self.output_dir)

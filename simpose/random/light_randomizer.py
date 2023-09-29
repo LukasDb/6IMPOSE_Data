@@ -8,11 +8,21 @@ from .randomizer import Randomizer, RandomizerConfig
 
 
 class LightRandomizerConfig(RandomizerConfig):
-    no_of_lights_range: Tuple[int, int]
-    energy_range: Tuple[int, int]
-    color_range: Tuple[float, float]
-    distance_range: Tuple[float, float]
-    size_range: Tuple[float, float]
+    no_of_lights_range: Tuple[int, int] = (2, 4)
+    energy_range: Tuple[int, int] = (300, 800)
+    color_range: Tuple[float, float] = (0.8, 1.0)
+    distance_range: Tuple[float, float] = (3.0, 10.0)
+    size_range: Tuple[float, float] = (0.8, 2)
+
+    @staticmethod
+    def get_description() -> dict[str, str]:
+        return {
+            "no_of_lights_range": "Range of number of lights",
+            "energy_range": "Range of energy of lights",
+            "color_range": "Range of color of lights",
+            "distance_range": "Range of distance of lights to the origin",
+            "size_range": "Range of size of the area lights",
+        }
 
 
 class LightRandomizer(Randomizer):

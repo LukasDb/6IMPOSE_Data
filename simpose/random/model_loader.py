@@ -18,9 +18,17 @@ class ModelSource(Enum):
 
 
 class ModelLoaderConfig(RandomizerConfig):
-    root: Path
+    root: Path = Path("path/to/models")
     source: ModelSource = ModelSource.GENERIC_OBJ
     scale_range: tuple[float, float] = (0.5, 2)
+
+    @staticmethod
+    def get_description() -> dict[str, str]:
+        return {
+            "root": "Path to the root directory of the models",
+            "source": "Type of the dataset source",
+            "scale_range": "Range of the scale of the models",
+        }
 
 
 class ModelLoader(JoinableRandomizer):

@@ -13,6 +13,16 @@ class AppearanceRandomizerConfig(RandomizerConfig):
     saturation_range: float = 0.24
     value_range: float = 0.24
 
+    @staticmethod
+    def get_description() -> dict[str, str]:
+        return {
+            "metallic_range": "standard deviation of the metallic value",
+            "roughness_range": "standard deviation of the roughness value",
+            "hue_range": "standard deviation of the hue value",
+            "saturation_range": "standard deviation of the saturation value",
+            "value_range": "standard deviation of the value value",
+        }
+
 
 class AppearanceRandomizer(Randomizer):
     def __init__(

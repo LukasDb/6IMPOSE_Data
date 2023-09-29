@@ -8,8 +8,15 @@ from .randomizer import Randomizer, RandomizerConfig
 
 
 class CameraFrustumRandomizerConfig(RandomizerConfig):
-    r_range: tuple
-    yp_limit: tuple
+    r_range: tuple = (0.3, 1.2)
+    yp_limit: tuple = (0.9, 0.9)
+
+    @staticmethod
+    def get_description() -> dict[str, str]:
+        return {
+            "r_range": "Range of the distance from the camera",
+            "yp_limit": "Limit horizontal and vertical position in FOV of camera",
+        }
 
 
 class CameraFrustumRandomizer(Randomizer):
@@ -55,9 +62,7 @@ class CameraFrustumRandomizer(Randomizer):
             pos = np.array([x, y, z]) @ cam_rot.as_matrix() + np.array(cam_origin)
             subject.set_location(pos)
 
-            simpose.logger.debug(
-                f"randomize_in_camera_frustum: {subject} randomized to {pos}"
-            )
+            simpose.logger.debug(f"randomize_in_camera_frustum: {subject} randomized to {pos}")
 
     def _randomize_orientation(self):
         for subject in self._subjects:

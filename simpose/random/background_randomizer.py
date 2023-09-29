@@ -9,11 +9,13 @@ from .randomizer import Randomizer, RandomizerConfig
 
 
 class BackgroundRandomizerConfig(RandomizerConfig):
-    backgrounds_dir: Path
+    backgrounds_dir: Path = Path("path/to/backgrounds_folder")
 
-    @validator("backgrounds_dir")
-    def validate_path(cls, v):
-        return Path(v)
+    @staticmethod
+    def get_description() -> dict[str, str]:
+        return {
+            "backgrounds_dir": "Path to the background directory",
+        }
 
 
 class BackgroundRandomizer(Randomizer):

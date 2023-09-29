@@ -3,11 +3,11 @@ import simpose as sp
 from abc import ABC, abstractmethod
 import multiprocessing as mp
 import numpy as np
-from pydantic import BaseModel
-import sys
 
 
-class GeneratorParams(BaseModel, extra="forbid"):
+from simpose import base_config
+
+class GeneratorParams(ABC, base_config.BaseConfig):
     n_workers: int
 
 
@@ -86,4 +86,9 @@ class Generator(ABC):
     @abstractmethod
     def generate_data(self, indices: list[int]):
         """run the routine to generate the data for the given indices"""
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def generate_template_config() -> str:
         pass

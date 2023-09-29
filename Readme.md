@@ -7,16 +7,26 @@ install this package with
 `pip install -e .`
 
 ## Usage
+### Preview
+After you generated your dataset, using the included `SimposeWriter` you can inspect the rendered data and labels with the Dataset Viewer:
+```
+simpose view <dataset_directory>
+```
+### Included Generators
+6IMPOSE has built-in dataset generators, to quickly generate datasets without the need for custom scripts. To use a generator, run
+```
+simpose generate <config.yaml>
+```
+,where the config file specifies the parameters and the generator for dataset generation. You can generate a config file with `simpose generate -i <config.yaml>`, where you will be prompted to choose a Generator (e.g. DroppedObjects). The config file will be generated with default parameters. You can then edit the config file and run `simpose generate <config.yaml>` to generate the dataset. Make sure to specify all necessary file paths and check if the defaults are suitable for your use case!
+
+### Custom Usage
 If you want to write your own dataset generation script, a typical script would follow this approach. Take a look at the examples!
 - create a simpose Scene
 - attach a Writer
 - create a simpose Camera
 - add objects, lights, etc...
 - use the writer to generate the Datset
-After you generated your dataset you can inspect the rendered data and labels with the Dataset Viewer:
-```
-simpose view <dataset_directory>
-```
+
 
 ## Features
 - Abstracted Blender interface
@@ -35,7 +45,7 @@ simpose view <dataset_directory>
 ## Models and Meshes 
 - You can use the simpose.random.ModelLoader to retrieve random objects with .get_objects from the ShapeNet dataset. Please request and download the dataset from ShapeNet on your own and specify the path to the dataset in the ShapenetLoader.
 - A script to download and extract Models from the YCB dataset is provided. The models can then be used in a similar fashion with the simpose.random.ModelLoader.
-- The objects from [SynthDet](https://github.com/Unity-Technologies/SynthDet) can also be used as distractor objects. Download the "SynthDet/SynthDet/Assets/Foreground Objects" folder and convert the ASCII Fbx files to binary FBX files (for example, using [this](https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-2020-0?us_oa=akn-us&us_si=9066be5d-863a-4cd3-b98f-87bda034316b&us_st=fbx%20sdk))and specify the model source for the `simpose.random.ModelLoader`.
+- The objects from [SynthDet](https://github.com/Unity-Technologies/SynthDet) can also be used as distractor objects. The published objects are however not directly compatible and need pre-processing.
 
 ## Notes
 - GT labels are only written for objects with `add_semantics=True`
