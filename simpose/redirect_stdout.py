@@ -9,6 +9,13 @@ import multiprocessing as mp
 
 @contextmanager
 def redirect_stdout():
+    # if called from blender built-in python, dont use this
+    py_path = sys.executable
+    is_blender_builtin = "Blender.app" in py_path
+
+    if is_blender_builtin:
+        yield
+        return
 
     fd = sys.stdout.fileno()
 

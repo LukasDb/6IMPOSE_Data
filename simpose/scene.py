@@ -16,16 +16,19 @@ if TYPE_CHECKING:
 
 
 class Scene(Observable):
-    def __init__(self, img_h: int = 480, img_w: int = 640, debug=False) -> None:
+    def __init__(self, bl_scene: "bpy.types.Scene") -> None:
         Observable.__init__(self)
+        self._bl_scene: bpy.types.Scene = bl_scene
+
+    @staticmethod
+    def create(img_h: int = 480, img_w: int = 640, debug=False):
         import bpy
 
-        self._bl_scene: bpy.types.Scene = bpy.data.scenes["Scene"]
+        self = Scene(bpy.data.scenes["Scene"])
         sp.logger.debug(f"Created scene: {self._bl_scene}")
 
         scene = self._bl_scene
-        self.__id_counter = 0
-        self._observers: list[sp.random.Randomizer] = []
+        scene["id_counter"] = 0
 
         # delete cube, light, camera
         bpy.ops.object.select_all(action="SELECT")
@@ -41,10 +44,9 @@ class Scene(Observable):
         scene.render.resolution_y = img_h
         scene.render.resolution_percentage = 100
         scene.render.use_persistent_data = False  # HACK
-        scene.view_layers[0].cycles.use_denoising = True
 
-        self.current_bg_img: bpy.types.Image | None = None
         self.output_dir = Path("output")
+
         self._setup_rendering_device()
         self._setup_compositor()
         self._register_new_id("visib")
@@ -60,6 +62,7 @@ class Scene(Observable):
         p.setPhysicsEngineParameter(fixedTimeStep=1 / 240.0, numSubSteps=1)
 
         self.notify(Event.ON_SCENE_CREATED)
+        return self
 
     @property
     def resolution(self):
@@ -147,8 +150,8 @@ class Scene(Observable):
         self.notify(Event.AFTER_RENDER)
 
     def get_new_object_id(self) -> int:
-        self.__id_counter += 1
-        return self.__id_counter
+        self._bl_scene["id_counter"] += 1
+        return self._bl_scene["id_counter"]
 
     def frame_set(self, frame_num: int):
         self._bl_scene.frame_set(frame_num)  # this sets the suffix for file names
@@ -335,15 +338,27 @@ class Scene(Observable):
         import bpy
 
         # get composition node_tree
-        if self.current_bg_img is not None:
-            bpy.data.images.remove(self.current_bg_img)
-        self.current_bg_img = bpy.data.images.load(str(filepath.resolve()))
-        self.bg_image_node.image = self.current_bg_img
+        try:
+            img = self._bl_scene["background_img"]
+            bpy.data.images.remove(img)
+        except KeyError:
+            pass
+        # if self.current_bg_img is not None:
+        #    bpy.data.images.remove(self.current_bg_img)
+        new_img = bpy.data.images.load(str(filepath.resolve()))
+
+        tree = self._bl_scene.node_tree
+        bg_image_node = tree.nodes["background_node"]
+        bg_image_node.image = new_img
+        self._bl_scene["background_img"] = new_img
         # scale_to_fit = np.max(self.resolution / np.array(self.current_bg_img.size))
         sp.logger.debug(f"Set background to {filepath}")
 
     def export_blend(self, filepath: Path = Path("scene.blend")):
         import bpy
+
+        register_script = sp.register_addon.__file__
+        bpy.ops.script.python_file_run(filepath=str(register_script))
 
         self._bl_scene.render.engine = "CYCLES"
         with redirect_stdout():
@@ -366,11 +381,13 @@ class Scene(Observable):
         self._bl_scene.view_layers["ViewLayer"].use_pass_combined = True
         self._bl_scene.render.engine = "CYCLES"
         self._bl_scene.cycles.use_denoising = True
-        self._bl_scene.cycles.samples = 64
+        self._bl_scene.cycles.use_preview_denoising = True
+        self._bl_scene.cycles.samples = 32  # HACK -> 64
+        self._bl_scene.cycles.preview_samples = 32  # HACK -> 64
         self._bl_scene.cycles.caustics_reflective = False
         self._bl_scene.cycles.caustics_refractive = False
         self._bl_scene.cycles.use_auto_tile = True
-        self._bl_scene.cycles.tile_size = 256
+        self._bl_scene.cycles.tile_size = 256  # HACK -> 256
         self._bl_scene.cycles.caustics_reflective = True
         self._bl_scene.cycles.caustics_refractive = True
         self._bl_scene.cycles.use_camera_cull = True
@@ -401,8 +418,9 @@ class Scene(Observable):
         )  # type: ignore
         self.alpha_over.location = (600, 300)
 
-        self.bg_image_node: bpy.types.CompositorNodeImage = tree.nodes.new("CompositorNodeImage")  # type: ignore
-        self.bg_image_node.location = (0, 300)
+        bg_image_node: bpy.types.CompositorNodeImage = tree.nodes.new("CompositorNodeImage")  # type: ignore
+        bg_image_node.location = (0, 300)
+        bg_image_node.name = "background_node"
 
         # add scale node
         scale_node: bpy.types.CompositorNodeScale = tree.nodes.new("CompositorNodeScale")  # type: ignore
@@ -410,7 +428,7 @@ class Scene(Observable):
         scale_node.location = (300, 300)
 
         # bg node -> scale
-        tree.links.new(self.bg_image_node.outputs[0], scale_node.inputs[0])
+        tree.links.new(bg_image_node.outputs[0], scale_node.inputs[0])
         # scale -> alpha over [1]
         tree.links.new(scale_node.outputs[0], self.alpha_over.inputs[1])
         # rendered_rgb -> alpha over [2]

@@ -3,15 +3,15 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 import logging
 
-from .randomizer import Randomizer, RandomizerConfig
+from .randomizer import Randomizer, RandomizerConfig, register_operator
 
 
 class AppearanceRandomizerConfig(RandomizerConfig):
     metallic_range: float = 0.25  # standard deviation 68% <, 95% <<, 99.7% <<<
     roughness_range: float = 0.25
-    hue_range: float = 0.04
-    saturation_range: float = 0.24
-    value_range: float = 0.24
+    hue_range: float = 0.01
+    saturation_range: float = 0.1
+    value_range: float = 0.1
 
     @staticmethod
     def get_description() -> dict[str, str]:
@@ -24,14 +24,13 @@ class AppearanceRandomizerConfig(RandomizerConfig):
         }
 
 
+@register_operator(cls_params=AppearanceRandomizerConfig)
 class AppearanceRandomizer(Randomizer):
     def __init__(
         self,
         params: AppearanceRandomizerConfig,
     ):
         super().__init__(params)
-
-        self._subjects: set[simpose.Object] = set()
         app = simpose.Object.ObjectAppearance
         self._ranges = {
             app.METALLIC: params.metallic_range,
@@ -41,16 +40,14 @@ class AppearanceRandomizer(Randomizer):
             app.VALUE: params.value_range,
         }
 
-    def add(self, object: simpose.Object):
-        self._subjects.add(object)
-
-    def call(self, _: simpose.Scene):
-        for obj in list(self._subjects)[:]:
+    def call(self, scene: simpose.Scene, objects: None | list[simpose.Object] = None):
+        if objects is None:
+            objects = scene.get_active_objects()
+        for obj in objects:
             for appearance in simpose.Object.ObjectAppearance:
                 try:
                     default = obj.get_default_appearance(appearance)
                 except ReferenceError:
-                    self._subjects.remove(obj)
                     break
                 r = self._ranges[appearance]
                 random_value = np.random.uniform(default - r, default + r)

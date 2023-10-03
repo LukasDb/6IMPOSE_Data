@@ -212,7 +212,7 @@ def load_data(img_dir, idx, use_bbox=False, use_pose=False):
                 cameraMatrix=cam_matrix,
                 rvec=rotV,
                 tvec=t,
-                distCoeffs=0,
+                distCoeffs=np.array(0),
                 length=0.05,
                 thickness=2,
             )

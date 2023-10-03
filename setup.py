@@ -23,7 +23,7 @@ except ImportError:
 
 setup(
     name="simpose",
-    version="1.0.0",
+    version="1.1.0",
     description="Synthetic Image Generator based on Blender",
     url="todo",
     author="Lukas Dirnberger",

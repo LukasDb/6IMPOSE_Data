@@ -17,14 +17,16 @@ class RandomImagerPickerConfig(RandomizerConfig):
     img_dir: Path
 
     @classmethod
-    def get_description():
+    def get_description(cls):
         pass
 
 
 class RandomImagePicker(Randomizer):
     def __init__(self, params: RandomImagerPickerConfig) -> None:
         super().__init__(params)
-        self._img_paths = [x for x in params.img_dir.iterdir() if "norm" not in x.name]
+        self._img_paths = [
+            x for x in params.img_dir.expanduser().iterdir() if "norm" not in x.name
+        ]
 
     def randomize_plane(self, plane: sp.Plane):
         self._plane = plane
@@ -45,7 +47,6 @@ class DroppedObjectsConfig(GeneratorParams):
     use_stereo: bool = True
     cam_hfov: float = 70
     cam_baseline: float = 0.063
-    cam_dist_range: tuple[float, float] = (0.3, 1.0)
     img_w: int = 1920
     img_h: int = 1080
 
@@ -121,6 +122,9 @@ class DroppedObjects(Generator):
         bg_params = sp.random.BackgroundRandomizerConfig.dump_with_comments(
             trigger=sp.Event.BEFORE_RENDER
         )
+        cam_loc_params = sp.random.CameraPlacementRandomizerConfig.dump_with_comments(
+            trigger=sp.Event.BEFORE_RENDER
+        )
 
         ycb_params = sp.random.ModelLoaderConfig.dump_with_comments(
             root=Path("path/to/ycb/models"),
@@ -141,6 +145,7 @@ class DroppedObjects(Generator):
                 entry("appearance", "AppearanceRandomizer", app_params),
                 entry("light", "LightRandomizer", light_params),
                 entry("background", "BackgroundRandomizer", bg_params),
+                entry("camera_placement", "CameraPlacementRandomizer", cam_loc_params),
                 entry("distractors", "Join", "\n".join((ycb_entry, ugreal_entry))),
             ]
         )
@@ -166,7 +171,7 @@ class DroppedObjects(Generator):
         debug = is_primary_worker and sp.logger.level < logging.DEBUG
 
         # -- SCENE --
-        self.scene = scene = sp.Scene(img_h=p.img_h, img_w=p.img_w, debug=debug)
+        self.scene = scene = sp.Scene.create(img_h=p.img_h, img_w=p.img_w, debug=debug)
         plane = scene.create_plane()
 
         # -- CAMERA --
@@ -185,10 +190,6 @@ class DroppedObjects(Generator):
         randimages = RandomImagePicker(cfg)
         randimages.listen_to(scene)
         randimages.randomize_plane(plane)
-
-        appearance_randomizer: sp.random.AppearanceRandomizer = self.randomizers["appearance"]  # type: ignore
-        self.appearance_randomizer = appearance_randomizer
-        self.appearance_randomizer.add(plane)
 
         # -- OBJECTS --
         main_obj = scene.create_object(
@@ -213,7 +214,6 @@ class DroppedObjects(Generator):
             main_objs.append(scene.create_copy(main_obj))
 
         for obj in main_objs:
-            appearance_randomizer.add(obj)
             obj.hide()
 
         # --- Generation params ---
@@ -226,16 +226,7 @@ class DroppedObjects(Generator):
             for _ in range(p.num_time_steps):
                 scene.step_physics(p.time_step)
 
-                cam_locations = self.get_camera_locations(p.num_camera_locations)
-
-                for cam_location in cam_locations:
-                    cam.set_location(cam_location)
-                    cam.point_at(np.array([0.0, 0.0, 0.0]))  # with z up
-
-                    cam.apply_local_rotation_offset(
-                        R.from_euler("z", np.random.uniform(-20, 20), degrees=True)
-                    )
-
+                for _ in range(p.num_camera_locations):
                     self.writer.write_data(scene, indices[i])
 
                     i += 1
@@ -247,16 +238,6 @@ class DroppedObjects(Generator):
 
                     bar.update(1)
 
-    def get_camera_locations(self, num_cam_locs: int):
-        p = self.params
-        rots = R.random(num=num_cam_locs)
-        cam_view = np.array([0.0, 0.0, 1.0])
-        radius = np.random.uniform(*p.cam_dist_range, size=(num_cam_locs,))
-
-        cam_locations = rots.apply(cam_view) * radius[:, None]
-        cam_locations[:, 2] *= np.sign(cam_locations[:, 2])  # flip lower hemisphere up
-        cam_locations[:, 2] += 0.2  # lift up a bit
-        return cam_locations
 
     def setup_new_scene(self, main_objs: list[sp.Object]):
         model_loader: sp.random.ModelLoader = self.randomizers["distractors"]  # type: ignore
@@ -270,7 +251,6 @@ class DroppedObjects(Generator):
             # ):
             # obj.show()
             obj = model_loader.get_object(self.scene, mass=0.2, friction=p.friction)
-            self.appearance_randomizer.add(obj)
             obj.set_location(
                 (
                     np.random.uniform(-0.05, 0.05),
@@ -284,7 +264,6 @@ class DroppedObjects(Generator):
         distractors = []
         for _ in range(p.num_secondary_distractors):
             obj = model_loader.get_object(self.scene, mass=0.2, friction=p.friction, hide=True)
-            self.appearance_randomizer.add(obj)
             distractors.append(obj)
 
         drop_objects = main_objs + distractors
