@@ -1,8 +1,7 @@
 from scipy.spatial.transform import Rotation as R
-from .placeable import Placeable
-
 import numpy as np
-import logging
+
+from .placeable import Placeable
 import simpose as sp
 
 from typing import TYPE_CHECKING

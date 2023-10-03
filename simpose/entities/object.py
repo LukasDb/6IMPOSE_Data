@@ -374,16 +374,18 @@ class Object(Placeable):
     def __str__(self) -> str:
         return f"Object(name={self.get_name()}, class={self.get_class()}"
 
-    def set_location(self, location: Tuple | np.ndarray):
+    def set_location(self, location: Tuple | np.ndarray, ignore_pybullet=False):
         try:
-            self._set_pybullet_pose(location, self.rotation)
+            if not ignore_pybullet:
+                self._set_pybullet_pose(location, self.rotation)
         except KeyError:
             pass
         return super().set_location(location)
 
-    def set_rotation(self, rotation: R):
+    def set_rotation(self, rotation: R, ignore_pybullet=False):
         try:
-            self._set_pybullet_pose(self.location, rotation)
+            if not ignore_pybullet:
+                self._set_pybullet_pose(self.location, rotation)
         except KeyError:
             pass
         return super().set_rotation(rotation)
@@ -404,10 +406,11 @@ class Object(Placeable):
         com = np.array(self._bl_object["COM"])
         pos, orn = p.getBasePositionAndOrientation(pb_id)
 
-        location = pos + self.rotation.apply(np.array(com))
-
-        self.set_location(location)
-        self.set_rotation(R.from_quat(orn))
+        orn = R.from_quat(orn)
+        # since we update *from* pybullet, we don't need to update pybullet again
+        self.set_rotation(orn, ignore_pybullet=True)
+        location = pos + orn.apply(np.array(com))
+        self.set_location(location, ignore_pybullet=True)
 
     def remove(self):
         import bpy
