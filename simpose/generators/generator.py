@@ -7,6 +7,7 @@ import numpy as np
 
 from simpose import base_config
 
+
 class GeneratorParams(ABC, base_config.BaseConfig):
     n_workers: int
 
@@ -50,26 +51,21 @@ class Generator(ABC):
             return
 
         sp.logger.info("Rendering %d images with %d workers.", len(pending_indices), n_workers)
-        indices = np.array_split(pending_indices, n_workers)
 
-        queue = mp.Queue()
-        processes = [
-            mp.Process(target=self.process, args=(queue,), daemon=True) for _ in range(n_workers)
-        ]
-        for p in processes:
-            p.start()
+        # indices = np.array_split(pending_indices, n_workers)
+        chunk_size = 200
+        indices = np.array_split(pending_indices, len(pending_indices) // chunk_size)
 
-        # load jobs
-        for i in range(n_workers):
-            queue.put(indices[i])
-        # send stop signal
-        for _ in range(n_workers):
-            queue.put(None)
+        current_procs = []
+        for indlist in indices:
+            if len(current_procs) == n_workers:
+                for p in current_procs:
+                    p.join()
+                current_procs = []
 
-        # intercept SIGINT
-        signal.signal(signal.SIGINT, signal.SIG_IGN)
-        for p in processes:
-            p.join()
+            proc = mp.Process(target=self.generate_data, args=(indlist,), daemon=True)
+            current_procs.append(proc)
+            proc.start()
 
     def process(self, queue: mp.Queue):
         np.random.seed(mp.current_process().pid)

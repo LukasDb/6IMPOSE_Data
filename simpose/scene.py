@@ -356,8 +356,9 @@ class Scene(Observable):
 
     def export_blend(self, filepath: Path = Path("scene.blend")):
         import bpy
+        import simpose.register_addon
 
-        register_script = sp.register_addon.__file__
+        register_script = simpose.register_addon.__file__
         bpy.ops.script.python_file_run(filepath=str(register_script))
 
         self._bl_scene.render.engine = "CYCLES"

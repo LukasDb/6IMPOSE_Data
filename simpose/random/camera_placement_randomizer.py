@@ -40,15 +40,13 @@ class CameraPlacementRandomizer(Randomizer):
 
         assert (p.pitch_range[1] - p.pitch_range[0]) >= 5, "Pitch range is too small"
 
-        def get_pitch(loc):
-            d = np.linalg.norm(loc[:2])
-            return np.arctan2(loc[2], d) * 180 / np.pi
-
         # rejection sample until found valid angle
         for _ in range(10000):
             rot = R.random()
             loc = rot.apply(cam_view) * radius + np.array(p.origin)
-            if p.pitch_range[0] < get_pitch(loc) < p.pitch_range[1]:
+            d = np.linalg.norm(loc[:2])
+            pitch = np.arctan2(loc[2], d) * 180 / np.pi
+            if p.pitch_range[0] < pitch < p.pitch_range[1]:
                 break
 
         cam = scene.get_cameras()[0]
@@ -67,3 +65,4 @@ class CameraPlacementRandomizer(Randomizer):
                 degrees=True,
             )
         )
+        sp.logger.debug(f"Placed camera at {loc}.")

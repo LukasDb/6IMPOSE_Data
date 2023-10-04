@@ -1,7 +1,6 @@
 # this file will be run in Blender to install the GUI elements of 6IMPOSE
-
-import bpy
 import sys
+import bpy
 
 
 class SimposePanel(bpy.types.Panel):

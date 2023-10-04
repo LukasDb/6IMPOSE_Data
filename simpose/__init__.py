@@ -4,12 +4,9 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 BL_OPS = []
 
-print("print from __init__")
-
 # tools
 from simpose.redirect_stdout import redirect_stdout
 from simpose.observers import Event
-import simpose.register_addon as register_addon
 
 # 6impose
 from simpose.entities import Object, Camera, Plane, Light
@@ -18,10 +15,10 @@ import simpose.random as random
 import simpose.writers as writers
 import simpose.generators as generators
 
-import logging, coloredlogs
+import logging, coloredlogs, multiprocessing
 
 
-logger = logging.getLogger("simpose")
+logger = multiprocessing.get_logger()
 
 coloredlogs.install(
     level=logging.INFO,
