@@ -10,6 +10,7 @@ import streamlit as st
 import click
 from simpose.exr import EXR
 import h5py
+import time
 
 from streamlit_image_comparison import image_comparison
 
@@ -37,6 +38,9 @@ def get_idx(img_dir):
 def main(data_dir: Path):
     st.set_page_config(layout="wide", page_title="Dataset Viewer")
 
+    if "last_idx" not in st.session_state:
+        st.session_state["last_idx"] = 0
+
     c1, c2, c3 = st.columns(3)
 
     # c1
@@ -50,6 +54,7 @@ def main(data_dir: Path):
     if len(indices) == 1:
         indices += [indices[0]]
     idx = c1.select_slider("Select image", indices, value=indices[0], key="idx")
+    assert isinstance(idx, int)
 
     # c2
     if c2.button("↻"):
@@ -62,10 +67,7 @@ def main(data_dir: Path):
 
     st.header(f"Datapoint: #{idx:05} (of total {len(indices)} images)")
 
-    if (Path(img_dir) / "data.h5").exists():
-        data = load_data_h5(Path(img_dir), idx, use_bbox=use_bbox, use_pose=use_pose)
-    else:
-        data = load_data(Path(img_dir), idx, use_bbox=use_bbox, use_pose=use_pose)
+    data = load_data(Path(img_dir), idx, use_bbox=use_bbox, use_pose=use_pose)
 
     rgb = data["rgb"]
     rgb_R = data["rgb_R"]
@@ -165,8 +167,8 @@ def create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox,
             # bbox_size = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
             # "visib_fract": visib_fract,
             if obj_data["visib_fract"] > 0.1:
-                cv2.rectangle(
-                    bgr,
+                bgr = cv2.rectangle(
+                    bgr.copy(),
                     (bbox[0], bbox[1]),
                     (bbox[2], bbox[3]),
                     color=cls_colors[cls],
@@ -181,8 +183,8 @@ def create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox,
             RotM = cam_rot.T @ obj_rot
 
             rotV, _ = cv2.Rodrigues(RotM)
-            cv2.drawFrameAxes(
-                bgr,
+            bgr = cv2.drawFrameAxes(
+                bgr.copy(),
                 cameraMatrix=cam_matrix,
                 rvec=rotV,
                 tvec=t,
@@ -195,6 +197,7 @@ def create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox,
     rgb_R = cv2.cvtColor(bgr_R, cv2.COLOR_BGR2RGB) if bgr_R is not None else None
     colored_mask_rgb = cv2.cvtColor(colored_mask_bgr, cv2.COLOR_BGR2RGB)
     colored_semantic_mask_rgb = cv2.cvtColor(colored_semantic_mask_bgr, cv2.COLOR_BGR2RGB)
+
     return {
         "rgb": rgb,
         "rgb_R": rgb_R,
@@ -206,7 +209,22 @@ def create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox,
     }
 
 
-def load_data(img_dir, idx, use_bbox=False, use_pose=False):
+def load_data(img_dir: Path, idx: int, use_bbox=False, use_pose=False):
+    if st.session_state["last_idx"] != idx or "loaded_data" not in st.session_state:
+        st.session_state["last_idx"] = idx
+
+        if (Path(img_dir) / "data.h5").exists():
+            loaded_data = load_data_h5(img_dir, idx)
+        else:
+            loaded_data = load_data_simpose(img_dir, idx)
+
+        st.session_state["loaded_data"] = loaded_data
+
+    loaded_data = st.session_state["loaded_data"]
+    return create_visualization(*loaded_data, use_bbox, use_pose)
+
+
+def load_data_simpose(img_dir, idx):
     with open(os.path.join(img_dir, "gt", f"gt_{idx:05}.json")) as F:
         shot = json.load(F)
     cam_quat = shot["cam_rotation"]
@@ -248,11 +266,17 @@ def load_data(img_dir, idx, use_bbox=False, use_pose=False):
         for d in objs
     ]
 
-    return create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox, use_pose)
+    return bgr, bgr_R, depth, mask, cam_data, objs_data
 
 
-def load_data_h5(img_dir, idx, use_bbox=False, use_pose=False):
-    F = h5py.File(img_dir / "data.h5", "r")
+def load_data_h5(img_dir, idx):
+    F = None
+    while F is None:
+        try:
+            F = h5py.File(img_dir / "data.h5", "r")
+        except BlockingIOError:
+            time.sleep(0.01)
+
     cam_matrix_ds = F["cam_matrix"]
     cam_pos_ds = F["cam_pos"]
     cam_rot_ds = F["cam_rot"]
@@ -317,7 +341,7 @@ def load_data_h5(img_dir, idx, use_bbox=False, use_pose=False):
 
     F.close()
 
-    return create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox, use_pose)
+    return bgr, bgr_R, depth, mask, cam_data, objs_data
 
 
 if __name__ == "__main__":

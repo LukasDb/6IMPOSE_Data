@@ -53,18 +53,23 @@ class Generator(ABC):
                 end_index = ind_list[-1]
 
                 config_file = str(main_kwargs["config_file"])
-                verbosity = "-" + "v" * main_kwargs["verbose"]
                 cmd = [
                     "simpose",
                     "generate",
-                    verbosity,
-                    "--direct_launch",
-                    "--start_index",
-                    f"{start_index}",
-                    "--end_index",
-                    f"{end_index}",
-                    config_file,
                 ]
+                if main_kwargs["verbose"] > 0:
+                    cmd.append("-" + "v" * main_kwargs["verbose"])
+
+                cmd.extend(
+                    [
+                        "--direct_launch",
+                        "--start_index",
+                        f"{start_index}",
+                        "--end_index",
+                        f"{end_index}",
+                        config_file,
+                    ]
+                )
                 print(cmd)
 
                 proc = subprocess.Popen(cmd)
@@ -78,7 +83,7 @@ class Generator(ABC):
         # print(self.writer.get_pending_indices())
         self.generate_data(pending_indices)
         return
-    
+
     def process(self, queue: mp.Queue):
         np.random.seed(mp.current_process().pid)
         import importlib

@@ -4,7 +4,7 @@ import bpy
 
 
 class SimposePanel(bpy.types.Panel):
-    bl_idname = "6IMPOSE_panel"
+    bl_idname = "SimposePanel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "6IMPOSE"

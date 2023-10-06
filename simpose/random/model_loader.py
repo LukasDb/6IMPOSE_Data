@@ -3,6 +3,7 @@ import itertools as it
 from pathlib import Path
 import numpy as np
 import logging
+import random
 from enum import Enum, auto
 from .randomizer import JoinableRandomizer, RandomizerConfig
 
@@ -21,6 +22,7 @@ class ModelLoaderConfig(RandomizerConfig):
     root: Path = Path("path/to/models")
     source: ModelSource = ModelSource.GENERIC_OBJ
     scale_range: tuple[float, float] = (0.5, 2)
+    exclude: list[str] = []
 
     @staticmethod
     def get_description() -> dict[str, str]:
@@ -28,6 +30,7 @@ class ModelLoaderConfig(RandomizerConfig):
             "root": "Path to the root directory of the models",
             "source": "Type of the dataset source",
             "scale_range": "Range of the scale of the models",
+            "exclude": "List of file names to exclude",
         }
 
 
@@ -80,12 +83,14 @@ class ModelLoader(JoinableRandomizer):
                 [
                     x
                     for x in self._root.glob(f"**/*.{model_source.value}")
-                    if not "_vhacd.obj" in x.name
+                    if not "_vhacd.obj" in x.name and not x.name in params.exclude
                 ]
             )
         else:
             raise NotImplementedError(f"ModelSource {model_source} not implemented.")
         self._model_paths = model_paths
+
+        self.num_models = len(self._model_paths)
 
         simpose.logger.debug(f"Found {len(self._model_paths)} models ({model_source}).")
 
@@ -99,8 +104,11 @@ class ModelLoader(JoinableRandomizer):
 
     def get_object(self, scene: simpose.Scene, **kwargs) -> simpose.Object:
         if len(self._additional_loaders) > 1:
-            i = np.random.randint(0, len(self._additional_loaders))
-            loader = self._additional_loaders[i]
+            # i = np.random.randint(0, len(self._additional_loaders))
+            # loader = self._additional_loaders[i]
+            loader = random.choices(
+                self._additional_loaders, weights=[x.num_models for x in self._additional_loaders]
+            )[0]
         else:
             loader = self
         return loader._get_object(scene, **kwargs)

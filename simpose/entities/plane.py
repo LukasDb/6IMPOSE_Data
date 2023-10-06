@@ -18,7 +18,7 @@ class Plane(Object):
         if with_physics:
             p.setAdditionalSearchPath(pybullet_data.getDataPath())
             pb_id = p.loadURDF("plane.urdf")  # XY ground plane
-            p.changeDynamics(pb_id, -1, lateralFriction=0.5, restitution=0.8)
+            p.changeDynamics(pb_id, -1, lateralFriction=0.5, restitution=0.9)
 
         # deselect blender objects
         bpy.ops.object.select_all(action="DESELECT")

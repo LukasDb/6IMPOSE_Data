@@ -40,6 +40,7 @@ class RandomImagePicker(Randomizer):
 
 class DroppedObjectsConfig(GeneratorParams):
     drop_height: float = 1.0
+    drop_spread: float = 0.4
     time_step: float = 0.25
     num_time_steps: int = 10
     num_camera_locations: int = 10
@@ -68,6 +69,7 @@ class DroppedObjectsConfig(GeneratorParams):
     def get_description():
         return {
             "drop_height": "Height from which objects are dropped",
+            "drop_spread": "Spread of objects when dropped (distance from origin in XY)",
             "time_step": "Physics time step",
             "num_time_steps": "Number of physics time steps",
             "num_camera_locations": "Number of camera locations per timestep",
@@ -238,7 +240,6 @@ class DroppedObjects(Generator):
 
                     bar.update(1)
 
-
     def setup_new_scene(self, main_objs: list[sp.Object]):
         model_loader: sp.random.ModelLoader = self.randomizers["distractors"]  # type: ignore
         p = self.params
@@ -273,8 +274,8 @@ class DroppedObjects(Generator):
             obj.show()
             obj.set_location(
                 (
-                    np.random.uniform(-0.05, 0.05),
-                    np.random.uniform(-0.05, 0.05),
+                    np.random.uniform(-p.drop_spread, p.drop_spread),
+                    np.random.uniform(-p.drop_spread, p.drop_spread),
                     p.drop_height,
                 )
             )

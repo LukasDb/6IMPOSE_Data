@@ -183,6 +183,8 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
+        bl_object.scale = (1.0, 1.0, 1.0)
+
         collision_obj_path = filepath.with_suffix(".obj").resolve()
         with redirect_stdout():
             if not collision_obj_path.exists():

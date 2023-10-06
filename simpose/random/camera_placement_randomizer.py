@@ -10,7 +10,7 @@ from .randomizer import Randomizer, RandomizerConfig, register_operator
 class CameraPlacementRandomizerConfig(RandomizerConfig):
     origin: Tuple[float, float, float] = (0.0, 0.0, 0.0)
     pitch_range: Tuple[float, float] = (10, 90)
-    distance_range: Tuple[float, float] = (0.3, 1.2)
+    distance_range: Tuple[float, float] = (0.4, 1.2)
     roll_jitter: float = 20.0
     pitch_jitter: float = 5.0
     yaw_jitter: float = 5.0
