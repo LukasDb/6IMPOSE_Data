@@ -1,3 +1,4 @@
+import simpose as sp
 import copy
 import os
 import sys
@@ -13,7 +14,7 @@ def redirect_stdout():
     py_path = sys.executable
     is_blender_builtin = "Blender.app" in py_path
 
-    if is_blender_builtin:
+    if is_blender_builtin or sp.logger.level < logging.DEBUG:
         yield
         return
 
@@ -29,8 +30,8 @@ def redirect_stdout():
         sys.stdout = os.fdopen(fd, "w")  # Python writes to fd
 
     with os.fdopen(os.dup(fd), "w") as old_stdout:
-        # with open(os.devnull, "w") as file:
-        with open(f"{mp.current_process().name}.log", "a") as file:
+        with open(os.devnull, "w") as file:
+            # with open(f"{mp.current_process().name}.log", "a") as file:
             _redirect_stdout(to=file)
         try:
             yield  # allow code to be run with the redirected stdout

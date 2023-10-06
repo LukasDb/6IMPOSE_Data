@@ -38,7 +38,17 @@ def view(data_dir: Path):
 @click.argument("config_file", type=click.Path(path_type=Path))
 @click.option("-v", "--verbose", count=True, help="Verbosity level")
 @click.option("-i", "--initialize", is_flag=True, help="Initialize a config file")
-def generate(config_file: Path, verbose: int, initialize: bool, **kwargs):
+@click.option("--direct_launch", is_flag=True, hidden=True)
+@click.option("--start_index", type=int, hidden=True)
+@click.option("--end_index", type=int, hidden=True)
+def generate(
+    config_file: Path,
+    verbose: int,
+    initialize: bool,
+    direct_launch=False,
+    start_index: int | None = None,
+    end_index: int | None = None,
+):
     if verbose == 0:
         level = 30
     elif verbose == 1:
@@ -50,7 +60,6 @@ def generate(config_file: Path, verbose: int, initialize: bool, **kwargs):
 
     for handler in sp.logger.handlers:
         handler.setLevel(level)
-
     sp.logger.setLevel(level)
 
     if config_file.exists():
@@ -75,6 +84,10 @@ def generate(config_file: Path, verbose: int, initialize: bool, **kwargs):
         return
 
     # TODO config overwriting
+    if start_index is not None:
+        config["Writer"]["params"]["start_index"] = start_index
+    if end_index is not None:
+        config["Writer"]["params"]["end_index"] = end_index
 
     # load randomizers
     randomizers = {}
@@ -93,7 +106,13 @@ def generate(config_file: Path, verbose: int, initialize: bool, **kwargs):
     generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
     generator = generator_func(writer=writer, randomizers=randomizers, params=gen_params)
 
-    generator.start()
+    generator.start(
+        direct_launch,
+        main_kwargs={
+            "config_file": config_file,
+            "verbose": verbose,
+        },
+    )
 
 
 @validate_call

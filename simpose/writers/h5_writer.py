@@ -93,9 +93,6 @@ class H5Writer(Writer):
             "objs": list(obj_list),
         }
 
-        with (self._data_dir / f"gt_{dataset_index:05}.json").open("w") as F:
-            json.dump(meta_dict, F, indent=2)
-
         # --- WRITE TO H5 ---
         # h5_index = dataset_index - self.start_index
         h5_index = dataset_index
@@ -133,13 +130,18 @@ class H5Writer(Writer):
                 time.sleep(1.0)
                 continue
 
+        create_kwargs = {"compression": "lzf"}  # fast
         for key, value in matrices.items():
             if key not in h5file.keys():
                 ds_shape = (self.end_index + 1, *value.shape)  # create max length dataset
+                maxshape = (None, *value.shape)
                 h5file.create_dataset(
                     key,
                     shape=ds_shape,
                     dtype=value.dtype,
+                    **create_kwargs,
+                    maxshape=maxshape,
+                    chunks=True,
                 )
             dataset = h5file[key]
             assert isinstance(dataset, h5py.Dataset)
@@ -148,7 +150,6 @@ class H5Writer(Writer):
                 dataset.resize(self.end_index + 1, axis=0)
 
             dataset[h5_index] = value
-            # dataset.attrs["length"] = h5_index + 1
 
         # how to do obj list?
         if "objs" not in h5file.keys():
@@ -164,11 +165,16 @@ class H5Writer(Writer):
         for key in obj_list[0].keys():
             if key in obj_group_for_img.keys():
                 del obj_group_for_img[key]
-            obj_group_for_img.create_dataset(key, data=[x[key] for x in obj_list])
+            obj_group_for_img.create_dataset(key, data=[x[key] for x in obj_list], **create_kwargs)
 
         h5file.close()
-        # then delete the files since everything is in h5 now
-        # self._cleanup(dataset_index)
+
+        keep_old_dataset = False
+        if keep_old_dataset:
+            with (self._data_dir / f"gt_{dataset_index:05}.json").open("w") as F:
+                json.dump(meta_dict, F, indent=2)
+        else:
+            self._cleanup(dataset_index)
 
     def _get_bbox(self, mask, object_id):
         y, x = np.where(mask == object_id)

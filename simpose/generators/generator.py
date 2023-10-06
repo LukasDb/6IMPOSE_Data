@@ -3,6 +3,7 @@ import simpose as sp
 from abc import ABC, abstractmethod
 import multiprocessing as mp
 import numpy as np
+import subprocess
 
 
 from simpose import base_config
@@ -27,46 +28,57 @@ class Generator(ABC):
         self.randomizers = randomizers
         self.params = params
 
-        # if debug:
-        #     sp.logger.setLevel(0)
-        #     set to temp dir
-        #     scene = generate_data([0])
-        #     scene.export_blend()
-        #     scene.run_simulation()
-        #     exit()
-
-    def start(self):
-        mp.set_start_method("spawn")
-
+    def start(self, direct_start: bool, main_kwargs: dict):
         pending_indices = self.writer.get_pending_indices()
         if len(pending_indices) == 0:
             sp.logger.info("No images to render.")
             return
 
-        n_workers = min(self.params.n_workers, len(pending_indices))
+        if not direct_start:
+            """launch mode"""
+            n_workers = min(self.params.n_workers, len(pending_indices))
+            if n_workers == 1:
+                sp.logger.debug("Using single process.")
+                self.generate_data(pending_indices)
+                return
 
-        if n_workers == 1:
-            sp.logger.debug("Using single process.")
-            self.generate_data(pending_indices)
+            sp.logger.info("Rendering %d images with %d workers.", len(pending_indices), n_workers)
+
+            indices = np.array_split(pending_indices, n_workers)
+            # TODO for now do start end end indices
+
+            processes: list[subprocess.Popen] = []
+            for ind_list in indices:
+                start_index = ind_list[0]
+                end_index = ind_list[-1]
+
+                config_file = str(main_kwargs["config_file"])
+                verbosity = "-" + "v" * main_kwargs["verbose"]
+                cmd = [
+                    "simpose",
+                    "generate",
+                    verbosity,
+                    "--direct_launch",
+                    "--start_index",
+                    f"{start_index}",
+                    "--end_index",
+                    f"{end_index}",
+                    config_file,
+                ]
+                print(cmd)
+
+                proc = subprocess.Popen(cmd)
+                processes.append(proc)
+
+            for proc in processes:
+                proc.wait()
+
             return
 
-        sp.logger.info("Rendering %d images with %d workers.", len(pending_indices), n_workers)
-
-        # indices = np.array_split(pending_indices, n_workers)
-        chunk_size = 200
-        indices = np.array_split(pending_indices, len(pending_indices) // chunk_size)
-
-        current_procs = []
-        for indlist in indices:
-            if len(current_procs) == n_workers:
-                for p in current_procs:
-                    p.join()
-                current_procs = []
-
-            proc = mp.Process(target=self.generate_data, args=(indlist,), daemon=True)
-            current_procs.append(proc)
-            proc.start()
-
+        # print(self.writer.get_pending_indices())
+        self.generate_data(pending_indices)
+        return
+    
     def process(self, queue: mp.Queue):
         np.random.seed(mp.current_process().pid)
         import importlib

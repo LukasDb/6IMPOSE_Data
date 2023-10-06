@@ -138,6 +138,8 @@ def create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox,
     cam_rot = R.from_quat(cam_data["cam_rot"]).as_matrix()
     cam_pos = cam_data["cam_pos"]
 
+    if "cls_colors" not in st.session_state:
+        st.session_state["cls_colors"] = {}
     cls_colors = st.session_state["cls_colors"]
 
     mask_scaled = cv2.convertScaleAbs(mask, alpha=255.0 / np.max(mask))
