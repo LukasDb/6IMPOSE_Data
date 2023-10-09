@@ -5,11 +5,13 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 BL_OPS = []
 import logging, coloredlogs, multiprocessing
 
-logger = multiprocessing.get_logger()
+from mpi4py import MPI
+
+logger = logging.getLogger("simpose")
 
 coloredlogs.install(
     level=logging.INFO,
-    fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
+    fmt=f"%(asctime)s [{MPI.COMM_WORLD.Get_rank()}] %(levelname)s %(message)s",
     datefmt="%H:%M:%S",
     logger=logger,
     reconfigure=False,
@@ -28,6 +30,7 @@ import simpose.generators as generators
 
 
 __all__ = [
+    "logger",
     "redirect_stdout",
     "Scene",
     "writers",
@@ -38,5 +41,4 @@ __all__ = [
     "Plane",
     "Light",
     "Event",
-    "logger",
 ]

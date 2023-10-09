@@ -383,10 +383,10 @@ class Scene(Observable):
         self._bl_scene.render.engine = "CYCLES"
         self._bl_scene.cycles.use_denoising = True
         self._bl_scene.cycles.use_preview_denoising = True
-        self._bl_scene.cycles.samples = 32  # HACK -> 64
-        self._bl_scene.cycles.preview_samples = 32  # HACK -> 64
+        self._bl_scene.cycles.samples = 64
+        self._bl_scene.cycles.preview_samples = 64
         self._bl_scene.cycles.use_auto_tile = False  # HACK ?
-        self._bl_scene.cycles.tile_size = 256  # HACK -> 256
+        self._bl_scene.cycles.tile_size = 256
         self._bl_scene.cycles.caustics_reflective = True
         self._bl_scene.cycles.caustics_refractive = True
         self._bl_scene.cycles.use_camera_cull = True

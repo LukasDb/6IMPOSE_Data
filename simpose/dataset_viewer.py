@@ -15,13 +15,24 @@ import time
 from streamlit_image_comparison import image_comparison
 
 
-@st.cache_data(show_spinner="Reading files...")
+@st.cache_data()
 def get_idx(img_dir):
     if (img_dir / "data.h5").exists():
-        with h5py.File(img_dir / "data.h5", "r") as F:
-            rgb_dataset = F["rgb"]
-            assert isinstance(rgb_dataset, h5py.Dataset)
-            return list(range(len(rgb_dataset)))
+        F = None
+        with st.spinner("Waiting for free h5 file..."):
+            while F is None:
+                try:
+                    F = h5py.File(img_dir / "data.h5", "r")
+                except BlockingIOError:
+                    time.sleep(0.01)
+
+        existing_ids = F["indices"]
+        assert isinstance(existing_ids, h5py.Dataset)
+        existing_ids = np.unique(existing_ids)
+        F.close()
+        return existing_ids
+    
+    # fall back to simpose
     indices = list(
         set(
             int(x.stem.split("_")[1])
@@ -51,10 +62,10 @@ def main(data_dir: Path):
         placeholder="Dataset directory",
     )
     indices = get_idx(Path(img_dir))
+
     if len(indices) == 1:
         indices += [indices[0]]
     idx = c1.select_slider("Select image", indices, value=indices[0], key="idx")
-    assert isinstance(idx, int)
 
     # c2
     if c2.button("↻"):
@@ -271,11 +282,12 @@ def load_data_simpose(img_dir, idx):
 
 def load_data_h5(img_dir, idx):
     F = None
-    while F is None:
-        try:
-            F = h5py.File(img_dir / "data.h5", "r")
-        except BlockingIOError:
-            time.sleep(0.01)
+    with st.spinner("Waiting for free h5 file..."):
+        while F is None:
+            try:
+                F = h5py.File(img_dir / "data.h5", "r")
+            except BlockingIOError:
+                time.sleep(0.01)
 
     cam_matrix_ds = F["cam_matrix"]
     cam_pos_ds = F["cam_pos"]

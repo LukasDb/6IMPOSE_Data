@@ -9,6 +9,15 @@ from ..exr import EXR
 import h5py
 from PIL import Image
 from .writer import Writer, WriterConfig
+from mpi4py import MPI
+
+# "rgb": rgb,
+# "depth": depth,
+# "mask": mask,  # we only save the visible mask *not* the object masks
+# "cam_matrix": cam_matrix,
+# "cam_pos": cam_pos,
+# "cam_rot": cam_rot.as_quat(canonical=True),
+# "stereo_baseline": np.array(cam.baseline),
 
 
 class H5Writer(Writer):
@@ -20,10 +29,66 @@ class H5Writer(Writer):
         self._data_dir = self.output_dir / "gt"
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
+    def post_process(self):
+        """gets called by a single worker after all workers are done"""
+        files = sorted(list(self.output_dir.glob("*.h5")))
+        vds_len = 0
+        for file in files:
+            with h5py.File(file, "r") as F:
+                indices = F["indices"]
+                assert isinstance(indices, h5py.Dataset)
+                vds_len += len(np.unique(indices))
+
+        with h5py.File(files[0], "r") as F:
+            ds_keys = list([x for x in F.keys() if isinstance(F[x], h5py.Dataset)])
+            ds_shapes = {key: F[key].shape for key in ds_keys}
+            ds_dtypes = {key: F[key].dtype for key in ds_keys}
+
+        for key in ds_keys:
+            vds_shape = (vds_len, *ds_shapes[key][1:])
+            layout = h5py.VirtualLayout(shape=vds_shape, dtype=ds_dtypes[key])
+
+            for file in files:
+                start_ind = int(file.stem.split("_")[-1])
+                with h5py.File(file, "r") as F:
+                    ds_shape = F[key].shape
+                vsource = h5py.VirtualSource(file, key, shape=ds_shape)
+                layout[start_ind : h5py.h5s.UNLIMITED] = vsource[: h5py.h5s.UNLIMITED]
+
+            with h5py.File(self.output_dir / f"data.h5", "a") as F:
+                F.create_virtual_dataset(key, layout, fillvalue=0)
+
+        with h5py.File(self.output_dir / f"data.h5", "a") as target_F:
+            for file in files:
+                # link each obj into the target file
+                with h5py.File(file, "r") as source_F:
+                    objs_group = source_F["objs"]
+                    assert isinstance(objs_group, h5py.Group)
+                    source_objs = list(objs_group.keys())
+
+                for source_key in source_objs:
+                    target_key = int(source_key) + int(file.stem.split("_")[-1])
+                    target_F.require_group("objs")[f"{target_key:06}"] = h5py.ExternalLink(
+                        file, f"/objs/{source_key}"
+                    )
+
     def get_pending_indices(self):
-        if not self.overwrite:
-            existing_files = self.output_dir.joinpath("gt").glob("*.json")
-            existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
+        # TODO
+        if not self.overwrite and (self.output_dir / f"data.h5").exists():
+            # wait for available file
+            F = None
+            while F is None:
+                try:
+                    F = h5py.File(self.output_dir / f"data.h5", "r")
+                except OSError:
+                    time.sleep(0.1)
+                    continue
+            existing_ids = F["indices"]
+            assert isinstance(existing_ids, h5py.Dataset)
+            existing_ids = np.unique(existing_ids)
+            F.close()
+
+            assert isinstance(existing_ids, np.ndarray)
             indices = np.setdiff1d(np.arange(self.start_index, self.end_index + 1), existing_ids)
         else:
             indices = np.arange(self.start_index, self.end_index + 1)
@@ -84,7 +149,6 @@ class H5Writer(Writer):
         cam_rot = cam.rotation
         cam_matrix = cam.calculate_intrinsics(scene.resolution_x, scene.resolution_y)
 
-        # TODO DONT write unnecessary gt
         meta_dict = {
             "cam_rotation": list(cam_rot.as_quat(canonical=True)),
             "cam_location": list(cam_pos),
@@ -94,10 +158,14 @@ class H5Writer(Writer):
         }
 
         # --- WRITE TO H5 ---
-        # h5_index = dataset_index - self.start_index
-        h5_index = dataset_index
+        # h5_index = dataset_index # if one file for all data
+        h5_index = dataset_index - self.start_index  # if one file per worker
+        h5_name = f"data_{self.start_index}.h5"
+        # h5_length = self.end_index + 1 # if one file for all data
+        h5_length = self.end_index - self.start_index + 1  # if one file per worker
+
         rgb = np.array(Image.open(Path(self.output_dir, "rgb", f"rgb_{dataset_index:04}.png")))
-        matrices = {
+        matrices: dict[str, np.ndarray] = {
             "rgb": rgb,
             "depth": depth,
             "mask": mask,  # we only save the visible mask *not* the object masks
@@ -121,56 +189,59 @@ class H5Writer(Writer):
             )[..., 0].astype(np.float32)
             matrices["depth_R"] = depth_R
 
+        # --- write to worker h5
         h5file = None
+        # writing to H5 takes longer than rendering! -> do it in parallel
         while h5file is None:
             try:
-                h5file = h5py.File(self.output_dir / "data.h5", "a")
+                h5file = h5py.File(self.output_dir / h5_name, "a")
             except OSError:
-                sp.logger.debug("Waiting for h5 file to be free...")
-                time.sleep(1.0)
+                # sp.logger.debug("Waiting for h5 file to be free...")
+                time.sleep(0.1)
                 continue
 
-        create_kwargs = {"compression": "lzf"}  # fast
+        create_kwargs = {"compression": "lzf", "chunks": True}  # fast
+
+        logging.debug(f"Opened {h5_name} and writing images...")
         for key, value in matrices.items():
-            if key not in h5file.keys():
-                ds_shape = (self.end_index + 1, *value.shape)  # create max length dataset
-                maxshape = (None, *value.shape)
-                h5file.create_dataset(
-                    key,
-                    shape=ds_shape,
-                    dtype=value.dtype,
-                    **create_kwargs,
-                    maxshape=maxshape,
-                    chunks=True,
-                )
-            dataset = h5file[key]
-            assert isinstance(dataset, h5py.Dataset)
-
-            if len(dataset) < self.end_index + 1:
-                dataset.resize(self.end_index + 1, axis=0)
-
+            ds_shape = (h5_length, *value.shape)  # create max length dataset
+            maxshape = (None, *value.shape)
+            dataset = h5file.require_dataset(
+                key,
+                shape=ds_shape,
+                dtype=value.dtype,
+                maxshape=maxshape,
+                exact=True,
+                **create_kwargs,
+            )
+            if len(dataset) < h5_length:
+                logging.debug(f"Resizing {key} dataset to {h5_length}")
+                dataset.resize(h5_length, axis=0)
             dataset[h5_index] = value
 
-        # how to do obj list?
-        if "objs" not in h5file.keys():
-            h5file.create_group("objs")
-        all_objs_group = h5file["objs"]
-        assert isinstance(all_objs_group, h5py.Group)
-        # if overwrite then delete the group
-        if f"{h5_index:06}" not in all_objs_group.keys():
-            obj_group_for_img = all_objs_group.create_group(f"{h5_index:06}")
-
-        obj_group_for_img = all_objs_group[f"{h5_index:06}"]
-        assert isinstance(obj_group_for_img, h5py.Group)
+        logging.debug(f"Writing metadata...")
+        obj_group_for_img = h5file.require_group("objs").require_group(f"{h5_index:06}")
         for key in obj_list[0].keys():
             if key in obj_group_for_img.keys():
                 del obj_group_for_img[key]
             obj_group_for_img.create_dataset(key, data=[x[key] for x in obj_list], **create_kwargs)
 
+        inds_ds = h5file.require_dataset(
+            "indices",
+            shape=(h5_length,),
+            dtype=np.int32,
+            maxshape=(None,),
+            exact=True,
+            **create_kwargs,
+        )
+        if len(inds_ds) < h5_length:
+            logging.debug(f"Resizing 'indices' dataset to {h5_length}")
+            inds_ds.resize(h5_length, axis=0)
+        inds_ds[h5_index] = dataset_index
+
         h5file.close()
 
-        keep_old_dataset = False
-        if keep_old_dataset:
+        if False:  # Keep old simpose dataset?
             with (self._data_dir / f"gt_{dataset_index:05}.json").open("w") as F:
                 json.dump(meta_dict, F, indent=2)
         else:

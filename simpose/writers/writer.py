@@ -67,6 +67,9 @@ class Writer(ABC):
                 self._cleanup(dataset_index)
                 raise e
 
+    def post_process(self):
+        pass
+
     @abstractmethod
     def _write_data(self, scene: sp.Scene, dataset_index: int):
         pass
