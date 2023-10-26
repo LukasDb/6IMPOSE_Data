@@ -163,7 +163,7 @@ class DroppedObjects(Generator):
 
         return output
 
-    def generate_data(self, indices: list[int]):
+    def generate_data(self, indices: list[int], gpu_semaphore=None):
         p = self.params
         assert p.num_main_objs > 0, "num_main_objs must be > 0"
 
@@ -229,7 +229,7 @@ class DroppedObjects(Generator):
                 scene.step_physics(p.time_step)
 
                 for _ in range(p.num_camera_locations):
-                    self.writer.write_data(scene, indices[i])
+                    self.writer.write_data(scene, indices[i], gpu_semaphore=gpu_semaphore)
 
                     i += 1
                     if i == len(indices):

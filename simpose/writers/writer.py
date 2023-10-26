@@ -3,6 +3,7 @@ import simpose as sp
 from pathlib import Path
 import signal
 from simpose import base_config
+import multiprocessing as mp
 
 
 class DelayedKeyboardInterrupt:
@@ -53,13 +54,13 @@ class Writer(ABC):
         """determine which indices to generate according the current config"""
         pass
 
-    def write_data(self, scene: sp.Scene, dataset_index: int):
+    def write_data(self, scene: sp.Scene, dataset_index: int, gpu_semaphore=None):
         """dont allow CTRl+C during data generation"""
         scene.set_output_path(self.output_dir)
 
         with DelayedKeyboardInterrupt(dataset_index):
             try:
-                self._write_data(scene, dataset_index)
+                self._write_data(scene, dataset_index, gpu_semaphore)
             except Exception as e:
                 # clean up possibly corrupted data
                 sp.logger.error(f"Error while generating data no. {dataset_index}")
@@ -71,7 +72,7 @@ class Writer(ABC):
         pass
 
     @abstractmethod
-    def _write_data(self, scene: sp.Scene, dataset_index: int):
+    def _write_data(self, scene: sp.Scene, dataset_index: int, gpu_semaphore=None):
         pass
 
     @abstractmethod

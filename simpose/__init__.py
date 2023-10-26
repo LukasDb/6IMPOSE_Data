@@ -5,13 +5,12 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 BL_OPS = []
 import logging, coloredlogs, multiprocessing
 
-from mpi4py import MPI
 
 logger = logging.getLogger("simpose")
 
 coloredlogs.install(
     level=logging.INFO,
-    fmt=f"%(asctime)s [{MPI.COMM_WORLD.Get_rank()}] %(levelname)s %(message)s",
+    fmt=f"%(asctime)s %(levelname)s %(message)s",
     datefmt="%H:%M:%S",
     logger=logger,
     reconfigure=False,

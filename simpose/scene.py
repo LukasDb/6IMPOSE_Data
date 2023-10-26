@@ -43,7 +43,7 @@ class Scene(Observable):
         scene.render.resolution_x = img_w
         scene.render.resolution_y = img_h
         scene.render.resolution_percentage = 100
-        scene.render.use_persistent_data = True
+        scene.render.use_persistent_data = False
 
         self.output_dir = Path("output")
 
@@ -385,7 +385,7 @@ class Scene(Observable):
         self._bl_scene.cycles.use_preview_denoising = True
         self._bl_scene.cycles.samples = 64
         self._bl_scene.cycles.preview_samples = 64
-        self._bl_scene.cycles.use_auto_tile = False  # HACK ?
+        self._bl_scene.cycles.use_auto_tile = False
         self._bl_scene.cycles.tile_size = 256
         self._bl_scene.cycles.caustics_reflective = True
         self._bl_scene.cycles.caustics_refractive = True
