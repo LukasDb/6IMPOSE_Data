@@ -1,5 +1,6 @@
 import time
 import json
+import contextlib
 import simpose as sp
 import numpy as np
 from pathlib import Path
@@ -9,7 +10,6 @@ from ..exr import EXR
 import h5py
 from PIL import Image
 from .writer import Writer, WriterConfig
-from mpi4py import MPI
 
 # "rgb": rgb,
 # "depth": depth,
@@ -94,13 +94,17 @@ class H5Writer(Writer):
             indices = np.arange(self.start_index, self.end_index + 1)
         return indices
 
-    def _write_data(self, scene: sp.Scene, dataset_index: int):
+    def _write_data(self, scene: sp.Scene, dataset_index: int, gpu_semaphore=None):
         sp.logger.debug(f"Generating data for {dataset_index}")
         scene.frame_set(dataset_index)  # this sets the suffix for file names
 
+        if gpu_semaphore is None:
+            gpu_semaphore = contextlib.nullcontext()
+
         # for each object, deactivate all but one and render mask
         objs = scene.get_labelled_objects()
-        scene.render()
+        with gpu_semaphore:
+            scene.render()
 
         depth = np.array(
             cv2.imread(
@@ -190,15 +194,7 @@ class H5Writer(Writer):
             matrices["depth_R"] = depth_R
 
         # --- write to worker h5
-        h5file = None
-        # writing to H5 takes longer than rendering! -> do it in parallel
-        while h5file is None:
-            try:
-                h5file = h5py.File(self.output_dir / h5_name, "a")
-            except OSError:
-                # sp.logger.debug("Waiting for h5 file to be free...")
-                time.sleep(0.1)
-                continue
+        h5file = h5py.File(self.output_dir / h5_name, "a")
 
         create_kwargs = {"compression": "lzf", "chunks": True}  # fast
 
@@ -241,7 +237,7 @@ class H5Writer(Writer):
 
         h5file.close()
 
-        if False:  # Keep old simpose dataset?
+        if False:  # Keep old simpose dataset files
             with (self._data_dir / f"gt_{dataset_index:05}.json").open("w") as F:
                 json.dump(meta_dict, F, indent=2)
         else:

@@ -163,8 +163,15 @@ class DroppedObjects(Generator):
 
         return output
 
-    def generate_data(self, indices: list[int], gpu_semaphore=None):
-        p = self.params
+    @staticmethod
+    def generate_data(
+        config: DroppedObjectsConfig,
+        writer: sp.writers.Writer,
+        randomizers: dict[str, sp.random.Randomizer],
+        indices: list[int],
+        gpu_semaphore=None,
+    ):
+        p = config
         assert p.num_main_objs > 0, "num_main_objs must be > 0"
 
         proc_name = mp.current_process().name
@@ -173,7 +180,7 @@ class DroppedObjects(Generator):
         debug = is_primary_worker and sp.logger.level < logging.DEBUG
 
         # -- SCENE --
-        self.scene = scene = sp.Scene.create(img_h=p.img_h, img_w=p.img_w, debug=debug)
+        scene = scene = sp.Scene.create(img_h=p.img_h, img_w=p.img_w, debug=debug)
         plane = scene.create_plane()
 
         # -- CAMERA --
@@ -184,8 +191,10 @@ class DroppedObjects(Generator):
         cam.set_from_hfov(p.cam_hfov, scene.resolution_x, scene.resolution_y, degrees=True)
 
         # -- RANDOMIZERS --
-        for _, randomizer in self.randomizers.items():
+        for randomizer in randomizers.values():
+            randomizer.reset_listening()
             randomizer.listen_to(scene)
+
         cfg = RandomImagerPickerConfig(
             img_dir=p.floor_textures_dir, trigger=sp.Event.BEFORE_RENDER
         )
@@ -208,7 +217,7 @@ class DroppedObjects(Generator):
         main_obj.set_value(p.value)
 
         if is_primary_worker:
-            scene.export_meshes(self.writer.output_dir / "meshes")
+            scene.export_meshes(writer.output_dir / "meshes")
 
         main_objs = [main_obj]
 
@@ -224,47 +233,52 @@ class DroppedObjects(Generator):
             total=len(indices), desc="Process-1", smoothing=0.0, disable=not is_primary_worker
         )
         while True:
-            self.setup_new_scene(main_objs)
+            DroppedObjects.setup_new_scene(p, scene, randomizers, main_objs)
             for _ in range(p.num_time_steps):
                 scene.step_physics(p.time_step)
 
                 for _ in range(p.num_camera_locations):
-                    self.writer.write_data(scene, indices[i], gpu_semaphore=gpu_semaphore)
+                    writer.write_data(scene, indices[i], gpu_semaphore=gpu_semaphore)
+
+                    if i == 0 and debug:
+                        scene.export_blend()
 
                     i += 1
                     if i == len(indices):
                         bar.close()
-                        if debug:
-                            scene.export_blend()
                         return scene
 
                     bar.update(1)
 
-    def setup_new_scene(self, main_objs: list[sp.Object]):
-        model_loader: sp.random.ModelLoader = self.randomizers["distractors"]  # type: ignore
-        p = self.params
-
+    @staticmethod
+    def setup_new_scene(
+        config: DroppedObjectsConfig,
+        scene: sp.Scene,
+        randomizers: dict[str, sp.random.Randomizer],
+        main_objs: list[sp.Object],
+    ):
+        model_loader: sp.random.ModelLoader = randomizers["distractors"]  # type: ignore
         model_loader.reset()
         # add 20 objects and let fall
-        for _ in range(p.num_primary_distractors):
+        for _ in range(config.num_primary_distractors):
             # for obj in model_loader.get_objects(
             #     self.scene, p.num_primary_distractors, mass=1, friction=p.friction, hide=True
             # ):
             # obj.show()
-            obj = model_loader.get_object(self.scene, mass=0.2, friction=p.friction)
+            obj = model_loader.get_object(scene, mass=0.2, friction=config.friction)
             obj.set_location(
                 (
                     np.random.uniform(-0.05, 0.05),
                     np.random.uniform(-0.05, 0.05),
-                    p.drop_height,
+                    config.drop_height,
                 )
             )
             obj.set_rotation(R.random())
-            self.scene.step_physics(0.4)  # initial fall
+            scene.step_physics(0.4)  # initial fall
 
         distractors = []
-        for _ in range(p.num_secondary_distractors):
-            obj = model_loader.get_object(self.scene, mass=0.2, friction=p.friction, hide=True)
+        for _ in range(config.num_secondary_distractors):
+            obj = model_loader.get_object(scene, mass=0.2, friction=config.friction, hide=True)
             distractors.append(obj)
 
         drop_objects = main_objs + distractors
@@ -274,10 +288,10 @@ class DroppedObjects(Generator):
             obj.show()
             obj.set_location(
                 (
-                    np.random.uniform(-p.drop_spread, p.drop_spread),
-                    np.random.uniform(-p.drop_spread, p.drop_spread),
-                    p.drop_height,
+                    np.random.uniform(-config.drop_spread, config.drop_spread),
+                    np.random.uniform(-config.drop_spread, config.drop_spread),
+                    config.drop_height,
                 )
             )
             obj.set_rotation(R.random())
-            self.scene.step_physics(0.4)
+            scene.step_physics(0.4)

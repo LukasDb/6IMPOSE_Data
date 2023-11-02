@@ -31,7 +31,7 @@ def get_idx(img_dir):
         existing_ids = np.unique(existing_ids)
         F.close()
         return existing_ids
-    
+
     # fall back to simpose
     indices = list(
         set(
@@ -161,7 +161,7 @@ def create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox,
         cv2.COLORMAP_TURBO,
     )
     colored_depth = cv2.applyColorMap(
-        cv2.convertScaleAbs(depth, alpha=255 / np.max(depth)), cv2.COLORMAP_JET  # type: ignore
+        cv2.convertScaleAbs(depth, alpha=255 / 2.0), cv2.COLORMAP_JET  # type: ignore
     )
 
     colored_semantic_mask_bgr = np.zeros((*mask.shape[:2], 3)).astype(np.uint8)

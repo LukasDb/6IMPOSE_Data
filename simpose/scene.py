@@ -24,6 +24,8 @@ class Scene(Observable):
     def create(img_h: int = 480, img_w: int = 640, debug=False):
         import bpy
 
+        # delete old temp blend file
+
         self = Scene(bpy.data.scenes["Scene"])
         sp.logger.debug(f"Created scene: {self._bl_scene}")
 
@@ -60,6 +62,9 @@ class Scene(Observable):
         p.setGravity(0, 0, -9.81)
         p.setRealTimeSimulation(0)
         p.setPhysicsEngineParameter(fixedTimeStep=1 / 240.0, numSubSteps=1)
+
+        # disable mouse interaction
+        p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
 
         self.notify(Event.ON_SCENE_CREATED)
         return self

@@ -12,6 +12,7 @@ package_list = [
     "openexr",
     "pydantic",
     "pyyaml",
+    "tensorflow"
 ]
 
 # check if opencv-contrib-python is installed

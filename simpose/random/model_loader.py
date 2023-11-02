@@ -83,7 +83,9 @@ class ModelLoader(JoinableRandomizer):
                 [
                     x
                     for x in self._root.glob(f"**/*.{model_source.value}")
-                    if not "_vhacd.obj" in x.name and not x.name in params.exclude
+                    if not "_vhacd.obj" in x.name
+                    and not "_collision.obj" in x.name
+                    and not x.name in params.exclude
                 ]
             )
         else:

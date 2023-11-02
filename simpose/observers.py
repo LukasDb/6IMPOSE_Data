@@ -30,6 +30,9 @@ class Observer(ABC):
     def listen_to(self, caller: Observable):
         caller._observers.append(self)
 
+    def reset_listening(self):
+        self._observers = []
+
     @abstractmethod
     def call(self, caller: Observable):
         pass
