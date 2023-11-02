@@ -12,16 +12,28 @@ class DelayedKeyboardInterrupt:
 
     def __enter__(self) -> None:
         self.signal_received = False
+        self.termsignal_received = False
         self.old_handler: signal._HANDLER = signal.signal(signal.SIGINT, self.handler)
+
+        self.oldterm_handler: signal._HANDLER = signal.signal(signal.SIGTERM, self.term_handler)
 
     def handler(self, sig, frame) -> None:
         self.signal_received = (sig, frame)
         sp.logger.warn(f"SIGINT received. Finishing rendering {self.index}...")
 
+    def term_handler(self, sig, frame) -> None:
+        self.termsignal_received = (sig, frame)
+        sp.logger.warn(f"SIGTERM received. Finishing rendering {self.index}...")
+
     def __exit__(self, type, value, traceback) -> None:
         signal.signal(signal.SIGINT, self.old_handler)
+        signal.signal(signal.SIGTERM, self.oldterm_handler)
+
         if self.signal_received:
             self.old_handler(*self.signal_received)  # type: ignore
+
+        if self.termsignal_received:
+            self.oldterm_handler(*self.termsignal_received)  # type: ignore
 
 
 class WriterConfig(base_config.BaseConfig):

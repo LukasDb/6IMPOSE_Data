@@ -38,14 +38,12 @@ def view(data_dir: Path):
 @click.argument("config_file", type=click.Path(path_type=Path))
 @click.option("-v", "--verbose", count=True, help="Verbosity level")
 @click.option("-i", "--initialize", is_flag=True, help="Initialize a config file")
-@click.option("--direct_launch", is_flag=True, hidden=True)
 @click.option("--start_index", type=int, hidden=True)
 @click.option("--end_index", type=int, hidden=True)
 def generate(
     config_file: Path,
     verbose: int,
     initialize: bool,
-    direct_launch=False,
     start_index: int | None = None,
     end_index: int | None = None,
 ):
@@ -89,6 +87,15 @@ def generate(
     if end_index is not None:
         config["Writer"]["params"]["end_index"] = end_index
 
+    params_func: type[sp.generators.GeneratorParams] = getattr(
+        sp.generators, config["Generator"]["type"] + "Config"
+    )
+    gen_params = params_func.model_validate(config["Generator"]["params"])
+    generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
+    generator = generator_func(config=config)
+    generator.start()
+    return
+
     # load randomizers
     randomizers = {}
     for rand_name, rand_initializer in config["Randomizers"].items():
@@ -106,13 +113,7 @@ def generate(
     generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
     generator = generator_func(writer=writer, randomizers=randomizers, params=gen_params)
 
-    generator.start(
-        direct_launch,
-        main_kwargs={
-            "config_file": config_file,
-            "verbose": verbose,
-        },
-    )
+    generator.start()
 
 
 @validate_call

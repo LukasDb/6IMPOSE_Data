@@ -45,7 +45,7 @@ class Scene(Observable):
         scene.render.resolution_x = img_w
         scene.render.resolution_y = img_h
         scene.render.resolution_percentage = 100
-        scene.render.use_persistent_data = False
+        scene.render.use_persistent_data = True
 
         self.output_dir = Path("output")
 

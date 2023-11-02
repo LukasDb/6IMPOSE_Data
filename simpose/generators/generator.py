@@ -30,64 +30,41 @@ class Generator(ABC):
 
         n_workers = min(params.n_workers, len(pending_indices))
 
-        if n_workers == 1:
-            sp.logger.debug("Using single process.")
-            randomizers: dict[str, sp.random.Randomizer] = {}
-            for rand_name, rand_initializer in self.config["Randomizers"].items():
-                randomizers[rand_name] = Generator.get_randomizer(rand_initializer)
-            self.generate_data(params, writer, randomizers, pending_indices)
-            writer.post_process()
-            return
+        # if n_workers == 1:
+        #     sp.logger.debug("Using single process.")
+        #     randomizers: dict[str, sp.random.Randomizer] = {}
+        #     for rand_name, rand_initializer in self.config["Randomizers"].items():
+        #         randomizers[rand_name] = Generator.get_randomizer(rand_initializer)
+        #     self.generate_data(params, writer, randomizers, pending_indices)
+        #     writer.post_process()
+        #     return
 
-        queue = mp.Queue()
-        gpu_semaphore = mp.Semaphore(params.n_parallel_on_gpu)
-
-        # split work into chunks of ~100 images
+        # # split work into chunks of ~100 images
         if len(pending_indices) > 100:
             pending_indices = np.array_split(pending_indices, len(pending_indices) // 10)
 
-        workers = [
-            mp.Process(target=self.process, args=(self.config, queue, gpu_semaphore))
-            for _ in range(n_workers)
-        ]
-        for w in workers:
-            w.start()
+        def init_worker():
+            import signal
 
-        for i, ind_list in enumerate(pending_indices):
-            queue.put(ind_list)
-            if i == 0:
-                time.sleep(5)
-                # give the first worker more time for processing main obj
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
 
-        for _ in range(n_workers):
-            queue.put(None)
+        with mp.Manager() as manager, mp.Pool(n_workers, init_worker, maxtasksperchild=1) as pool:
+            gpu_semaphore = manager.Semaphore(params.n_parallel_on_gpu)
 
-        for w in workers:
-            w.join()
+            def jobs():
+                for ind_list in pending_indices:
+                    yield ind_list, self.config, gpu_semaphore
 
-        writer.post_process()
-        return
+            for _ in pool.imap_unordered(self.process, jobs(), chunksize=1):
+                pass
 
-        # split indices into n_workers chunksl
-        indices = np.array_split(pending_indices, n_workers)
-        workers = [
-            mp.Process(target=self.process, args=(self.config, queue, gpu_semaphore))
-            for _ in range(n_workers)
-        ]
-        for w in workers:
-            w.start()
-
-        for ind_list in indices:
-            queue.put(ind_list)
-        for _ in range(n_workers):
-            queue.put(None)
-        for w in workers:
-            w.join()
+            pool.join()
 
         writer.post_process()
 
     @classmethod
-    def process(cls, config, queue: mp.Queue, gpu_semaphore=None):
+    def process(cls, args):
+        indices, config, gpu_semaphore = args
         print(f"fired up ({mp.current_process().name})")
 
         np.random.seed(mp.current_process().pid)
@@ -101,27 +78,60 @@ class Generator(ABC):
 
         gen_config = cls._get_generator_config(config)
 
-        while True:
-            indices = queue.get()
-            if indices is None:
-                break
+        print(f"Got index list and starting now ({mp.current_process().name})")
 
-            print(f"Got index list and starting now ({mp.current_process().name})")
+        writer_config = config["Writer"]
+        writer_name = writer_config["type"]
+        writer_config = sp.writers.WriterConfig.model_validate(writer_config["params"])
+        writer_config.start_index = min(indices)
+        writer_config.end_index = max(indices)
+        writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
 
-            writer_config = config["Writer"]
-            writer_name = writer_config["type"]
-            writer_config = sp.writers.WriterConfig.model_validate(writer_config["params"])
-            writer_config.start_index = min(indices)
-            writer_config.end_index = max(indices)
-            writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
+        cls.generate_data(
+            config=gen_config,
+            writer=writer,
+            randomizers=randomizers,
+            indices=indices,
+            gpu_semaphore=gpu_semaphore,
+        )
 
-            cls.generate_data(
-                config=gen_config,
-                writer=writer,
-                randomizers=randomizers,
-                indices=indices,
-                gpu_semaphore=gpu_semaphore,
-            )
+    # old version with queue
+    # @classmethod
+    # def process(cls, config, queue: mp.Queue, gpu_semaphore=None):
+    #     print(f"fired up ({mp.current_process().name})")
+
+    #     np.random.seed(mp.current_process().pid)
+    #     import importlib
+
+    #     importlib.reload(sp)
+
+    #     randomizers: dict[str, sp.random.Randomizer] = {}
+    #     for rand_name, rand_initializer in config["Randomizers"].items():
+    #         randomizers[rand_name] = Generator.get_randomizer(rand_initializer)
+
+    #     gen_config = cls._get_generator_config(config)
+
+    #     while True:
+    #         indices = queue.get()
+    #         if indices is None:
+    #             break
+
+    #         print(f"Got index list and starting now ({mp.current_process().name})")
+
+    #         writer_config = config["Writer"]
+    #         writer_name = writer_config["type"]
+    #         writer_config = sp.writers.WriterConfig.model_validate(writer_config["params"])
+    #         writer_config.start_index = min(indices)
+    #         writer_config.end_index = max(indices)
+    #         writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
+
+    #         cls.generate_data(
+    #             config=gen_config,
+    #             writer=writer,
+    #             randomizers=randomizers,
+    #             indices=indices,
+    #             gpu_semaphore=gpu_semaphore,
+    #         )
 
     @staticmethod
     @abstractmethod
