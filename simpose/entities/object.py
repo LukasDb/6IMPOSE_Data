@@ -1,3 +1,4 @@
+from turtle import forward
 from scipy.spatial.transform import Rotation as R
 from typing import Tuple, List
 from .placeable import Placeable
@@ -100,11 +101,13 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
+        collision_obj_path = Object._export_collision_mesh(bl_object, filepath, scale)
+
         obj = Object._initialize_bl_object(
             bl_object=bl_object,
             scale=scale,
             mass=mass,
-            obj_path=filepath,
+            collision_obj_path=collision_obj_path,
             add_semantics=add_semantics,
             friction=friction,
         )
@@ -130,23 +133,13 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
-        collision_obj_path = filepath.with_suffix(".obj").resolve()
-        with redirect_stdout():
-            if not collision_obj_path.exists():
-                bpy.ops.wm.obj_export(
-                    filepath=str(collision_obj_path),
-                    export_materials=False,
-                    export_colors=False,
-                    export_normals=True,
-                    export_selected_objects=True,
-                    apply_modifiers=False,
-                )
+        collision_obj_path = Object._export_collision_mesh(bl_object, filepath, scale)
 
         obj = Object._initialize_bl_object(
             bl_object=bl_object,
             scale=scale,
             mass=mass,
-            obj_path=collision_obj_path,
+            collision_obj_path=collision_obj_path,
             add_semantics=add_semantics,
             friction=friction,
         )
@@ -183,25 +176,13 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
-        bl_object.scale = (1.0, 1.0, 1.0)
-
-        collision_obj_path = filepath.with_suffix(".obj").resolve()
-        with redirect_stdout():
-            if not collision_obj_path.exists():
-                bpy.ops.wm.obj_export(
-                    filepath=str(collision_obj_path),
-                    export_materials=False,
-                    export_colors=False,
-                    export_normals=True,
-                    export_selected_objects=True,
-                    apply_modifiers=False,
-                )
+        collision_obj_path = Object._export_collision_mesh(bl_object, filepath, scale)
 
         obj = Object._initialize_bl_object(
             bl_object=bl_object,
             scale=scale,
             mass=mass,
-            obj_path=collision_obj_path,
+            collision_obj_path=collision_obj_path,
             add_semantics=add_semantics,
             friction=friction,
         )
@@ -226,18 +207,8 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
-        # convert ply to .obj for pybullet
-        collision_obj_path = filepath.with_suffix(".obj").resolve()
-        with redirect_stdout():
-            if not collision_obj_path.exists():
-                bpy.ops.wm.obj_export(
-                    filepath=str(collision_obj_path),
-                    export_materials=False,
-                    export_colors=False,
-                    export_normals=True,
-                    export_selected_objects=True,
-                    apply_modifiers=False,
-                )
+        collision_obj_path = Object._export_collision_mesh(bl_object, filepath, scale)
+
         # create new material for object
         material: bpy.types.Material = bpy.data.materials.new(name="sp_Material")
         material.use_nodes = True
@@ -258,7 +229,7 @@ class Object(Placeable):
             bl_object=bl_object,
             scale=scale,
             mass=mass,
-            obj_path=collision_obj_path,
+            collision_obj_path=collision_obj_path,
             add_semantics=add_semantics,
             friction=friction,
         )
@@ -291,6 +262,34 @@ class Object(Placeable):
                 self.set_rotation(old_rot)
 
         sp.logger.info("Exported mesh to " + str(output_dir / f"{self.get_class()}.ply"))
+
+    @staticmethod
+    def _export_collision_mesh(bl_object: "bpy.types.Object", filepath: Path, scale: float):
+        """exports *currently selected* object"""
+        import bpy
+
+        collision_obj_path = (
+            filepath.with_stem(filepath.stem + "_collision").with_suffix(".obj").resolve()
+        )
+
+        bl_object.scale = (1.0, 1.0, 1.0)
+        bl_object.location = (0.0, 0.0, 0.0)
+        bl_object.rotation_mode = "XYZ"
+        bl_object.rotation_euler = (0.0, 0.0, 0.0)
+
+        with redirect_stdout():
+            if not collision_obj_path.exists():
+                bpy.ops.wm.obj_export(
+                    filepath=str(collision_obj_path),
+                    export_materials=False,
+                    export_colors=False,
+                    export_normals=True,
+                    export_selected_objects=True,
+                    apply_modifiers=False,
+                    forward_axis="Y",
+                    up_axis="Z",
+                )
+        return collision_obj_path
 
     def hide(self):
         if self.is_hidden:
@@ -399,14 +398,14 @@ class Object(Placeable):
             com = np.array(self._bl_object["COM"])
 
             loc = np.array(location) - rotation.apply(np.array(com))
-            p.resetBasePositionAndOrientation(pb_id, loc, rotation.as_quat(canonical=True))
+            p.resetBasePositionAndOrientation(pb_id, loc, rotation.as_quat(canonical=False))
         except KeyError:
             pass
 
     def apply_pybullet_pose(self):
         pb_id = self._bl_object["pb_id"]
         com = np.array(self._bl_object["COM"])
-        pos, orn = p.getBasePositionAndOrientation(pb_id)
+        pos, orn = p.getBasePositionAndOrientation(pb_id)  # orn [xyzw]
 
         orn = R.from_quat(orn)
         # since we update *from* pybullet, we don't need to update pybullet again
@@ -447,7 +446,6 @@ class Object(Placeable):
             baseMass=mass,
             baseCollisionShapeIndex=coll_id,
             baseInertialFramePosition=[0.0, 0.0, 0.0],
-            useMaximalCoordinates=True,
         )
         p.changeDynamics(
             pb_id,
@@ -469,7 +467,7 @@ class Object(Placeable):
     @staticmethod
     def _initialize_bl_object(
         bl_object: "bpy.types.Object",
-        obj_path: Path,
+        collision_obj_path: Path,
         add_semantics: bool,
         scale: float,
         mass: float | None,
@@ -515,7 +513,7 @@ class Object(Placeable):
         # initialize object
         obj = Object(bl_object)
         obj.set_location((0.0, 0.0, 0.0))
-        obj.set_rotation(R.from_euler("x", 0, degrees=True))
+        obj.set_rotation(R.from_matrix(np.eye(3)))
         obj._bl_object["semantics"] = add_semantics
         obj._bl_object.pass_index = 0
 
@@ -528,14 +526,16 @@ class Object(Placeable):
 
         # load physics object if given
         if mass is not None:
-            out_path = obj_path.resolve().with_name(obj_path.stem + "_vhacd.obj")
+            out_path = collision_obj_path.resolve().with_name(
+                collision_obj_path.stem + "_vhacd.obj"
+            )
             if not out_path.exists():
                 # hierarchical decomposition for dynamic collision of concave objects
                 with redirect_stdout():
                     p.vhacd(
-                        str(obj_path.resolve()),
+                        str(collision_obj_path.resolve()),
                         str(out_path),
-                        str(obj_path.parent.joinpath("log.txt").resolve()),
+                        str(collision_obj_path.parent.joinpath("log.txt").resolve()),
                     )
 
             # find the center of gravity
@@ -556,14 +556,14 @@ class Object(Placeable):
                 import traceback
 
                 sp.logger.error(
-                    f"Collision shape from {out_path} failed, using convex hull from {obj_path} instead!\n{e}\n{traceback.format_exc()}"
+                    f"Collision shape from {out_path} failed, using convex hull from {collision_obj_path} instead!\n{e}\n{traceback.format_exc()}"
                 )
                 # find center of mass of the object
 
                 with redirect_stdout():
                     coll_id = p.createCollisionShape(
                         p.GEOM_MESH,
-                        fileName=str(obj_path.resolve()),
+                        fileName=str(collision_obj_path.resolve()),
                         meshScale=[scale] * 3,
                         collisionFramePosition=offset,
                     )
