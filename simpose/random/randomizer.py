@@ -49,7 +49,7 @@ def register_operator(cls_params: type[RandomizerConfig]):
 
                 p = {k: getattr(self, k, None) for k in cls_params.model_fields.keys()}
                 p["trigger"] = sp.Event.NONE
-                p = cls_params(**p)
+                p = cls_params(**p) # type: ignore
                 randomizer: Randomizer = cls(p)
                 randomizer.call(sp.Scene(scene))
                 return {"FINISHED"}
@@ -57,6 +57,7 @@ def register_operator(cls_params: type[RandomizerConfig]):
         # add properties according to params
         params = cls_params(trigger=sp.Event.NONE)
         for key, value in params.model_dump().items():
+            prop = None
             if isinstance(value, int):
                 prop = bpy.props.IntProperty(key, default=value)
             elif isinstance(value, float):
@@ -77,6 +78,10 @@ def register_operator(cls_params: type[RandomizerConfig]):
             else:
                 continue
                 # raise NotImplementedError(f"Type {type(value)} not implemented")
+
+            if prop is None:
+                continue
+
             Operator.__annotations__[key] = prop
         sp.BL_OPS.append(Operator)
 

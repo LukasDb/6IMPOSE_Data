@@ -10,7 +10,7 @@ import pybullet as p
 from enum import Enum
 
 import simpose as sp
-from simpose import redirect_stdout
+from simpose import _redirect_stdout
 
 from typing import TYPE_CHECKING
 
@@ -70,7 +70,7 @@ class Object(Placeable):
         # select object
         self._bl_object.select_set(True)
         # returns a new object with a linked data block
-        with redirect_stdout():
+        with _redirect_stdout():
             bpy.ops.object.duplicate(linked=False)
         bl_object = bpy.context.selected_objects[0]
         bl_object.active_material = self._bl_object.active_material.copy()  # type: ignore
@@ -94,7 +94,7 @@ class Object(Placeable):
 
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
-        with redirect_stdout():
+        with _redirect_stdout():
             bpy.ops.import_scene.obj(filepath=str(filepath.resolve()), use_split_objects=False)  # type: ignore
         try:
             bl_object = bpy.context.selected_objects[0]
@@ -125,7 +125,7 @@ class Object(Placeable):
 
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
-        with redirect_stdout():
+        with _redirect_stdout():
             bpy.ops.import_scene.gltf(filepath=str(filepath.resolve()))
 
         try:
@@ -157,7 +157,7 @@ class Object(Placeable):
 
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
-        with redirect_stdout():
+        with _redirect_stdout():
             bpy.ops.import_scene.fbx(filepath=str(filepath.resolve()), use_anim=False)
 
         # how many objects are selected?
@@ -200,7 +200,7 @@ class Object(Placeable):
 
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
-        with redirect_stdout():
+        with _redirect_stdout():
             bpy.ops.import_mesh.ply(filepath=str(filepath.resolve()))  # type: ignore
         try:
             bl_object: bpy.types.Object = bpy.context.selected_objects[0]
@@ -242,7 +242,7 @@ class Object(Placeable):
         output_dir.mkdir(parents=True, exist_ok=True)
         bpy.ops.object.select_all(action="DESELECT")
         self._bl_object.select_set(True)
-        with redirect_stdout():
+        with _redirect_stdout():
             old_loc = self.location
             old_rot = self.rotation
             try:
@@ -277,7 +277,7 @@ class Object(Placeable):
         bl_object.rotation_mode = "XYZ"
         bl_object.rotation_euler = (0.0, 0.0, 0.0)
 
-        with redirect_stdout():
+        with _redirect_stdout():
             if not collision_obj_path.exists():
                 bpy.ops.wm.obj_export(
                     filepath=str(collision_obj_path),
@@ -531,7 +531,7 @@ class Object(Placeable):
             )
             if not out_path.exists():
                 # hierarchical decomposition for dynamic collision of concave objects
-                with redirect_stdout():
+                with _redirect_stdout():
                     p.vhacd(
                         str(collision_obj_path.resolve()),
                         str(out_path),
@@ -545,7 +545,7 @@ class Object(Placeable):
             bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
 
             try:
-                with redirect_stdout():
+                with _redirect_stdout():
                     coll_id = p.createCollisionShape(
                         p.GEOM_MESH,
                         fileName=str(out_path),
@@ -560,7 +560,7 @@ class Object(Placeable):
                 )
                 # find center of mass of the object
 
-                with redirect_stdout():
+                with _redirect_stdout():
                     coll_id = p.createCollisionShape(
                         p.GEOM_MESH,
                         fileName=str(collision_obj_path.resolve()),

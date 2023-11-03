@@ -55,13 +55,12 @@ class TFRecordWriter(Writer):
             def get_length(file):
                 return sum(1 for _ in tf.data.TFRecordDataset(file, compression_type="ZLIB"))
 
-            files = tf.io.matching_files(str(self.output_dir / "rgb" / "*.tfrecord"))
+            files = tf.io.matching_files(str(self.output_dir / "rgb" / "*.tfrecord")) # type: ignore
 
             total_length = (
                 tf.data.Dataset.from_tensor_slices(files)
                 .map(get_length, num_parallel_calls=tf.data.AUTOTUNE, deterministic=False)
                 .reduce(0, lambda x, y: x + y)
-                .numpy()
             )
             indices = np.arange(total_length, self.end_index + 1)
 
@@ -194,7 +193,7 @@ class TFRecordWriter(Writer):
             ),
         }
 
-        with tf.device("/cpu:0"):
+        with tf.device("/cpu:0"): # type: ignore
             serialized_rgbs = self._serizalize_data(
                 rgb=rgb.astype(np.uint8), rgb_R=rgb_R.astype(np.uint8)
             )

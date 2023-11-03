@@ -17,7 +17,7 @@ coloredlogs.install(
 )
 
 # tools
-from simpose.redirect_stdout import redirect_stdout
+from simpose.redirect_stdout import redirect_stdout as _redirect_stdout
 from simpose.observers import Event
 
 # 6impose
@@ -33,7 +33,7 @@ __all__ = [
     "random",
     "downloaders",
     "logger",
-    "redirect_stdout",
+    "_redirect_stdout",
     "Scene",
     "writers",
     "generators",

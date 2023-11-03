@@ -89,6 +89,8 @@ def main(data_dir: Path):
 
     st.header(f"Datapoint: #{idx:05} (of total {len(indices)} images)")
 
+    assert isinstance(idx, int)
+
     data = load_data(Path(img_dir), idx, use_bbox=use_bbox, use_pose=use_pose)
 
     rgb = data["rgb"]
@@ -245,7 +247,7 @@ def load_data(img_dir: Path, idx: int, use_bbox=False, use_pose=False):
         st.session_state["loaded_data"] = loaded_data
 
     loaded_data = st.session_state["loaded_data"]
-    return create_visualization(*loaded_data, use_bbox, use_pose)
+    return create_visualization(*loaded_data, use_bbox=use_bbox, use_pose=use_pose)
 
 
 def load_data_tfrecord(img_dir, idx):
@@ -282,7 +284,7 @@ def load_data_tfrecord(img_dir, idx):
 
         ds = []
         for name in ["rgb", "depth", "mask", "gt"]:  # ['rgb', 'depth', 'mask']:
-            files = tf.io.matching_files(str(img_dir / name / "*.tfrecord"))
+            files = tf.io.matching_files(str(img_dir / name / "*.tfrecord"))  # type: ignore
             shards = tf.data.Dataset.from_tensor_slices(files)
 
             def parse_tfrecord(example_proto):
@@ -322,8 +324,12 @@ def load_data_tfrecord(img_dir, idx):
 
     ds = tfds.skip(idx).take(1)
     # get one data point
+    data = None
     for data in ds:
         pass
+
+    if data is None:
+        raise RuntimeError("Could not find data point.")
 
     cam_data = {
         "cam_matrix": data["cam_matrix"].numpy(),

@@ -40,7 +40,7 @@ class H5Writer(Writer):
                 vds_len += len(np.unique(indices))
 
         with h5py.File(files[0], "r") as F:
-            ds_keys = list([x for x in F.keys() if isinstance(F[x], h5py.Dataset)])
+            ds_keys: list[h5py.Dataset] = list([x for x in F.keys() if isinstance(F[x], h5py.Dataset)])
             ds_shapes = {key: F[key].shape for key in ds_keys}
             ds_dtypes = {key: F[key].dtype for key in ds_keys}
 

@@ -353,7 +353,7 @@ class Scene(Observable):
         new_img = bpy.data.images.load(str(filepath.resolve()))
 
         tree = self._bl_scene.node_tree
-        bg_image_node = tree.nodes["background_node"]
+        bg_image_node: bpy.types.CompositorNodeImage = tree.nodes["background_node"] # type: ignore
         bg_image_node.image = new_img
         self._bl_scene["background_img"] = new_img
         # scale_to_fit = np.max(self.resolution / np.array(self.current_bg_img.size))

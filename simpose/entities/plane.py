@@ -2,7 +2,7 @@ import simpose as sp
 from .object import Object
 from pathlib import Path
 
-with sp.redirect_stdout():
+with sp._redirect_stdout():
     import pybullet as p
     import pybullet_data
 

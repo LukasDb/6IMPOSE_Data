@@ -41,6 +41,7 @@ class CameraPlacementRandomizer(Randomizer):
         assert (p.pitch_range[1] - p.pitch_range[0]) >= 5, "Pitch range is too small"
 
         # rejection sample until found valid angle
+        loc = None
         for _ in range(10000):
             rot = R.random()
             loc = rot.apply(cam_view) * radius + np.array(p.origin)
@@ -48,6 +49,9 @@ class CameraPlacementRandomizer(Randomizer):
             pitch = np.arctan2(loc[2], d) * 180 / np.pi
             if p.pitch_range[0] < pitch < p.pitch_range[1]:
                 break
+
+        if loc is None:
+            raise RuntimeError("Could not find a valid camera location.")
 
         cam = scene.get_cameras()[0]
 
