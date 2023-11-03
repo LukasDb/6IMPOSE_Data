@@ -26,14 +26,16 @@ from simpose.scene import Scene
 import simpose.random as random
 import simpose.writers as writers
 import simpose.generators as generators
+import simpose.downloaders as downloaders
 
 
 __all__ = [
+    "random",
+    "downloaders",
     "logger",
     "redirect_stdout",
     "Scene",
     "writers",
-    "random",
     "generators",
     "Camera",
     "Object",

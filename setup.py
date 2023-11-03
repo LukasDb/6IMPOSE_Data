@@ -24,12 +24,12 @@ except ImportError:
 
 setup(
     name="simpose",
-    version="1.1.0",
+    version="1.2.0",
     description="Synthetic Image Generator based on Blender",
-    url="todo",
+    url="https://github.com/LukasDb/6IMPOSE_Data",
     author="Lukas Dirnberger",
     author_email="lukas.dirnberger@tum.de",
-    license="todo",
+    license="MIT",
     packages=find_packages(),
     install_requires=package_list,
     entry_points={"console_scripts": ["simpose = simpose.__main__:run"]},

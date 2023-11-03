@@ -2,8 +2,6 @@ import click
 from pathlib import Path
 import subprocess
 import yaml
-from pydantic import validate_call
-import functools
 import simpose as sp
 
 
@@ -32,6 +30,17 @@ def view(data_dir: Path):
             data_dir,
         ]
     )
+
+
+@run.command()
+@click.argument("output_dir", type=click.Path(path_type=Path))
+@click.argument("type", type=click.Choice(sp.downloaders.__datasets__))
+def download(output_dir: Path, type: str):
+    if type == "YCB":
+        downloader = sp.downloaders.YCBDownloader(output_dir)
+    else:
+        raise NotImplementedError(f"Dataset {type} not implemented.")
+    downloader.run()
 
 
 @run.command()
@@ -87,55 +96,9 @@ def generate(
     if end_index is not None:
         config["Writer"]["params"]["end_index"] = end_index
 
-    params_func: type[sp.generators.GeneratorParams] = getattr(
-        sp.generators, config["Generator"]["type"] + "Config"
-    )
-    gen_params = params_func.model_validate(config["Generator"]["params"])
     generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
     generator = generator_func(config=config)
     generator.start()
-    return
-
-    # load randomizers
-    randomizers = {}
-    for rand_name, rand_initializer in config["Randomizers"].items():
-        randomizers[rand_name] = get_randomizer(rand_initializer)
-
-    # load writer
-    writer_name = config["Writer"]["type"]
-    writer_config = sp.writers.WriterConfig.model_validate(config["Writer"]["params"])
-    writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
-
-    params_func: type[sp.generators.GeneratorParams] = getattr(
-        sp.generators, config["Generator"]["type"] + "Config"
-    )
-    gen_params = params_func.model_validate(config["Generator"]["params"])
-    generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
-    generator = generator_func(writer=writer, randomizers=randomizers, params=gen_params)
-
-    generator.start()
-
-
-@validate_call
-def get_randomizer(initializer: dict[str, str | dict]) -> sp.random.Randomizer:
-    name = initializer["type"]
-    config = initializer["params"]
-
-    if name == "Join":
-        assert not isinstance(config, str)
-        rands = [get_randomizer(rand) for _, rand in config.items()]
-        assert all(isinstance(x, sp.random.JoinableRandomizer) for x in rands)
-        randomizer = functools.reduce(lambda x, y: x + y, rands)  # type: ignore
-
-        return randomizer
-
-    assert isinstance(config, dict)
-    assert isinstance(name, str)
-
-    class_randomizer: type[sp.random.Randomizer] = getattr(sp.random, name)
-    class_config: type[sp.random.RandomizerConfig] = getattr(sp.random, name + "Config")
-    cnf = class_config.model_validate(config)
-    return class_randomizer(cnf)
 
 
 if __name__ == "__main__":
