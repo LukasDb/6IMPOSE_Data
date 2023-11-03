@@ -13,11 +13,13 @@ import h5py
 import time
 
 from streamlit_image_comparison import image_comparison
+import tensorflow as tf
 
 
 @st.cache_data()
 def get_idx(img_dir):
     if (img_dir / "data.h5").exists():
+        # h5 dataset
         F = None
         with st.spinner("Waiting for free h5 file..."):
             while F is None:
@@ -32,7 +34,16 @@ def get_idx(img_dir):
         F.close()
         return existing_ids
 
-    # fall back to simpose
+    if len(list((img_dir / "rgb").glob("*.tfrecord"))) > 0:
+        # tfrecord dataset
+        end_inds = [
+            int(x.stem.split(".")[0].split("_")[-1])
+            for x in Path(img_dir / "rgb").glob("*.tfrecord")
+        ]
+        end_index = max(end_inds)
+        return np.arange(end_index + 1)
+
+    # simpose dataset
     indices = list(
         set(
             int(x.stem.split("_")[1])
@@ -226,6 +237,8 @@ def load_data(img_dir: Path, idx: int, use_bbox=False, use_pose=False):
 
         if (Path(img_dir) / "data.h5").exists():
             loaded_data = load_data_h5(img_dir, idx)
+        elif len(list((img_dir / "rgb").glob("*.tfrecord"))) > 0:
+            loaded_data = load_data_tfrecord(img_dir, idx)
         else:
             loaded_data = load_data_simpose(img_dir, idx)
 
@@ -233,6 +246,116 @@ def load_data(img_dir: Path, idx: int, use_bbox=False, use_pose=False):
 
     loaded_data = st.session_state["loaded_data"]
     return create_visualization(*loaded_data, use_bbox, use_pose)
+
+
+def load_data_tfrecord(img_dir, idx):
+    if "tfds" not in st.session_state:
+        # simpose proto
+
+        protos = {
+            "rgb": {
+                "rgb": tf.io.FixedLenFeature([], tf.string),
+                "rgb_R": tf.io.FixedLenFeature([], tf.string),
+            },
+            "gt": {
+                "cam_matrix": tf.io.FixedLenFeature([], tf.string),
+                "cam_location": tf.io.FixedLenFeature([], tf.string),
+                "cam_rotation": tf.io.FixedLenFeature([], tf.string),
+                "stereo_baseline": tf.io.FixedLenFeature([], tf.string),
+                "obj_classes": tf.io.FixedLenFeature([], tf.string),
+                "obj_ids": tf.io.FixedLenFeature([], tf.string),
+                "obj_pos": tf.io.FixedLenFeature([], tf.string),
+                "obj_rot": tf.io.FixedLenFeature([], tf.string),
+                "obj_bbox_visib": tf.io.FixedLenFeature([], tf.string),
+                "obj_bbox_obj": tf.io.FixedLenFeature([], tf.string),
+                "obj_px_count_visib": tf.io.FixedLenFeature([], tf.string),
+                "obj_px_count_valid": tf.io.FixedLenFeature([], tf.string),
+                "obj_px_count_all": tf.io.FixedLenFeature([], tf.string),
+                "obj_visib_fract": tf.io.FixedLenFeature([], tf.string),
+            },
+            "depth": {
+                "depth": tf.io.FixedLenFeature([], tf.string),
+                "depth_R": tf.io.FixedLenFeature([], tf.string),
+            },
+            "mask": {"mask": tf.io.FixedLenFeature([], tf.string)},
+        }
+
+        ds = []
+        for name in ["rgb", "depth", "mask", "gt"]:  # ['rgb', 'depth', 'mask']:
+            files = tf.io.matching_files(str(img_dir / name / "*.tfrecord"))
+            shards = tf.data.Dataset.from_tensor_slices(files)
+
+            def parse_tfrecord(example_proto):
+                return tf.io.parse_single_example(example_proto, protos[name])
+
+            tf_ds = shards.interleave(
+                lambda x: tf.data.TFRecordDataset(x, compression_type="ZLIB"),
+                deterministic=True,
+                num_parallel_calls=tf.data.AUTOTUNE,
+            ).map(parse_tfrecord, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
+
+            ds.append(tf_ds)
+
+        def parse_to_tensors(rgb_data, depth_data, mask_data, gt_data):
+            return {
+                "rgb": tf.io.parse_tensor(rgb_data["rgb"], tf.uint8),
+                "rgb_R": tf.io.parse_tensor(rgb_data["rgb_R"], tf.uint8),
+                "depth": tf.io.parse_tensor(depth_data["depth"], tf.float32),
+                "mask": tf.io.parse_tensor(mask_data["mask"], tf.uint8),
+                "cam_matrix": tf.io.parse_tensor(gt_data["cam_matrix"], tf.float32),
+                "cam_location": tf.io.parse_tensor(gt_data["cam_location"], tf.float32),
+                "cam_rotation": tf.io.parse_tensor(gt_data["cam_rotation"], tf.float32),
+                "stereo_baseline": tf.io.parse_tensor(gt_data["stereo_baseline"], tf.float32),
+                "obj_classes": tf.io.parse_tensor(gt_data["obj_classes"], tf.string),
+                "obj_ids": tf.io.parse_tensor(gt_data["obj_ids"], tf.int32),
+                "obj_pos": tf.io.parse_tensor(gt_data["obj_pos"], tf.float32),
+                "obj_rot": tf.io.parse_tensor(gt_data["obj_rot"], tf.float32),
+                "obj_bbox_visib": tf.io.parse_tensor(gt_data["obj_bbox_visib"], tf.int32),
+                "obj_visib_fract": tf.io.parse_tensor(gt_data["obj_visib_fract"], tf.float32),
+            }
+
+        st.session_state["tfds"] = tf.data.Dataset.zip(tuple(ds)).map(
+            parse_to_tensors, num_parallel_calls=tf.data.AUTOTUNE
+        )
+
+    tfds = st.session_state["tfds"]
+
+    ds = tfds.skip(idx).take(1)
+    # get one data point
+    for data in ds:
+        pass
+
+    cam_data = {
+        "cam_matrix": data["cam_matrix"].numpy(),
+        "cam_rot": data["cam_rotation"].numpy(),
+        "cam_pos": data["cam_location"].numpy(),
+    }
+
+    bgr = data["rgb"].numpy()
+    bgr_R = data["rgb_R"].numpy()
+    depth = data["depth"].numpy()
+    mask = data["mask"].numpy()
+
+    objs_data = [
+        {
+            "class": cls,
+            "object id": obj_id,
+            "pos": pos,
+            "rotation": rot,
+            "bbox_visib": bbox_visib,
+            "visib_fract": visib_fract,
+        }
+        for cls, obj_id, pos, rot, bbox_visib, visib_fract in zip(
+            data["obj_classes"].numpy(),
+            data["obj_ids"].numpy(),
+            data["obj_pos"].numpy(),
+            data["obj_rot"].numpy(),
+            data["obj_bbox_visib"].numpy(),
+            data["obj_visib_fract"].numpy(),
+        )
+    ]
+
+    return bgr, bgr_R, depth, mask, cam_data, objs_data
 
 
 def load_data_simpose(img_dir, idx):

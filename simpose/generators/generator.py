@@ -41,7 +41,7 @@ class Generator(ABC):
 
         # # split work into chunks of ~100 images
         if len(pending_indices) > 100:
-            pending_indices = np.array_split(pending_indices, len(pending_indices) // 10)
+            pending_indices = np.array_split(pending_indices, len(pending_indices) // 100)
 
         def init_worker():
             import signal
@@ -85,15 +85,17 @@ class Generator(ABC):
         writer_config = sp.writers.WriterConfig.model_validate(writer_config["params"])
         writer_config.start_index = min(indices)
         writer_config.end_index = max(indices)
-        writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
+        Writer: type[sp.writers.Writer] = getattr(sp.writers, writer_name)
+        # writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
 
-        cls.generate_data(
-            config=gen_config,
-            writer=writer,
-            randomizers=randomizers,
-            indices=indices,
-            gpu_semaphore=gpu_semaphore,
-        )
+        with Writer(writer_config) as writer:
+            cls.generate_data(
+                config=gen_config,
+                writer=writer,
+                randomizers=randomizers,
+                indices=indices,
+                gpu_semaphore=gpu_semaphore,
+            )
 
     # old version with queue
     # @classmethod

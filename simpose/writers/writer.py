@@ -61,6 +61,12 @@ class Writer(ABC):
         self.start_index = params.start_index
         self.end_index = params.end_index
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        pass
+
     @abstractmethod
     def get_pending_indices(self) -> list[int]:
         """determine which indices to generate according the current config"""

@@ -7,12 +7,12 @@ import cv2
 import logging
 from ..exr import EXR
 from .writer import Writer, WriterConfig
+import multiprocessing as mp
 
 # import tensorflow and set gpu growth
-# import tensorflow as tf
+import tensorflow as tf
 
-# for dev in tf.config.list_physical_devices("GPU"):
-#     tf.config.experimental.set_memory_growth(dev, True)
+tf.config.set_soft_device_placement(False)
 
 
 class TFRecordWriter(Writer):
@@ -21,8 +21,26 @@ class TFRecordWriter(Writer):
         params: WriterConfig,
     ):
         super().__init__(params)
+
+    def __enter__(self):
         self._data_dir = self.output_dir / "gt"
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        self._writers = {}
+        for name in ["rgb", "gt", "depth", "mask"]:
+            (self.output_dir / name).mkdir(parents=True, exist_ok=True)
+            self._writers[name] = tf.io.TFRecordWriter(
+                str(
+                    self.output_dir / name / f"{self.start_index:06}_{self.end_index:06}.tfrecord"
+                ),
+                options=tf.io.TFRecordOptions(compression_type="ZLIB"),
+            )
+
+        return super().__enter__()
+
+    def __exit__(self, type, value, traceback):
+        for writer in self._writers.values():
+            writer.close()
+        return super().__exit__(type, value, traceback)
 
     def get_pending_indices(self):
         if not self.overwrite:
@@ -30,11 +48,14 @@ class TFRecordWriter(Writer):
             # existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
             # indices = np.setdiff1d(np.arange(self.start_index, self.end_index + 1), existing_ids)
             # for tfrecords, indices do not matter
+            # proc = mp.Process(target=get_pending_indices, args=(self.output_dir, self.end_index))
+            # result = proc.start()
+            # proc.join()
 
             def get_length(file):
                 return sum(1 for _ in tf.data.TFRecordDataset(file, compression_type="ZLIB"))
 
-            files = tf.io.matching_files(str(self.output_dir / "*.tfrecord"))
+            files = tf.io.matching_files(str(self.output_dir / "rgb" / "*.tfrecord"))
 
             total_length = (
                 tf.data.Dataset.from_tensor_slices(files)
@@ -42,6 +63,7 @@ class TFRecordWriter(Writer):
                 .reduce(0, lambda x, y: x + y)
                 .numpy()
             )
+            indices = np.arange(total_length, self.end_index + 1)
 
         else:
             indices = np.arange(self.start_index, self.end_index + 1)
@@ -110,11 +132,92 @@ class TFRecordWriter(Writer):
             "cam_location": list(cam_pos),
             "cam_matrix": np.array(cam_matrix).tolist(),
             "stereo_baseline": "none" if not cam.is_stereo_camera() else cam.baseline,
-            "objs": list(obj_list),
+            "objs": obj_list,
         }
 
         with (self._data_dir / f"gt_{dataset_index:05}.json").open("w") as F:
             json.dump(meta_dict, F, indent=2)
+
+        # now write gt to tfrecord
+        # Images: rgb, rgb_R, depth, depth_R, mask
+        # GT: cam_matrix, cam_location, cam_rotation, stereo_baseline
+        #       objs: list [ class, object, id, pos, rot, bbox, px...]
+        rgb = np.array(
+            cv2.imread(
+                str(Path(self.output_dir, "rgb", f"rgb_{dataset_index:04}.png")),
+                cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
+            )
+        )
+        rgb_R = np.array(
+            cv2.imread(
+                str(Path(self.output_dir, "rgb", f"rgb_{dataset_index:04}_R.png")),
+                cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
+            )
+        )
+
+        depth_R = np.array(
+            cv2.imread(
+                str(Path(self.output_dir, "depth", f"depth_{dataset_index:04}_R.exr")),
+                cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
+            )
+        )[..., 0].astype(np.float32)
+        depth[depth > 100.0] = 0.0
+
+        # possible shape of gt:
+        # class: [n, n_object, 1] # < but this is string? problem?
+        # ID:    [n, n_object, 1]
+        # pos:   [n, n_object, 3]
+        # rot:   [n, n_object, 4]
+        # and so on
+        gt_data = {
+            "cam_matrix": cam_matrix.astype(np.float32),
+            "cam_location": np.array(cam_pos).astype(np.float32),
+            "cam_rotation": cam_rot.as_quat(False).astype(np.float32),
+            "stereo_baseline": np.array(cam.baseline).astype(np.float32),
+            "obj_classes": np.array([obj["class"] for obj in obj_list]),
+            "obj_ids": np.array([obj["object id"] for obj in obj_list]).astype(np.int32),
+            "obj_pos": np.array([obj["pos"] for obj in obj_list]).astype(np.float32),
+            "obj_rot": np.array([obj["rotation"] for obj in obj_list]).astype(np.float32),
+            "obj_bbox_visib": np.array([obj["bbox_visib"] for obj in obj_list]).astype(np.int32),
+            "obj_bbox_obj": np.array([obj["bbox_obj"] for obj in obj_list]).astype(np.int32),
+            "obj_px_count_visib": np.array([obj["px_count_visib"] for obj in obj_list]).astype(
+                np.int32
+            ),
+            "obj_px_count_valid": np.array([obj["px_count_valid"] for obj in obj_list]).astype(
+                np.int32
+            ),
+            "obj_px_count_all": np.array([obj["px_count_all"] for obj in obj_list]).astype(
+                np.int32
+            ),
+            "obj_visib_fract": np.array([obj["visib_fract"] for obj in obj_list]).astype(
+                np.float32
+            ),
+        }
+
+        with tf.device("/cpu:0"):
+            serialized_rgbs = self._serizalize_data(
+                rgb=rgb.astype(np.uint8), rgb_R=rgb_R.astype(np.uint8)
+            )
+            self._writers["rgb"].write(serialized_rgbs)
+
+            serialized_gt = self._serizalize_data(**gt_data)
+            self._writers["gt"].write(serialized_gt)
+
+            serialized_mask = self._serizalize_data(mask=mask.astype(np.uint8))
+            self._writers["mask"].write(serialized_mask)
+
+            serialized_depths = self._serizalize_data(
+                depth=depth.astype(np.float32), depth_R=depth_R.astype(np.float32)
+            )
+            self._writers["depth"].write(serialized_depths)
+
+    def _serizalize_data(self, **data):
+        to_feature = lambda x: tf.train.Feature(
+            bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(x).numpy()])
+        )
+        serialized_features = {k: to_feature(v) for k, v in data.items()}
+        example_proto = tf.train.Example(features=tf.train.Features(feature=serialized_features))
+        return example_proto.SerializeToString()
 
     def _get_bbox(self, mask, object_id):
         y, x = np.where(mask == object_id)
@@ -152,8 +255,12 @@ class TFRecordWriter(Writer):
             sp.logger.debug(f"Removing {depth_path}")
             depth_path.unlink()
 
+        depth_R_path = self.output_dir / "depth" / f"depth_{dataset_index:04}_R.exr"
+        if depth_R_path.exists():
+            sp.logger.debug(f"Removing {depth_R_path}")
+            depth_R_path.unlink()
+
         mask_paths = (self.output_dir / "mask").glob(f"mask_*_{dataset_index:04}.exr")
         for mask_path in mask_paths:
-            if mask_path.exists():
-                sp.logger.debug(f"Removing {mask_path}")
-                mask_path.unlink()
+            sp.logger.debug(f"Removing {mask_path}")
+            mask_path.unlink()
