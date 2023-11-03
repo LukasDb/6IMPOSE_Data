@@ -27,11 +27,13 @@ import simpose.random as random
 import simpose.writers as writers
 import simpose.generators as generators
 import simpose.downloaders as downloaders
+import simpose.data as data
 
 
 __all__ = [
     "random",
     "downloaders",
+    "data",
     "logger",
     "_redirect_stdout",
     "Scene",

@@ -12,7 +12,7 @@ package_list = [
     "openexr",
     "pydantic",
     "pyyaml",
-    "tensorflow"
+    "tensorflow",
 ]
 
 # check if opencv-contrib-python is installed
@@ -40,3 +40,5 @@ setup(
         "Programming Language :: Python :: 3.10",
     ],
 )
+
+print("Please install OpenEXR package yourself.")
