@@ -1,7 +1,7 @@
 from .redirect_stdout import redirect_stdout
 
-with redirect_stdout():
-    import pybullet as p
+# with redirect_stdout():
+import pybullet as p
 
 import numpy as np
 import time

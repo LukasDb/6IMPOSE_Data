@@ -10,7 +10,6 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 from tqdm import tqdm
 import random
-import yaml
 
 
 class RandomImagerPickerConfig(RandomizerConfig):
@@ -175,7 +174,11 @@ class DroppedObjects(Generator):
         assert p.num_main_objs > 0, "num_main_objs must be > 0"
 
         proc_name = mp.current_process().name
-        is_primary_worker = proc_name == "Process-1" or proc_name == "MainProcess"
+        is_primary_worker = (
+            proc_name == "Process-1"
+            or proc_name == "MainProcess"
+            or proc_name == "ForkPoolWorker-2"
+        )
 
         debug = is_primary_worker and sp.logger.level < logging.DEBUG
 

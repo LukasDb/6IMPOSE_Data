@@ -2,9 +2,9 @@ import simpose as sp
 from .object import Object
 from pathlib import Path
 
-with sp._redirect_stdout():
-    import pybullet as p
-    import pybullet_data
+# with sp._redirect_stdout():
+import pybullet as p
+import pybullet_data
 
 
 class Plane(Object):

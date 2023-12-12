@@ -5,6 +5,7 @@ import numpy as np
 import cv2
 import json
 from simpose.exr import EXR
+from PIL import Image
 
 
 class SimposeDataset(Dataset):
@@ -91,15 +92,14 @@ class SimposeDataset(Dataset):
                         )
 
                 if get_keys is None or Dataset.RGB in get_keys:
-                    data[Dataset.RGB] = cv2.imread(
-                        str(root_dir / "rgb" / f"rgb_{idx:04}.png"), cv2.IMREAD_ANYCOLOR
+                    data[Dataset.RGB] = np.array(
+                        Image.open(str(root_dir / "rgb" / f"rgb_{idx:04}.png"))
                     )
 
                 if get_keys is None or Dataset.RGB_R in get_keys:
                     try:
-                        bgr_R = cv2.imread(
-                            str(root_dir / "rgb" / f"rgb_{idx:04}_R.png"), cv2.IMREAD_ANYCOLOR
-                        )
+                        bgr_R = np.array(Image.open(str(root_dir / "rgb" / f"rgb_{idx:04}_R.png")))
+
                     except Exception:
                         bgr_R = None
                     data[Dataset.RGB_R] = bgr_R
@@ -126,7 +126,7 @@ class SimposeDataset(Dataset):
                     mask_path = root_dir.joinpath(f"mask/mask_{idx:04}.exr")
                     mask = EXR(mask_path).read("visib.R").astype(np.uint8)
                     data[Dataset.MASK] = mask
-                    
+
                 yield data
 
         signature = {}

@@ -3,7 +3,7 @@ import os
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 BL_OPS = []
-import logging, coloredlogs, multiprocessing
+import logging, coloredlogs
 
 
 logger = logging.getLogger("simpose")

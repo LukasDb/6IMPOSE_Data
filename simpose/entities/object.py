@@ -1,4 +1,3 @@
-from turtle import forward
 from scipy.spatial.transform import Rotation as R
 from typing import Tuple, List
 from .placeable import Placeable
@@ -256,6 +255,7 @@ class Object(Placeable):
                     use_colors=False,
                     use_mesh_modifiers=False,
                     use_ascii=False,
+
                 )
             finally:
                 self.set_location(old_loc)

@@ -42,6 +42,8 @@ class Generator(ABC):
         # # split work into chunks of ~100 images
         if len(pending_indices) > 100:
             pending_indices = np.array_split(pending_indices, len(pending_indices) // 100)
+        else:
+            pending_indices = [pending_indices]
 
         def init_worker():
             import signal
@@ -65,7 +67,6 @@ class Generator(ABC):
     @classmethod
     def process(cls, args):
         indices, config, gpu_semaphore = args
-        print(f"fired up ({mp.current_process().name})")
 
         np.random.seed(mp.current_process().pid)
         import importlib
@@ -77,8 +78,6 @@ class Generator(ABC):
             randomizers[rand_name] = Generator.get_randomizer(rand_initializer)
 
         gen_config = cls._get_generator_config(config)
-
-        print(f"Got index list and starting now ({mp.current_process().name})")
 
         writer_config = config["Writer"]
         writer_name = writer_config["type"]
@@ -96,44 +95,6 @@ class Generator(ABC):
                 indices=indices,
                 gpu_semaphore=gpu_semaphore,
             )
-
-    # old version with queue
-    # @classmethod
-    # def process(cls, config, queue: mp.Queue, gpu_semaphore=None):
-    #     print(f"fired up ({mp.current_process().name})")
-
-    #     np.random.seed(mp.current_process().pid)
-    #     import importlib
-
-    #     importlib.reload(sp)
-
-    #     randomizers: dict[str, sp.random.Randomizer] = {}
-    #     for rand_name, rand_initializer in config["Randomizers"].items():
-    #         randomizers[rand_name] = Generator.get_randomizer(rand_initializer)
-
-    #     gen_config = cls._get_generator_config(config)
-
-    #     while True:
-    #         indices = queue.get()
-    #         if indices is None:
-    #             break
-
-    #         print(f"Got index list and starting now ({mp.current_process().name})")
-
-    #         writer_config = config["Writer"]
-    #         writer_name = writer_config["type"]
-    #         writer_config = sp.writers.WriterConfig.model_validate(writer_config["params"])
-    #         writer_config.start_index = min(indices)
-    #         writer_config.end_index = max(indices)
-    #         writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
-
-    #         cls.generate_data(
-    #             config=gen_config,
-    #             writer=writer,
-    #             randomizers=randomizers,
-    #             indices=indices,
-    #             gpu_semaphore=gpu_semaphore,
-    #         )
 
     @staticmethod
     @abstractmethod

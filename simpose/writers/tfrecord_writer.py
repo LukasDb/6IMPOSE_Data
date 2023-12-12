@@ -8,6 +8,7 @@ import logging
 from ..exr import EXR
 from .writer import Writer, WriterConfig
 import multiprocessing as mp
+from PIL import Image
 
 # import tensorflow and set gpu growth
 import tensorflow as tf
@@ -44,25 +45,23 @@ class TFRecordWriter(Writer):
 
     def get_pending_indices(self):
         if not self.overwrite:
-            # existing_files = self.output_dir.joinpath("gt").glob("*.json")
-            # existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
-            # indices = np.setdiff1d(np.arange(self.start_index, self.end_index + 1), existing_ids)
-            # for tfrecords, indices do not matter
-            # proc = mp.Process(target=get_pending_indices, args=(self.output_dir, self.end_index))
-            # result = proc.start()
-            # proc.join()
+            # HACK: for now, get pending indices from 'regular' simpose files
+            existing_files = self.output_dir.joinpath("gt").glob("*.json")
+            existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
+            indices = np.setdiff1d(np.arange(self.start_index, self.end_index + 1), existing_ids)
 
-            def get_length(file):
-                return sum(1 for _ in tf.data.TFRecordDataset(file, compression_type="ZLIB"))
+            # This takes forevever
+            # def get_length(file):
+            #     return sum(1 for _ in tf.data.TFRecordDataset(file, compression_type="ZLIB"))
 
-            files = tf.io.matching_files(str(self.output_dir / "rgb" / "*.tfrecord")) # type: ignore
+            # files = tf.io.matching_files(str(self.output_dir / "rgb" / "*.tfrecord")) # type: ignore
 
-            total_length = (
-                tf.data.Dataset.from_tensor_slices(files)
-                .map(get_length, num_parallel_calls=tf.data.AUTOTUNE, deterministic=False)
-                .reduce(0, lambda x, y: x + y)
-            )
-            indices = np.arange(total_length, self.end_index + 1)
+            # total_length = (
+            #     tf.data.Dataset.from_tensor_slices(files)
+            #     .map(get_length, num_parallel_calls=tf.data.AUTOTUNE, deterministic=False)
+            #     .reduce(0, lambda x, y: x + y)
+            # )
+            # indices = np.arange(total_length, self.end_index + 1)
 
         else:
             indices = np.arange(self.start_index, self.end_index + 1)
@@ -141,17 +140,12 @@ class TFRecordWriter(Writer):
         # Images: rgb, rgb_R, depth, depth_R, mask
         # GT: cam_matrix, cam_location, cam_rotation, stereo_baseline
         #       objs: list [ class, object, id, pos, rot, bbox, px...]
+
         rgb = np.array(
-            cv2.imread(
-                str(Path(self.output_dir, "rgb", f"rgb_{dataset_index:04}.png")),
-                cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-            )
+            Image.open(str(Path(self.output_dir, "rgb", f"rgb_{dataset_index:04}.png")))
         )
         rgb_R = np.array(
-            cv2.imread(
-                str(Path(self.output_dir, "rgb", f"rgb_{dataset_index:04}_R.png")),
-                cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-            )
+            Image.open(str(Path(self.output_dir, "rgb", f"rgb_{dataset_index:04}_R.png")))
         )
 
         depth_R = np.array(
@@ -193,7 +187,7 @@ class TFRecordWriter(Writer):
             ),
         }
 
-        with tf.device("/cpu:0"): # type: ignore
+        with tf.device("/cpu:0"):  # type: ignore
             serialized_rgbs = self._serizalize_data(
                 rgb=rgb.astype(np.uint8), rgb_R=rgb_R.astype(np.uint8)
             )
@@ -209,6 +203,9 @@ class TFRecordWriter(Writer):
                 depth=depth.astype(np.float32), depth_R=depth_R.astype(np.float32)
             )
             self._writers["depth"].write(serialized_depths)
+
+        # here I could clean up the temporary files
+        self._cleanup(dataset_index)
 
     def _serizalize_data(self, **data):
         to_feature = lambda x: tf.train.Feature(
