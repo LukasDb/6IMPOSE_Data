@@ -5,12 +5,28 @@ import numpy as np
 from pydantic import validate_call
 import functools
 import time
+from tqdm import tqdm
 from simpose import base_config
 
 
 class GeneratorParams(ABC, base_config.BaseConfig):
     n_workers: int
     n_parallel_on_gpu: int
+    gpus: None | list[int] = None
+    worker_shards: int = 100
+
+    @classmethod
+    def get_description(cls):
+        description = super().get_description()
+        description.update(
+            {
+                "n_workers": "Number of worker processes",
+                "n_parallel_on_gpu": "Number of parallel processes per GPU",
+                "gpus": "List of GPUs to use",
+                "worker_shards": "Number of shards to split the work into",
+            }
+        )
+        return description
 
 
 class Generator(ABC):
@@ -30,48 +46,73 @@ class Generator(ABC):
 
         n_workers = min(params.n_workers, len(pending_indices))
 
-        # if n_workers == 1:
-        #     sp.logger.debug("Using single process.")
-        #     randomizers: dict[str, sp.random.Randomizer] = {}
-        #     for rand_name, rand_initializer in self.config["Randomizers"].items():
-        #         randomizers[rand_name] = Generator.get_randomizer(rand_initializer)
-        #     self.generate_data(params, writer, randomizers, pending_indices)
-        #     writer.post_process()
-        #     return
-
+        n_datapoints = len(pending_indices)
         # # split work into chunks of ~100 images
-        if len(pending_indices) > 100:
-            pending_indices = np.array_split(pending_indices, len(pending_indices) // 100)
+        if n_datapoints > params.worker_shards:
+            pending_indices = np.array_split(pending_indices, n_datapoints // params.worker_shards)
         else:
             pending_indices = [pending_indices]
 
-        def init_worker():
-            import signal
-
-            signal.signal(signal.SIGINT, signal.SIG_IGN)
-
-        with mp.Manager() as manager, mp.Pool(n_workers, init_worker, maxtasksperchild=1) as pool:
-            gpu_semaphore = manager.Semaphore(params.n_parallel_on_gpu)
+        with mp.Manager() as manager:
+            n_gpus = len(params.gpus or [0])
+            active_gpus = params.gpus or [0]
+            semaphores = {
+                gpu: manager.BoundedSemaphore(params.n_parallel_on_gpu) for gpu in active_gpus
+            }
 
             def jobs():
-                for ind_list in pending_indices:
-                    yield ind_list, self.config, gpu_semaphore
+                for job_index, ind_list in enumerate(pending_indices):
+                    active_gpu = active_gpus[job_index % n_gpus]
+                    gpu_semaphore = semaphores[active_gpu]
+                    yield ind_list, self.config, gpu_semaphore, active_gpu
 
-            for _ in pool.imap_unordered(self.process, jobs(), chunksize=1):
-                pass
-
-            pool.join()
+            with mp.Pool(n_workers, maxtasksperchild=1) as pool, tqdm(total=n_datapoints) as bar:
+                for n_rendered in pool.imap_unordered(self.process, jobs(), chunksize=1):
+                    bar.update(n_rendered)
 
         writer.post_process()
 
     @classmethod
-    def process(cls, args):
-        indices, config, gpu_semaphore = args
+    def init_worker(cls, gpu: int):
+        import signal
+        import silence_tensorflow.auto
+        import os
+
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
 
         np.random.seed(mp.current_process().pid)
         import importlib
 
         importlib.reload(sp)
+
+    @classmethod
+    def mock(cls, args):
+        indices, config, gpu_semaphore, gpu = args
+        cls.init_worker(gpu)
+
+        import time
+
+        import tensorflow as tf
+
+        import bpy
+
+        pref = bpy.context.preferences.addons["cycles"].preferences
+        pref.get_devices()  # type: ignore
+        available_devices = list(pref.devices)
+        with gpu_semaphore:
+            time.sleep(2)
+        output = f"Worker {mp.current_process().name} started:"
+        # output += f"{len(indices)} images, {gpu_semaphore}"
+        output += f", gpus: [{tf.config.list_physical_devices('GPU')}]]"
+        # output += f", blender: {available_devices}"
+        print(output)
+        return len(indices)
+
+    @classmethod
+    def process(cls, args):
+        indices, config, gpu_semaphore, gpu = args
+        cls.init_worker(gpu)
 
         randomizers: dict[str, sp.random.Randomizer] = {}
         for rand_name, rand_initializer in config["Randomizers"].items():
@@ -87,14 +128,14 @@ class Generator(ABC):
         Writer: type[sp.writers.Writer] = getattr(sp.writers, writer_name)
         # writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
 
-        with Writer(writer_config) as writer:
+        with Writer(writer_config, gpu_semaphore) as writer:
             cls.generate_data(
                 config=gen_config,
                 writer=writer,
                 randomizers=randomizers,
                 indices=indices,
-                gpu_semaphore=gpu_semaphore,
             )
+        return len(indices)
 
     @staticmethod
     @abstractmethod
@@ -103,7 +144,6 @@ class Generator(ABC):
         writer: sp.writers.Writer,
         randomizers: dict[str, sp.random.Randomizer],
         indices: list[int],
-        gpu_semaphore=None,
     ):
         """run the routine to generate the data for the given indices"""
         pass

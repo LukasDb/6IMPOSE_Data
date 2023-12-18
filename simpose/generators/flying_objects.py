@@ -31,28 +31,32 @@ class FlyingObjectsConfig(GeneratorParams):
     saturation: float = 1.0
     value: float = 1.0
 
-    @staticmethod
-    def get_description():
-        return {
-            "drop_height": "Height from which objects are dropped",
-            "time_step": "Physics time step",
-            "num_time_steps": "Number of physics time steps",
-            "friction": "Friction of objects",
-            "use_stereo": "Use stereo camera",
-            "cam_hfov": "Camera horizontal field of view",
-            "cam_baseline": "Camera baseline",
-            "img_w": "Image width",
-            "img_h": "Image height",
-            "num_distractors": "Number of distractor objects",
-            "main_obj_path": "Path to main object .obj file",
-            "num_main_objs": "Number of main objects",
-            "scale": "Main object scale",
-            "metallic": "Default Main object metallic value",
-            "roughness": "Default Main object roughness value",
-            "hue": "Default Main object hue value",
-            "saturation": "Default Main object saturation value",
-            "value": "Default Main object value value",
-        }
+    @classmethod
+    def get_description(cls):
+        desc = super().get_description()
+        desc.update(
+            {
+                "drop_height": "Height from which objects are dropped",
+                "time_step": "Physics time step",
+                "num_time_steps": "Number of physics time steps",
+                "friction": "Friction of objects",
+                "use_stereo": "Use stereo camera",
+                "cam_hfov": "Camera horizontal field of view",
+                "cam_baseline": "Camera baseline",
+                "img_w": "Image width",
+                "img_h": "Image height",
+                "num_distractors": "Number of distractor objects",
+                "main_obj_path": "Path to main object .obj file",
+                "num_main_objs": "Number of main objects",
+                "scale": "Main object scale",
+                "metallic": "Default Main object metallic value",
+                "roughness": "Default Main object roughness value",
+                "hue": "Default Main object hue value",
+                "saturation": "Default Main object saturation value",
+                "value": "Default Main object value value",
+            }
+        )
+        return desc
 
 
 def indent(text: str) -> str:

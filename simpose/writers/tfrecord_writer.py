@@ -1,4 +1,3 @@
-import contextlib
 import json
 import simpose as sp
 import numpy as np
@@ -10,7 +9,7 @@ from .writer import Writer, WriterConfig
 import multiprocessing as mp
 from PIL import Image
 
-# import tensorflow and set gpu growth
+import silence_tensorflow.auto
 import tensorflow as tf
 
 tf.config.set_soft_device_placement(False)
@@ -67,15 +66,16 @@ class TFRecordWriter(Writer):
             indices = np.arange(self.start_index, self.end_index + 1)
         return indices
 
-    def _write_data(self, scene: sp.Scene, dataset_index: int, gpu_semaphore=None):
+    def _write_data(self, scene: sp.Scene, dataset_index: int):
         sp.logger.debug(f"Generating data for {dataset_index}")
         scene.frame_set(dataset_index)  # this sets the suffix for file names
 
         # for each object, deactivate all but one and render mask
-        objs = scene.get_labelled_objects()
-        if gpu_semaphore is None:
-            gpu_semaphore = contextlib.nullcontext()
-        with gpu_semaphore:
+        objs = (
+            scene.get_labelled_objects()
+        )  # TODO what if active objects!!! <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+        
+        with self.gpu_semaphore:
             scene.render()
 
         depth = np.array(
@@ -205,7 +205,7 @@ class TFRecordWriter(Writer):
             self._writers["depth"].write(serialized_depths)
 
         # here I could clean up the temporary files
-        self._cleanup(dataset_index)
+        self.remove_temporary_files(dataset_index)
 
     def _serizalize_data(self, **data):
         to_feature = lambda x: tf.train.Feature(
@@ -225,7 +225,19 @@ class TFRecordWriter(Writer):
         y2 = np.max(y).tolist()
         return [x1, y1, x2, y2]
 
-    def _cleanup(self, dataset_index):
+    def _cleanup(self, dataset_index: int):
+        self.remove_temporary_files(dataset_index)
+
+        # delete incomplete tfrecord files
+        for name in ["rgb", "gt", "depth", "mask"]:
+            record_path = (
+                self.output_dir / name / f"{self.start_index:06}_{self.end_index:06}.tfrecord"
+            )
+            if record_path.exists():
+                sp.logger.debug(f"Removing {record_path}")
+                record_path.unlink()
+
+    def remove_temporary_files(self, dataset_index):
         gt_path = self._data_dir / f"gt_{dataset_index:05}.json"
         if gt_path.exists():
             sp.logger.debug(f"Removing {gt_path}")

@@ -4,10 +4,10 @@ from abc import abstractmethod
 
 
 class BaseConfig(BaseModel, extra="forbid"):
-    @staticmethod
+    @classmethod
     @abstractmethod
-    def get_description() -> dict[str, str]:
-        pass
+    def get_description(cls) -> dict[str, str]:
+        return {}
 
     @classmethod
     def dump_with_comments(cls: type["BaseConfig"], **kwargs):

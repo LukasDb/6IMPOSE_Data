@@ -3,6 +3,7 @@ from pathlib import Path
 import subprocess
 import yaml
 import simpose as sp
+import silence_tensorflow.auto
 
 
 @click.group()

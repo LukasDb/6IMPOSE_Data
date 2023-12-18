@@ -64,33 +64,37 @@ class DroppedObjectsConfig(GeneratorParams):
     saturation: float = 1.0
     value: float = 1.0
 
-    @staticmethod
-    def get_description():
-        return {
-            "drop_height": "Height from which objects are dropped",
-            "drop_spread": "Spread of objects when dropped (distance from origin in XY)",
-            "time_step": "Physics time step",
-            "num_time_steps": "Number of physics time steps",
-            "num_camera_locations": "Number of camera locations per timestep",
-            "friction": "Friction of objects",
-            "use_stereo": "Use stereo camera",
-            "cam_hfov": "Camera horizontal field of view",
-            "cam_baseline": "Camera baseline",
-            "cam_dist_range": "Camera distance range to origin",
-            "img_w": "Image width",
-            "img_h": "Image height",
-            "floor_textures_dir": "Path to directory with textures for the floor",
-            "num_primary_distractors": "Number of distractors that are dropped first",
-            "num_secondary_distractors": "Number of distractors that are dropped together with the main objects",
-            "main_obj_path": "Path to main object .obj file",
-            "num_main_objs": "Number of main objects",
-            "scale": "Main object scale",
-            "metallic": "Default Main object metallic value",
-            "roughness": "Default Main object roughness value",
-            "hue": "Default Main object hue value",
-            "saturation": "Default Main object saturation value",
-            "value": "Default Main object value value",
-        }
+    @classmethod
+    def get_description(cls):
+        description = super().get_description()
+        description.update(
+            {
+                "drop_height": "Height from which objects are dropped",
+                "drop_spread": "Spread of objects when dropped (distance from origin in XY)",
+                "time_step": "Physics time step",
+                "num_time_steps": "Number of physics time steps",
+                "num_camera_locations": "Number of camera locations per timestep",
+                "friction": "Friction of objects",
+                "use_stereo": "Use stereo camera",
+                "cam_hfov": "Camera horizontal field of view",
+                "cam_baseline": "Camera baseline",
+                "cam_dist_range": "Camera distance range to origin",
+                "img_w": "Image width",
+                "img_h": "Image height",
+                "floor_textures_dir": "Path to directory with textures for the floor",
+                "num_primary_distractors": "Number of distractors that are dropped first",
+                "num_secondary_distractors": "Number of distractors that are dropped together with the main objects",
+                "main_obj_path": "Path to main object .obj file",
+                "num_main_objs": "Number of main objects",
+                "scale": "Main object scale",
+                "metallic": "Default Main object metallic value",
+                "roughness": "Default Main object roughness value",
+                "hue": "Default Main object hue value",
+                "saturation": "Default Main object saturation value",
+                "value": "Default Main object value value",
+            }
+        )
+        return description
 
 
 def indent(text: str) -> str:
@@ -109,7 +113,7 @@ class DroppedObjects(Generator):
 
     @staticmethod
     def generate_template_config() -> str:
-        gen_params = DroppedObjectsConfig.dump_with_comments(n_workers=1)
+        gen_params = DroppedObjectsConfig.dump_with_comments(n_workers=1, n_parallel_on_gpu=1)
         writer_params = sp.writers.WriterConfig.dump_with_comments()
 
         app_params = sp.random.AppearanceRandomizerConfig.dump_with_comments(
@@ -168,7 +172,6 @@ class DroppedObjects(Generator):
         writer: sp.writers.Writer,
         randomizers: dict[str, sp.random.Randomizer],
         indices: list[int],
-        gpu_semaphore=None,
     ):
         p = config
         assert p.num_main_objs > 0, "num_main_objs must be > 0"
@@ -232,26 +235,21 @@ class DroppedObjects(Generator):
 
         # --- Generation params ---
         i = 0
-        bar = tqdm(
-            total=len(indices), desc="Process-1", smoothing=0.0, disable=not is_primary_worker
-        )
         while True:
             DroppedObjects.setup_new_scene(p, scene, randomizers, main_objs)
             for _ in range(p.num_time_steps):
                 scene.step_physics(p.time_step)
 
                 for _ in range(p.num_camera_locations):
-                    writer.write_data(scene, indices[i], gpu_semaphore=gpu_semaphore)
+                    writer.write_data(scene, indices[i])
 
                     if i == 0 and debug:
                         scene.export_blend()
 
                     i += 1
                     if i == len(indices):
-                        bar.close()
                         return scene
 
-                    bar.update(1)
 
     @staticmethod
     def setup_new_scene(

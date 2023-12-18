@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import simpose as sp
 from pathlib import Path
 import signal
+import contextlib
 from simpose import base_config
 import multiprocessing as mp
 
@@ -53,13 +54,13 @@ class WriterConfig(base_config.BaseConfig):
 
 
 class Writer(ABC):
-    def __init__(self, params: WriterConfig):
+    def __init__(self, params: WriterConfig, gpu_semaphore=None):
         # self.scene = scene
         self.output_dir = params.output_dir.expanduser()
-        # self.scene.set_output_path(self.output_dir)
         self.overwrite = params.overwrite
         self.start_index = params.start_index
         self.end_index = params.end_index
+        self.gpu_semaphore = contextlib.nullcontext() if gpu_semaphore is None else gpu_semaphore
 
     def __enter__(self):
         return self
@@ -72,13 +73,13 @@ class Writer(ABC):
         """determine which indices to generate according the current config"""
         pass
 
-    def write_data(self, scene: sp.Scene, dataset_index: int, gpu_semaphore=None):
+    def write_data(self, scene: sp.Scene, dataset_index: int):
         """dont allow CTRl+C during data generation"""
         scene.set_output_path(self.output_dir)
 
         with DelayedKeyboardInterrupt(dataset_index):
             try:
-                self._write_data(scene, dataset_index, gpu_semaphore)
+                self._write_data(scene, dataset_index)
             except Exception as e:
                 # clean up possibly corrupted data
                 sp.logger.error(f"Error while generating data no. {dataset_index}")
@@ -90,7 +91,7 @@ class Writer(ABC):
         pass
 
     @abstractmethod
-    def _write_data(self, scene: sp.Scene, dataset_index: int, gpu_semaphore=None):
+    def _write_data(self, scene: sp.Scene, dataset_index: int):
         pass
 
     @abstractmethod

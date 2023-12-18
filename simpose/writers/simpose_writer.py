@@ -1,4 +1,3 @@
-import contextlib
 import json
 import simpose as sp
 import numpy as np
@@ -27,15 +26,13 @@ class SimposeWriter(Writer):
             indices = np.arange(self.start_index, self.end_index + 1)
         return indices
 
-    def _write_data(self, scene: sp.Scene, dataset_index: int, gpu_semaphore=None):
+    def _write_data(self, scene: sp.Scene, dataset_index: int):
         sp.logger.debug(f"Generating data for {dataset_index}")
         scene.frame_set(dataset_index)  # this sets the suffix for file names
 
         # for each object, deactivate all but one and render mask
         objs = scene.get_labelled_objects()
-        if gpu_semaphore is None:
-            gpu_semaphore = contextlib.nullcontext()
-        with gpu_semaphore:
+        with self.gpu_semaphore:
             scene.render()
 
         depth = np.array(
