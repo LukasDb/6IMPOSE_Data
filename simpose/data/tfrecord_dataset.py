@@ -51,7 +51,12 @@ class TFRecordDataset(Dataset):
     }
 
     @staticmethod
-    def get(root_dir: Path, get_keys: None | list[str] = None) -> tf.data.Dataset:
+    def get(
+        root_dir: Path,
+        get_keys: None | list[str] = None,
+        deterministic=False,
+        pattern="*.tfrecord",
+    ) -> tf.data.Dataset:
         """create a tf.data.Dataset from 6IMPOSE tfrecord dataset. Returns a dict with the specified keys"""
         if get_keys is not None:
             # filter keymap
@@ -68,7 +73,7 @@ class TFRecordDataset(Dataset):
         # create a parsed dataset per file type
         ds = []
         for name, keys in per_file_keys.items():
-            files = tf.io.matching_files(str(root_dir / name / "*.tfrecord"))  # type: ignore
+            files = tf.io.matching_files(str(root_dir / name / pattern))  # type: ignore
             shards = tf.data.Dataset.from_tensor_slices(files)
 
             def parse_tfrecord(example_proto):
@@ -76,6 +81,7 @@ class TFRecordDataset(Dataset):
                     example_proto, TFRecordDataset._get_proto_from_keys(keys)
                 )
 
+            # has to be deterministic, otherwise the order of the shards is random
             tf_ds = shards.interleave(
                 lambda x: tf.data.TFRecordDataset(x, compression_type="ZLIB"),
                 deterministic=True,
@@ -87,7 +93,7 @@ class TFRecordDataset(Dataset):
         parse_to_tensors = TFRecordDataset._parse_to_tensors(key_map, per_file_keys)
 
         dataset = tf.data.Dataset.zip(tuple(ds)).map(
-            parse_to_tensors, num_parallel_calls=tf.data.AUTOTUNE
+            parse_to_tensors, num_parallel_calls=tf.data.AUTOTUNE, deterministic=deterministic
         )
         return dataset
 

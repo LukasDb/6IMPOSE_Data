@@ -19,8 +19,9 @@ class TFRecordWriter(Writer):
     def __init__(
         self,
         params: WriterConfig,
+        gpu_semaphore: None = None,
     ):
-        super().__init__(params)
+        super().__init__(params, gpu_semaphore)
 
     def __enter__(self):
         self._data_dir = self.output_dir / "gt"
@@ -74,7 +75,7 @@ class TFRecordWriter(Writer):
         objs = (
             scene.get_labelled_objects()
         )  # TODO what if active objects!!! <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-        
+
         with self.gpu_semaphore:
             scene.render()
 
