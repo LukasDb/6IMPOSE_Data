@@ -1,6 +1,7 @@
 from setuptools import setup, find_packages
 
 package_list = [
+    "silence_tensorflow",
     "tqdm",
     "bpy==3.6",
     "fake-bpy-module-latest",

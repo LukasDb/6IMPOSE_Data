@@ -71,10 +71,6 @@ class TFRecordWriter(Writer):
         sp.logger.debug(f"Generating data for {dataset_index}")
         scene.frame_set(dataset_index)  # this sets the suffix for file names
 
-        # for each object, deactivate all but one and render mask
-        objs = (
-            scene.get_labelled_objects()
-        )  # TODO what if active objects!!! <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
         with self.gpu_semaphore:
             scene.render()
@@ -89,6 +85,9 @@ class TFRecordWriter(Writer):
 
         mask_path = Path(self.output_dir / f"mask/mask_{dataset_index:04}.exr")
         mask = EXR(mask_path).read("visib.R")
+        # for each object, deactivate all but one and render mask
+        # only for labelled objects we have a mask
+        objs = scene.get_labelled_objects()
         obj_list = []
         for obj in objs:
             px_count_visib = np.count_nonzero(mask == obj.object_id)

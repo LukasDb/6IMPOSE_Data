@@ -55,7 +55,7 @@ class DroppedObjectsConfig(GeneratorParams):
     num_primary_distractors: int = 40
     num_secondary_distractors: int = 5
 
-    main_obj_path: Path = Path("path/to/model.obj")
+    main_obj_path: Path | list[Path] = Path("path/to/model.obj")
     num_main_objs: int = 20
     scale: float = 1.0
     metallic: float = 0.0
@@ -84,8 +84,8 @@ class DroppedObjectsConfig(GeneratorParams):
                 "floor_textures_dir": "Path to directory with textures for the floor",
                 "num_primary_distractors": "Number of distractors that are dropped first",
                 "num_secondary_distractors": "Number of distractors that are dropped together with the main objects",
-                "main_obj_path": "Path to main object .obj file",
-                "num_main_objs": "Number of main objects",
+                "main_obj_path": "Path to main object .obj file or list of paths",
+                "num_main_objs": "Number of main objects (each, if multiple main objs)",
                 "scale": "Main object scale",
                 "metallic": "Default Main object metallic value",
                 "roughness": "Default Main object roughness value",
@@ -186,7 +186,7 @@ class DroppedObjects(Generator):
         debug = is_primary_worker and sp.logger.level < logging.DEBUG
 
         # -- SCENE --
-        scene = scene = sp.Scene.create(img_h=p.img_h, img_w=p.img_w, debug=debug)
+        scene = sp.Scene.create(img_h=p.img_h, img_w=p.img_w, debug=debug)
         plane = scene.create_plane()
 
         # -- CAMERA --
@@ -209,26 +209,32 @@ class DroppedObjects(Generator):
         randimages.randomize_plane(plane)
 
         # -- OBJECTS --
-        main_obj = scene.create_object(
-            p.main_obj_path,
-            mass=0.2,
-            friction=p.friction,
-            add_semantics=True,
-            scale=p.scale,
-        )
-        main_obj.set_metallic(p.metallic)
-        main_obj.set_roughness(p.roughness)
-        main_obj.set_hue(p.hue)
-        main_obj.set_saturation(p.saturation)
-        main_obj.set_value(p.value)
+        if isinstance(p.main_obj_path, Path):
+            main_obj_paths = [p.main_obj_path]
+        else:
+            main_obj_paths = p.main_obj_path
+
+        main_objs = []
+        for obj_path in main_obj_paths:
+            main_obj = scene.create_object(
+                obj_path,
+                mass=0.2,
+                friction=p.friction,
+                add_semantics=True,
+                scale=p.scale,
+            )
+            main_obj.set_metallic(p.metallic)
+            main_obj.set_roughness(p.roughness)
+            main_obj.set_hue(p.hue)
+            main_obj.set_saturation(p.saturation)
+            main_obj.set_value(p.value)
+
+            main_objs.append(main_obj)
+            for i in range(p.num_main_objs - 1):
+                main_objs.append(scene.create_copy(main_obj))
 
         if is_primary_worker:
             scene.export_meshes(writer.output_dir / "meshes")
-
-        main_objs = [main_obj]
-
-        for i in range(p.num_main_objs - 1):
-            main_objs.append(scene.create_copy(main_obj))
 
         for obj in main_objs:
             obj.hide()
@@ -249,7 +255,6 @@ class DroppedObjects(Generator):
                     i += 1
                     if i == len(indices):
                         return scene
-
 
     @staticmethod
     def setup_new_scene(
