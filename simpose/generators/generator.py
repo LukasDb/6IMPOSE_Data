@@ -59,16 +59,23 @@ class Generator(ABC):
             semaphores = {
                 gpu: manager.BoundedSemaphore(params.n_parallel_on_gpu) for gpu in active_gpus
             }
+            rendered = manager.dict()
 
             def jobs():
                 for job_index, ind_list in enumerate(pending_indices):
                     active_gpu = active_gpus[job_index % n_gpus]
                     gpu_semaphore = semaphores[active_gpu]
-                    yield ind_list, self.config, gpu_semaphore, active_gpu
+                    yield ind_list, self.config, gpu_semaphore, active_gpu, rendered
 
             with mp.Pool(n_workers, maxtasksperchild=1) as pool, tqdm(total=n_datapoints) as bar:
-                for n_rendered in pool.imap_unordered(self.process, jobs(), chunksize=1):
-                    bar.update(n_rendered)
+                # for n_rendered in pool.imap_unordered(self.process, jobs(), chunksize=1):
+                #     bar.update(n_rendered)
+                # pool.map(self.process, jobs(), chunksize=1)
+                result = pool.map_async(self.process, jobs(), chunksize=1)
+                while result.ready() is False:
+                    total_rendered = sum(rendered.values())
+                    bar.update(total_rendered - bar.n)
+                    time.sleep(1.0)
 
         writer.post_process()
 
@@ -111,7 +118,7 @@ class Generator(ABC):
 
     @classmethod
     def process(cls, args):
-        indices, config, gpu_semaphore, gpu = args
+        indices, config, gpu_semaphore, gpu, rendered_dict = args
         cls.init_worker(gpu)
 
         randomizers: dict[str, sp.random.Randomizer] = {}
@@ -128,13 +135,15 @@ class Generator(ABC):
         Writer: type[sp.writers.Writer] = getattr(sp.writers, writer_name)
         # writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
 
-        with Writer(writer_config, gpu_semaphore) as writer:
+        with Writer(writer_config, gpu_semaphore, rendered_dict) as writer:
             cls.generate_data(
                 config=gen_config,
                 writer=writer,
                 randomizers=randomizers,
                 indices=indices,
             )
+        # TODO make writer update the counter, with each image
+        # rendered_dict[mp.current_process().name] = len(indices)
         return len(indices)
 
     @staticmethod

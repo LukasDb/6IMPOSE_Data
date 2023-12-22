@@ -17,11 +17,9 @@ tf.config.set_soft_device_placement(False)
 
 class TFRecordWriter(Writer):
     def __init__(
-        self,
-        params: WriterConfig,
-        gpu_semaphore: None = None,
+        self, params: WriterConfig, gpu_semaphore=None, rendered_dict: dict | None = None
     ):
-        super().__init__(params, gpu_semaphore)
+        super().__init__(params, gpu_semaphore, rendered_dict)
 
     def __enter__(self):
         self._data_dir = self.output_dir / "gt"
@@ -70,7 +68,6 @@ class TFRecordWriter(Writer):
     def _write_data(self, scene: sp.Scene, dataset_index: int):
         sp.logger.debug(f"Generating data for {dataset_index}")
         scene.frame_set(dataset_index)  # this sets the suffix for file names
-
 
         with self.gpu_semaphore:
             scene.render()
