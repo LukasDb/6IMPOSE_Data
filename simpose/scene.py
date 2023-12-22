@@ -1,3 +1,4 @@
+import contextlib
 from .redirect_stdout import redirect_stdout
 
 # with redirect_stdout():
@@ -109,7 +110,7 @@ class Scene(Observable):
             except KeyError:
                 pass
 
-    def render(self):
+    def render(self, gpu_semaphore=contextlib.nullcontext()):
         import bpy
 
         self.notify(Event.BEFORE_RENDER)
@@ -125,32 +126,37 @@ class Scene(Observable):
 
         camera = self.get_cameras()[0]
 
-        if camera.is_stereo_camera():
-            self._bl_scene.camera = camera.right_camera
+        with gpu_semaphore:
+            if camera.is_stereo_camera():
+                self._bl_scene.camera = camera.right_camera
+                with redirect_stdout():
+                    bpy.ops.render.render(write_still=False)
+                # rename rendered depth and rgb with suffix _R
+                rgb_path = self.output_dir / "rgb" / f"rgb_{self._bl_scene.frame_current:04}.png"
+                rgb_path.rename(rgb_path.parent / f"rgb_{self._bl_scene.frame_current:04}_R.png")
+                depth_path = (
+                    self.output_dir / "depth" / f"depth_{self._bl_scene.frame_current:04}.exr"
+                )
+                depth_path.rename(
+                    depth_path.parent / f"depth_{self._bl_scene.frame_current:04}_R.exr"
+                )
+
+            # for left image and the labels
+            self._bl_scene.camera = camera.left_camera
+            with redirect_stdout():
+                sp.logger.debug(f"Rendering left to {self.output_dir}")
+                bpy.ops.render.render(write_still=False)
+
+            # render mask into a single EXR using eevee
+            # enable all view layers except ViewLayer
+            for layer in self._bl_scene.view_layers:
+                layer.use = True
+            self._bl_scene.view_layers["ViewLayer"].use = False
+            self._bl_scene.render.engine = "BLENDER_EEVEE"
+            self.output_node.mute = True
+            self.mask_output.mute = False
             with redirect_stdout():
                 bpy.ops.render.render(write_still=False)
-            # rename rendered depth and rgb with suffix _R
-            rgb_path = self.output_dir / "rgb" / f"rgb_{self._bl_scene.frame_current:04}.png"
-            rgb_path.rename(rgb_path.parent / f"rgb_{self._bl_scene.frame_current:04}_R.png")
-            depth_path = self.output_dir / "depth" / f"depth_{self._bl_scene.frame_current:04}.exr"
-            depth_path.rename(depth_path.parent / f"depth_{self._bl_scene.frame_current:04}_R.exr")
-
-        # for left image and the labels
-        self._bl_scene.camera = camera.left_camera
-        with redirect_stdout():
-            sp.logger.debug(f"Rendering left to {self.output_dir}")
-            bpy.ops.render.render(write_still=False)
-
-        # render mask into a single EXR using eevee
-        # enable all view layers except ViewLayer
-        for layer in self._bl_scene.view_layers:
-            layer.use = True
-        self._bl_scene.view_layers["ViewLayer"].use = False
-        self._bl_scene.render.engine = "BLENDER_EEVEE"
-        self.output_node.mute = True
-        self.mask_output.mute = False
-        with redirect_stdout():
-            bpy.ops.render.render(write_still=False)
 
         self.notify(Event.AFTER_RENDER)
 

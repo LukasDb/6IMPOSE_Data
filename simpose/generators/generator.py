@@ -38,15 +38,15 @@ class Generator(ABC):
         params = self._get_generator_config(self.config)
 
         pending_indices = writer.get_pending_indices()
-        if len(pending_indices) == 0:
+        n_datapoints = len(pending_indices)
+        if n_datapoints == 0:
             sp.logger.info("No images to render.")
             return
 
-        sp.logger.info(f"Rendering {len(pending_indices)} images.")
+        sp.logger.info(f"Rendering {n_datapoints} images.")
 
-        n_workers = min(params.n_workers, len(pending_indices))
+        n_workers = min(params.n_workers, n_datapoints)
 
-        n_datapoints = len(pending_indices)
         # # split work into chunks of ~100 images
         if n_datapoints > params.worker_shards:
             pending_indices = np.array_split(pending_indices, n_datapoints // params.worker_shards)

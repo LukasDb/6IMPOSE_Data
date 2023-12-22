@@ -69,8 +69,7 @@ class TFRecordWriter(Writer):
         sp.logger.debug(f"Generating data for {dataset_index}")
         scene.frame_set(dataset_index)  # this sets the suffix for file names
 
-        with self.gpu_semaphore:
-            scene.render()
+        scene.render(self.gpu_semaphore)
 
         depth = np.array(
             cv2.imread(
