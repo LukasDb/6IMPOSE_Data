@@ -281,8 +281,8 @@ def load_data(img_dir: Path, idx: int, use_bbox=False, use_pose=False):
             "cam_pos": data["cam_location"].numpy(),
         }
 
-        bgr = data["rgb"].numpy()
-        bgr_R = data["rgb_R"].numpy()
+        bgr = cv2.cvtColor(data["rgb"].numpy(), cv2.COLOR_RGB2BGR)
+        bgr_R = cv2.cvtColor(data["rgb_R"].numpy(), cv2.COLOR_RGB2BGR)
         depth = data["depth"].numpy()
         mask = data["mask"].numpy()
 

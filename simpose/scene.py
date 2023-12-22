@@ -373,8 +373,8 @@ class Scene(Observable):
 
     def export_meshes(self, output_dir: Path):
         """export meshes as ply files in 'meshes' folder"""
-        objs = set(self.get_labelled_objects())
-        for obj in objs:
+        objs = {obj.get_class(): obj for obj in self.get_labelled_objects()}
+        for obj in objs.values():
             obj.export_as_ply(output_dir)
 
     def _setup_compositor(self):
