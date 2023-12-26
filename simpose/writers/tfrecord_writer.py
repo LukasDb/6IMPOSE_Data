@@ -129,8 +129,8 @@ class TFRecordWriter(Writer):
             "objs": obj_list,
         }
 
-        with (self._data_dir / f"gt_{dataset_index:05}.json").open("w") as F:
-            json.dump(meta_dict, F, indent=2)
+        #with (self._data_dir / f"gt_{dataset_index:05}.json").open("w") as F:
+        #    json.dump(meta_dict, F, indent=2)
 
         # now write gt to tfrecord
         # Images: rgb, rgb_R, depth, depth_R, mask
