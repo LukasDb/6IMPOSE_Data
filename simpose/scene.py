@@ -1,4 +1,5 @@
 import contextlib
+import multiprocessing
 from .redirect_stdout import redirect_stdout
 
 # with redirect_stdout():
@@ -128,6 +129,7 @@ class Scene(Observable):
 
         sp.logger.debug(f"Acquiring GPU semaphore ({gpu_semaphore})")
         with gpu_semaphore:
+            sp.logger.debug(f"Acquired GPU semaphore ({gpu_semaphore})")
             if camera.is_stereo_camera():
                 self._bl_scene.camera = camera.right_camera
                 with redirect_stdout():
@@ -158,7 +160,8 @@ class Scene(Observable):
             self.mask_output.mute = False
             with redirect_stdout():
                 bpy.ops.render.render(write_still=False)
-        sp.logger.debug(f"GPU semaphore ({gpu_semaphore}) released")
+
+        sp.logger.debug(f"GPU semaphore ({gpu_semaphore}) released ({gpu_semaphore.get_value()})")
 
         self.notify(Event.AFTER_RENDER)
 

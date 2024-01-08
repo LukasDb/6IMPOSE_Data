@@ -61,17 +61,28 @@ class Generator(ABC):
             }
             rendered = manager.dict()
 
-            def jobs():
-                for job_index, ind_list in enumerate(pending_indices):
-                    active_gpu = active_gpus[job_index % n_gpus]
-                    gpu_semaphore = semaphores[active_gpu]
-                    yield ind_list, self.config, gpu_semaphore, active_gpu, rendered
+            # def jobs():
+            #     for job_index, ind_list in enumerate(pending_indices):
+            #         active_gpu = active_gpus[job_index % n_gpus]
+            #         gpu_semaphore = semaphores[active_gpu]
+            #         yield ind_list, self.config, gpu_semaphore, active_gpu, rendered
+
+            jobs = [
+                (
+                    ind_list,
+                    self.config,
+                    semaphores[active_gpus[job_index % n_gpus]],
+                    active_gpus[job_index % n_gpus],
+                    rendered,
+                )
+                for job_index, ind_list in enumerate(pending_indices)
+            ]
 
             with mp.Pool(n_workers, maxtasksperchild=1) as pool, tqdm(total=n_datapoints) as bar:
                 # for n_rendered in pool.imap_unordered(self.process, jobs(), chunksize=1):
                 #     bar.update(n_rendered)
                 # pool.map(self.process, jobs(), chunksize=1)
-                result = pool.map_async(self.process, jobs(), chunksize=1)
+                result = pool.map_async(self.process, jobs, chunksize=1)
                 while result.ready() is False:
                     total_rendered = sum(rendered.values())
                     bar.update(total_rendered - bar.n)
