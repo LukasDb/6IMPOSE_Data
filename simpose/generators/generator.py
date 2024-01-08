@@ -1,3 +1,4 @@
+from re import T
 import simpose as sp
 from abc import ABC, abstractmethod
 import multiprocessing as mp
@@ -63,28 +64,18 @@ class Generator(ABC):
             }
             rendered = manager.dict()
 
-            # def jobs():
-            #     for job_index, ind_list in enumerate(pending_indices):
-            #         active_gpu = active_gpus[job_index % n_gpus]
-            #         gpu_semaphore = semaphores[active_gpu]
-            #         yield ind_list, self.config, gpu_semaphore, active_gpu, rendered
+            with mp.get_context("spawn").Pool(n_workers, maxtasksperchild=1) as pool, tqdm(
+                total=n_datapoints
+            ) as bar:
 
-            jobs = [
-                (
-                    ind_list,
-                    self.config,
-                    semaphores[active_gpus[job_index % n_gpus]],
-                    active_gpus[job_index % n_gpus],
-                    rendered,
-                )
-                for job_index, ind_list in enumerate(pending_indices)
-            ]
+                def jobs():
+                    for job_index, ind_list in enumerate(pending_indices):
+                        active_gpu = active_gpus[job_index % n_gpus]
+                        gpu_semaphore = semaphores[active_gpu]
+                        yield ind_list, self.config, gpu_semaphore, active_gpu, rendered
 
-            with mp.Pool(n_workers, maxtasksperchild=1) as pool, tqdm(total=n_datapoints) as bar:
-                # for n_rendered in pool.imap_unordered(self.process, jobs(), chunksize=1):
-                #     bar.update(n_rendered)
-                # pool.map(self.process, jobs(), chunksize=1)
-                result = pool.map_async(self.process, jobs, chunksize=1)
+
+                result = pool.starmap_async(self.init_and_launch, jobs(), chunksize=1)
                 while result.ready() is False:
                     total_rendered = sum(rendered.values())
                     bar.update(total_rendered - bar.n)
@@ -93,7 +84,7 @@ class Generator(ABC):
         writer.post_process()
 
     @classmethod
-    def init_worker(cls, gpu: int):
+    def init_and_launch(cls, indices, config, gpu_semaphore, gpu, rendered_dict):
         import signal
         import silence_tensorflow.auto
         import os
@@ -102,38 +93,12 @@ class Generator(ABC):
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
         np.random.seed(mp.current_process().pid)
-        import importlib
-
-        importlib.reload(sp)
-
-    @classmethod
-    def mock(cls, args):
-        indices, config, gpu_semaphore, gpu = args
-        cls.init_worker(gpu)
-
-        import time
-
-        import tensorflow as tf
-
-        import bpy
-
-        pref = bpy.context.preferences.addons["cycles"].preferences
-        pref.get_devices()  # type: ignore
-        available_devices = list(pref.devices)
-        with gpu_semaphore:
-            time.sleep(2)
-        output = f"Worker {mp.current_process().name} started:"
-        # output += f"{len(indices)} images, {gpu_semaphore}"
-        output += f", gpus: [{tf.config.list_physical_devices('GPU')}]]"
-        # output += f", blender: {available_devices}"
-        print(output)
-        return len(indices)
+        for handler in sp.logger.handlers:
+            handler.setLevel(sp.logger.level)
+        cls.process(indices, config, gpu_semaphore, rendered_dict)
 
     @classmethod
-    def process(cls, args):
-        indices, config, gpu_semaphore, gpu, rendered_dict = args
-        cls.init_worker(gpu)
-
+    def process(cls, indices, config, gpu_semaphore, rendered_dict):
         randomizers: dict[str, sp.random.Randomizer] = {}
         for rand_name, rand_initializer in config["Randomizers"].items():
             randomizers[rand_name] = Generator.get_randomizer(rand_initializer)
@@ -146,7 +111,6 @@ class Generator(ABC):
         writer_config.start_index = min(indices)
         writer_config.end_index = max(indices)
         Writer: type[sp.writers.Writer] = getattr(sp.writers, writer_name)
-        # writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
 
         with Writer(writer_config, gpu_semaphore, rendered_dict) as writer:
             cls.generate_data(
@@ -155,8 +119,6 @@ class Generator(ABC):
                 randomizers=randomizers,
                 indices=indices,
             )
-        # TODO make writer update the counter, with each image
-        # rendered_dict[mp.current_process().name] = len(indices)
         return len(indices)
 
     @staticmethod

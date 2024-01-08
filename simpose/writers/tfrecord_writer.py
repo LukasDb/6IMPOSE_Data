@@ -43,23 +43,7 @@ class TFRecordWriter(Writer):
 
     def get_pending_indices(self):
         if not self.overwrite:
-            # HACK: for now, get pending indices from 'regular' simpose files
-            existing_files = self.output_dir.joinpath("gt").glob("*.json")
-            existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
-            indices = np.setdiff1d(np.arange(self.start_index, self.end_index + 1), existing_ids)
-
-            # This takes forevever
-            # def get_length(file):
-            #     return sum(1 for _ in tf.data.TFRecordDataset(file, compression_type="ZLIB"))
-
-            # files = tf.io.matching_files(str(self.output_dir / "rgb" / "*.tfrecord")) # type: ignore
-
-            # total_length = (
-            #     tf.data.Dataset.from_tensor_slices(files)
-            #     .map(get_length, num_parallel_calls=tf.data.AUTOTUNE, deterministic=False)
-            #     .reduce(0, lambda x, y: x + y)
-            # )
-            # indices = np.arange(total_length, self.end_index + 1)
+            raise NotImplementedError("Not implemented yet")
 
         else:
             indices = np.arange(self.start_index, self.end_index + 1)
@@ -120,22 +104,6 @@ class TFRecordWriter(Writer):
         cam_pos = cam.location
         cam_rot = cam.rotation
         cam_matrix = cam.calculate_intrinsics(scene.resolution_x, scene.resolution_y)
-
-        meta_dict = {
-            "cam_rotation": list(cam_rot.as_quat(canonical=True)),
-            "cam_location": list(cam_pos),
-            "cam_matrix": np.array(cam_matrix).tolist(),
-            "stereo_baseline": "none" if not cam.is_stereo_camera() else cam.baseline,
-            "objs": obj_list,
-        }
-
-        #with (self._data_dir / f"gt_{dataset_index:05}.json").open("w") as F:
-        #    json.dump(meta_dict, F, indent=2)
-
-        # now write gt to tfrecord
-        # Images: rgb, rgb_R, depth, depth_R, mask
-        # GT: cam_matrix, cam_location, cam_rotation, stereo_baseline
-        #       objs: list [ class, object, id, pos, rot, bbox, px...]
 
         rgb = np.array(
             Image.open(str(Path(self.output_dir, "rgb", f"rgb_{dataset_index:04}.png")))

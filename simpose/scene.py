@@ -161,7 +161,7 @@ class Scene(Observable):
             with redirect_stdout():
                 bpy.ops.render.render(write_still=False)
 
-        sp.logger.debug(f"GPU semaphore ({gpu_semaphore}) released ({gpu_semaphore.get_value()})")
+        sp.logger.debug(f"GPU semaphore ({gpu_semaphore}) released")
 
         self.notify(Event.AFTER_RENDER)
 

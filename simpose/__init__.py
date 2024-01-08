@@ -4,12 +4,11 @@ os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 BL_OPS = []
 import logging, coloredlogs
+import multiprocessing as mp
 
-
-logger = logging.getLogger("simpose")
+logger = mp.get_logger()
 
 coloredlogs.install(
-    level=logging.INFO,
     fmt=f"%(asctime)s %(levelname)s %(message)s",
     datefmt="%H:%M:%S",
     logger=logger,
