@@ -5,6 +5,7 @@ import signal
 import contextlib
 from simpose import base_config
 import multiprocessing as mp
+import yaml
 
 
 class DelayedKeyboardInterrupt:
@@ -70,6 +71,11 @@ class Writer(ABC):
 
     def __exit__(self, type, value, traceback):
         pass
+
+    def dump_config(self, config: dict):
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        with open(self.output_dir / "config.yaml", "w") as f:
+            f.write(yaml.dump(config))
 
     @abstractmethod
     def get_pending_indices(self) -> list[int]:

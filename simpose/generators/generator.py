@@ -35,6 +35,8 @@ class Generator(ABC):
 
     def start(self):
         writer = self._build_writer(self.config["Writer"])
+        writer.dump_config(self.config)
+
         params = self._get_generator_config(self.config)
 
         pending_indices = writer.get_pending_indices()
