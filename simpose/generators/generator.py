@@ -56,49 +56,55 @@ class Generator(ABC):
         else:
             pending_indices = [pending_indices]
 
-        with mp.Manager() as manager:
-            n_gpus = len(params.gpus or [0])
-            active_gpus = params.gpus or [0]
+        n_gpus = len(params.gpus or [0])
+        active_gpus = params.gpus or [0]
+
+        mp_context = mp.get_context("spawn")  # consistent in linux and macos
+
+        # manager for use with pool!
+        with mp_context.Manager() as manager, mp_context.Pool(
+            n_workers, maxtasksperchild=1
+        ) as pool, tqdm(total=n_datapoints) as bar:
             semaphores = {
                 gpu: manager.BoundedSemaphore(params.n_parallel_on_gpu) for gpu in active_gpus
             }
-            rendered = manager.dict()
+            q_rendered = manager.Queue()
 
-            with mp.get_context("spawn").Pool(n_workers, maxtasksperchild=1) as pool, tqdm(
-                total=n_datapoints
-            ) as bar:
+            def jobs():
+                for job_index, ind_list in enumerate(pending_indices):
+                    active_gpu = active_gpus[job_index % n_gpus]
+                    gpu_semaphore = semaphores[active_gpu]
+                    device_setup = {
+                        "gpu_semaphore": gpu_semaphore,
+                        "active_gpu": active_gpu,
+                        "q_rendered": q_rendered,
+                    }
+                    yield ind_list, self.config, device_setup
 
-                def jobs():
-                    for job_index, ind_list in enumerate(pending_indices):
-                        active_gpu = active_gpus[job_index % n_gpus]
-                        gpu_semaphore = semaphores[active_gpu]
-                        yield ind_list, self.config, gpu_semaphore, active_gpu, rendered
-
-
-                result = pool.starmap_async(self.init_and_launch, jobs(), chunksize=1)
-                while result.ready() is False:
-                    total_rendered = sum(rendered.values())
-                    bar.update(total_rendered - bar.n)
-                    time.sleep(1.0)
+            result = pool.starmap_async(self.init_and_launch, jobs(), chunksize=1)
+            while not result.ready():
+                while not q_rendered.empty():
+                    bar.update(q_rendered.get())
+                time.sleep(1.0)
 
         writer.post_process()
 
     @classmethod
-    def init_and_launch(cls, indices, config, gpu_semaphore, gpu, rendered_dict):
+    def init_and_launch(cls, indices, config, device_setup):
         import signal
         import silence_tensorflow.auto
         import os
 
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(device_setup["active_gpu"])
         signal.signal(signal.SIGINT, signal.SIG_IGN)
 
         np.random.seed(mp.current_process().pid)
         for handler in sp.logger.handlers:
             handler.setLevel(sp.logger.level)
-        cls.process(indices, config, gpu_semaphore, rendered_dict)
+        return cls.process(indices, config, device_setup)
 
     @classmethod
-    def process(cls, indices, config, gpu_semaphore, rendered_dict):
+    def process(cls, indices, config, device_setup):
         randomizers: dict[str, sp.random.Randomizer] = {}
         for rand_name, rand_initializer in config["Randomizers"].items():
             randomizers[rand_name] = Generator.get_randomizer(rand_initializer)
@@ -112,7 +118,7 @@ class Generator(ABC):
         writer_config.end_index = max(indices)
         Writer: type[sp.writers.Writer] = getattr(sp.writers, writer_name)
 
-        with Writer(writer_config, gpu_semaphore, rendered_dict) as writer:
+        with Writer(writer_config, device_setup) as writer:
             cls.generate_data(
                 config=gen_config,
                 writer=writer,
@@ -141,7 +147,7 @@ class Generator(ABC):
     def _build_writer(writer_config):
         writer_name = writer_config["type"]
         writer_config = sp.writers.WriterConfig.model_validate(writer_config["params"])
-        writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config)
+        writer: sp.writers.Writer = getattr(sp.writers, writer_name)(writer_config, {})
         return writer
 
     @staticmethod

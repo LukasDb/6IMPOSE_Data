@@ -12,8 +12,9 @@ class SimposeWriter(Writer):
     def __init__(
         self,
         params: WriterConfig,
+        device_setup: dict,
     ):
-        super().__init__(params)
+        super().__init__(params, device_setup)
         self._data_dir = self.output_dir / "gt"
         self._data_dir.mkdir(parents=True, exist_ok=True)
 

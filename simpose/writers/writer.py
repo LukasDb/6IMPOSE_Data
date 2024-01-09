@@ -55,16 +55,14 @@ class WriterConfig(base_config.BaseConfig):
 
 
 class Writer(ABC):
-    def __init__(
-        self, params: WriterConfig, gpu_semaphore=None, rendered_dict: dict | None = None
-    ):
+    def __init__(self, params: WriterConfig, device_setup: dict):
         # self.scene = scene
         self.output_dir = params.output_dir.expanduser()
         self.overwrite = params.overwrite
         self.start_index = params.start_index
         self.end_index = params.end_index
-        self.gpu_semaphore = contextlib.nullcontext() if gpu_semaphore is None else gpu_semaphore
-        self.rendered_dict = rendered_dict
+        self.gpu_semaphore = device_setup.get("gpu_semaphore", contextlib.nullcontext())
+        self.q_rendered: mp.Queue | None = device_setup.get("q_rendered", None)
 
     def __enter__(self):
         return self
@@ -89,9 +87,8 @@ class Writer(ABC):
         with DelayedKeyboardInterrupt(dataset_index):
             try:
                 self._write_data(scene, dataset_index)
-                if self.rendered_dict is not None:
-                    self.rendered_dict.setdefault(mp.current_process().name, 0)
-                    self.rendered_dict[mp.current_process().name] += 1
+                if self.q_rendered is not None:
+                    self.q_rendered.put(1)
             except Exception as e:
                 # clean up possibly corrupted data
                 sp.logger.error(f"Error while generating data no. {dataset_index}")

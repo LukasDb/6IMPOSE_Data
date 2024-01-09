@@ -16,10 +16,8 @@ tf.config.set_soft_device_placement(False)
 
 
 class TFRecordWriter(Writer):
-    def __init__(
-        self, params: WriterConfig, gpu_semaphore=None, rendered_dict: dict | None = None
-    ):
-        super().__init__(params, gpu_semaphore, rendered_dict)
+    def __init__(self, params: WriterConfig, device_setup):
+        super().__init__(params, device_setup)
 
     def __enter__(self):
         self._data_dir = self.output_dir / "gt"

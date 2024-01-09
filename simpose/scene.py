@@ -403,7 +403,7 @@ class Scene(Observable):
         self._bl_scene.cycles.samples = 64
         self._bl_scene.cycles.preview_samples = 64
         self._bl_scene.cycles.use_auto_tile = False
-        self._bl_scene.cycles.tile_size = 256
+        # self._bl_scene.cycles.tile_size = 256
         self._bl_scene.cycles.caustics_reflective = True
         self._bl_scene.cycles.caustics_refractive = True
         self._bl_scene.cycles.use_camera_cull = True

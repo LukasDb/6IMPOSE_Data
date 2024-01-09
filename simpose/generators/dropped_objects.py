@@ -181,6 +181,7 @@ class DroppedObjects(Generator):
             proc_name == "Process-1"
             or proc_name == "MainProcess"
             or proc_name == "ForkPoolWorker-2"
+            or proc_name == "SpawnPoolWorker-2"
         )
 
         debug = is_primary_worker and sp.logger.level < logging.DEBUG
