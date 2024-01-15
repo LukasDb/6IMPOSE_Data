@@ -1,15 +1,13 @@
 import simpose as sp
-import copy
 import os
 import sys
-import contextlib
 from contextlib import contextmanager
 import logging
-import multiprocessing as mp
+from typing import Generator, TextIO
 
 
 @contextmanager
-def redirect_stdout():
+def redirect_stdout() -> Generator[None, None, None]:
     # if called from blender built-in python, dont use this
     py_path = sys.executable
     is_blender_builtin = "Blender.app" in py_path
@@ -22,9 +20,8 @@ def redirect_stdout():
 
     # THIS IS IMPORTANT. OVERWRITING SYS.STDOUT IS NOT ENOUGH
     ##### assert that Python and C stdio write using the same file descriptor
-    ####assert libc.fileno(ctypes.c_void_p.in_dll(libc, "stdout")) == fd == 1
 
-    def _redirect_stdout(to):
+    def _redirect_stdout(to: TextIO) -> None:
         sys.stdout.close()  # + implicit flush()
         os.dup2(to.fileno(), fd)  # fd writes to 'to' file
         sys.stdout = os.fdopen(fd, "w")  # Python writes to fd
@@ -38,4 +35,3 @@ def redirect_stdout():
         finally:
             _redirect_stdout(to=old_stdout)  # restore stdout.
             # buffering and flags such as
-            # CLOEXEC may be different

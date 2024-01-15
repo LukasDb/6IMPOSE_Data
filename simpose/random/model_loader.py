@@ -1,11 +1,10 @@
-import simpose
+import simpose as sp
+from .randomizer import Randomizer, RandomizerConfig, register_operator, JoinableRandomizer
 import itertools as it
 from pathlib import Path
 import numpy as np
-import logging
 import random
-from enum import Enum, auto
-from .randomizer import JoinableRandomizer, RandomizerConfig
+from enum import Enum
 
 
 class ModelSource(Enum):
@@ -44,7 +43,7 @@ class ModelLoader(JoinableRandomizer):
         self._root = root = params.root.expanduser()
         self._scale_range = scale_range = params.scale_range
         self._additional_loaders: list[ModelLoader] = []
-        self._objects: list[simpose.Object] = []
+        self._objects: list[sp.Object] = []
 
         model_source = params.source
 
@@ -56,7 +55,7 @@ class ModelLoader(JoinableRandomizer):
             model_paths = [x / "models/model_normalized.gltf" for x in shapenet_objs if x.is_dir()]
             for model_path in model_paths:
                 if not model_path.exists():
-                    simpose.logger.warning(f"Model path {model_path} does not exist.")
+                    sp.logger.warning(f"Model path {model_path} does not exist.")
             # shapenet scale is in weird "normalized range", so that diagonal = 1
             # we scale to 0.2m which is more in the range of objects for robotic grasping
             to_scale = 0.2
@@ -94,17 +93,19 @@ class ModelLoader(JoinableRandomizer):
 
         self.num_models = len(self._model_paths)
 
-        simpose.logger.debug(f"Found {len(self._model_paths)} models ({model_source}).")
+        sp.logger.debug(f"Found {len(self._model_paths)} models ({model_source}).")
 
     def get_objects(
-        self, scene: simpose.Scene, num_objects: int, **kwargs
-    ) -> list[simpose.Object]:
+        self, scene: sp.Scene, num_objects: int, mass: float, friction: float, hide: bool
+    ) -> list[sp.entities.Object]:
         """renews the list of objects and returns it"""
         for _ in range(num_objects):
-            self.get_object(scene, **kwargs)
+            self.get_object(scene, mass, friction, hide)
         return self._objects
 
-    def get_object(self, scene: simpose.Scene, **kwargs) -> simpose.Object:
+    def get_object(
+        self, scene: sp.Scene, mass: float, friction: float, hide: bool
+    ) -> sp.entities.Object:
         if len(self._additional_loaders) > 1:
             # i = np.random.randint(0, len(self._additional_loaders))
             # loader = self._additional_loaders[i]
@@ -113,22 +114,26 @@ class ModelLoader(JoinableRandomizer):
             )[0]
         else:
             loader = self
-        return loader._get_object(scene, **kwargs)
+        return loader._get_object(scene, mass, friction, hide)
 
-    def _get_object(self, scene: simpose.Scene, **kwargs) -> simpose.Object:
+    def _get_object(
+        self, scene: sp.Scene, mass: float, friction: float, hide: bool
+    ) -> sp.entities.Object:
         i = np.random.randint(0, len(self._model_paths))
         model_path = self._model_paths[i]
         obj = scene.create_object(
             model_path,
             add_semantics=False,
             scale=np.random.uniform(*self._scale_range),
-            **kwargs,
+            mass=mass,
+            friction=friction,
+            hide=hide,
         )
         self._objects.append(obj)
-        simpose.logger.debug(f"Added object: {model_path}")
+        sp.logger.debug(f"Added object: {model_path}")
         return obj
 
-    def reset(self):
+    def reset(self) -> None:
         for obj in self._objects:
             obj.remove()
         self._objects.clear()
@@ -136,9 +141,10 @@ class ModelLoader(JoinableRandomizer):
         for other in self._additional_loaders:
             other.reset()
 
-    def call(self, _: simpose.Scene):
+    def call(self, _: sp.observers.Observable) -> None:
         raise NotImplementedError
 
-    def __add__(self, other: "ModelLoader"):
+    def __add__(self, other: Randomizer) -> "ModelLoader":
+        assert isinstance(other, ModelLoader)
         self._additional_loaders.append(other)
         return self

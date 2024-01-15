@@ -1,7 +1,6 @@
-import simpose
+import simpose as sp
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-import logging
 
 from .randomizer import Randomizer, RandomizerConfig, register_operator
 
@@ -31,7 +30,7 @@ class AppearanceRandomizer(Randomizer):
         params: AppearanceRandomizerConfig,
     ):
         super().__init__(params)
-        app = simpose.Object.ObjectAppearance
+        app = sp.entities.ObjectAppearance
         self._ranges = {
             app.METALLIC: params.metallic_range,
             app.ROUGHNESS: params.roughness_range,
@@ -40,11 +39,12 @@ class AppearanceRandomizer(Randomizer):
             app.VALUE: params.value_range,
         }
 
-    def call(self, scene: simpose.Scene, objects: None | list[simpose.Object] = None):
-        if objects is None:
-            objects = scene.get_active_objects()
+    def call(self, caller: sp.observers.Observable) -> None:
+        scene = caller
+        assert isinstance(scene, sp.Scene)
+        objects = scene.get_active_objects()
         for obj in objects:
-            for appearance in simpose.Object.ObjectAppearance:
+            for appearance in sp.entities.ObjectAppearance:
                 try:
                     default = obj.get_default_appearance(appearance)
                 except ReferenceError:

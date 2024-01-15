@@ -1,4 +1,4 @@
-import json
+from typing import Any
 import simpose as sp
 import numpy as np
 from pathlib import Path
@@ -16,10 +16,11 @@ tf.config.set_soft_device_placement(False)
 
 
 class TFRecordWriter(Writer):
-    def __init__(self, params: WriterConfig, device_setup):
-        super().__init__(params, device_setup)
+    def __init__(self, params: WriterConfig, comm: mp.queues.Queue) -> None:
+        super().__init__(params, comm)
 
-    def __enter__(self):
+    def __enter__(self) -> "TFRecordWriter":
+        super().__enter__()
         self._data_dir = self.output_dir / "gt"
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._writers = {}
@@ -32,14 +33,14 @@ class TFRecordWriter(Writer):
                 options=tf.io.TFRecordOptions(compression_type="ZLIB"),
             )
 
-        return super().__enter__()
+        return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, type: Any, value: Any, traceback: Any) -> None:
         for writer in self._writers.values():
             writer.close()
         return super().__exit__(type, value, traceback)
 
-    def get_pending_indices(self):
+    def get_pending_indices(self) -> np.ndarray:
         if not self.overwrite:
             raise NotImplementedError("Not implemented yet")
 
@@ -47,11 +48,12 @@ class TFRecordWriter(Writer):
             indices = np.arange(self.start_index, self.end_index + 1)
         return indices
 
-    def _write_data(self, scene: sp.Scene, dataset_index: int):
+    def _write_data(self, scene: sp.Scene, dataset_index: int) -> None:
         sp.logger.debug(f"Generating data for {dataset_index}")
         scene.frame_set(dataset_index)  # this sets the suffix for file names
 
         scene.render(self.gpu_semaphore)
+        sp.logger.debug("Raw data rendered.")
 
         depth = np.array(
             cv2.imread(
@@ -97,6 +99,7 @@ class TFRecordWriter(Writer):
                     "visib_fract": visib_fract,
                 }
             )
+        sp.logger.debug("GT data generated.")
 
         cam = scene.get_cameras()[0]  # TODO in the future save all cameras
         cam_pos = cam.location
@@ -150,34 +153,36 @@ class TFRecordWriter(Writer):
         }
 
         with tf.device("/cpu:0"):  # type: ignore
-            serialized_rgbs = self._serizalize_data(
+            serialized_RGBs = self._serialize_data(
                 rgb=rgb.astype(np.uint8), rgb_R=rgb_R.astype(np.uint8)
             )
-            self._writers["rgb"].write(serialized_rgbs)
+            self._writers["rgb"].write(serialized_RGBs)
 
-            serialized_gt = self._serizalize_data(**gt_data)
+            serialized_gt = self._serialize_data(**gt_data)
             self._writers["gt"].write(serialized_gt)
 
-            serialized_mask = self._serizalize_data(mask=mask.astype(np.uint8))
+            serialized_mask = self._serialize_data(mask=mask.astype(np.uint8))
             self._writers["mask"].write(serialized_mask)
 
-            serialized_depths = self._serizalize_data(
+            serialized_depths = self._serialize_data(
                 depth=depth.astype(np.float32), depth_R=depth_R.astype(np.float32)
             )
             self._writers["depth"].write(serialized_depths)
+        sp.logger.debug("Written to tfrecord.")
 
         # here I could clean up the temporary files
         self.remove_temporary_files(dataset_index)
+        sp.logger.debug("Temporary files removed.")
 
-    def _serizalize_data(self, **data):
+    def _serialize_data(self, **data: np.ndarray) -> Any:
         to_feature = lambda x: tf.train.Feature(
-            bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(x).numpy()])
+            bytes_list=tf.train.BytesList(value=[tf.io.serialize_tensor(x).numpy()])  # type: ignore
         )
         serialized_features = {k: to_feature(v) for k, v in data.items()}
         example_proto = tf.train.Example(features=tf.train.Features(feature=serialized_features))
         return example_proto.SerializeToString()
 
-    def _get_bbox(self, mask, object_id):
+    def _get_bbox(self, mask: np.ndarray, object_id: int) -> list[int]:
         y, x = np.where(mask == object_id)
         if len(y) == 0:
             return [0, 0, 0, 0]
@@ -187,7 +192,7 @@ class TFRecordWriter(Writer):
         y2 = np.max(y).tolist()
         return [x1, y1, x2, y2]
 
-    def _cleanup(self, dataset_index: int):
+    def _cleanup(self, dataset_index: int) -> None:
         self.remove_temporary_files(dataset_index)
 
         # delete incomplete tfrecord files
@@ -199,7 +204,7 @@ class TFRecordWriter(Writer):
                 sp.logger.debug(f"Removing {record_path}")
                 record_path.unlink()
 
-    def remove_temporary_files(self, dataset_index):
+    def remove_temporary_files(self, dataset_index: int) -> None:
         gt_path = self._data_dir / f"gt_{dataset_index:05}.json"
         if gt_path.exists():
             sp.logger.debug(f"Removing {gt_path}")

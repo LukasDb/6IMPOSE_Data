@@ -2,6 +2,7 @@ import simpose as sp
 from .generator import Generator, GeneratorParams
 
 import multiprocessing as mp
+import numpy as np
 from pathlib import Path
 import logging
 from scipy.spatial.transform import Rotation as R
@@ -32,7 +33,7 @@ class FlyingObjectsConfig(GeneratorParams):
     value: float = 1.0
 
     @classmethod
-    def get_description(cls):
+    def get_description(cls) -> dict[str, str]:
         desc = super().get_description()
         desc.update(
             {
@@ -64,7 +65,7 @@ def indent(text: str) -> str:
     return "\n".join(pad + line for line in text.split("\n"))
 
 
-def entry(name: str, type: str, params: str):
+def entry(name: str, type: str, params: str) -> str:
     spec = indent(f"type: {type}\nparams:\n{indent(params)}")
     return f"{name}:\n{spec}"
 
@@ -79,26 +80,26 @@ class FlyingObjects(Generator):
         writer_params = sp.writers.WriterConfig.dump_with_comments()
 
         app_params = sp.random.AppearanceRandomizerConfig.dump_with_comments(
-            trigger=sp.Event.BEFORE_RENDER
+            trigger=sp.observers.Event.BEFORE_RENDER
         )
 
         light_params = sp.random.LightRandomizerConfig.dump_with_comments(
-            trigger=sp.Event.BEFORE_RENDER
+            trigger=sp.observers.Event.BEFORE_RENDER
         )
 
         bg_params = sp.random.BackgroundRandomizerConfig.dump_with_comments(
-            trigger=sp.Event.BEFORE_RENDER
+            trigger=sp.observers.Event.BEFORE_RENDER
         )
 
         ycb_params = sp.random.ModelLoaderConfig.dump_with_comments(
             root=Path("path/to/ycb/models"),
-            trigger=sp.Event.NONE,
+            trigger=sp.observers.Event.NONE,
             source=sp.random.ModelSource.YCB,
         )
 
         ugreal_params = sp.random.ModelLoaderConfig.dump_with_comments(
             root=Path("path/to/ugreal/models"),
-            trigger=sp.Event.NONE,
+            trigger=sp.observers.Event.NONE,
             source=sp.random.ModelSource.SYNTHDET,
         )
         ycb_entry = entry("ycb_loader", "ModelLoader", ycb_params)
@@ -124,7 +125,7 @@ class FlyingObjects(Generator):
 
         return output
 
-    def generate_data(self, indices: list[int]):
+    def generate_data(self, indices: np.ndarray) -> None:
         p = self.params
         assert p.num_main_objs > 0, "num_main_objs must be > 0"
 
@@ -134,7 +135,7 @@ class FlyingObjects(Generator):
         debug = is_primary_worker and sp.logger.level < logging.DEBUG
 
         # -- SCENE --
-        self.scene = scene = sp.Scene.create(img_h=p.img_h, img_w=p.img_w, debug=debug)
+        self.scene = scene = sp.Scene(img_h=p.img_h, img_w=p.img_w)
 
         # -- CAMERA --
         if p.use_stereo:
@@ -193,7 +194,7 @@ class FlyingObjects(Generator):
                     bar.close()
                     if debug:
                         scene.export_blend()
-                    return scene
+                    return
                 bar.update(1)
 
     def setup_new_scene(self, main_objs: list[sp.Object]):
@@ -202,7 +203,7 @@ class FlyingObjects(Generator):
 
         model_loader.reset()
         distractors = model_loader.get_objects(
-            self.scene, p.num_distractors, mass=0.2, friction=p.friction
+            self.scene, p.num_distractors, mass=0.2, friction=p.friction, hide=False
         )
 
         drop_objects = main_objs + distractors

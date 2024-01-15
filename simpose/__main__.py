@@ -3,17 +3,17 @@ from pathlib import Path
 import subprocess
 import yaml
 import simpose as sp
-import silence_tensorflow.auto
+import silence_tensorflow.auto  # type: ignore
 
 
 @click.group()
-def run():
+def run() -> None:
     pass
 
 
 @run.command()
 @click.argument("data_dir", type=click.Path(exists=True, path_type=Path))
-def view(data_dir: Path):
+def view(data_dir: Path) -> None:
     print(f"viewing {data_dir}")
     import simpose.dataset_viewer as ds_viewer
 
@@ -36,7 +36,7 @@ def view(data_dir: Path):
 @run.command()
 @click.argument("output_dir", type=click.Path(path_type=Path))
 @click.argument("type", type=click.Choice(sp.downloaders.__datasets__))
-def download(output_dir: Path, type: str):
+def download(output_dir: Path, type: str) -> None:
     if type == "YCB":
         downloader = sp.downloaders.YCBDownloader(output_dir)
     else:
@@ -56,7 +56,7 @@ def generate(
     initialize: bool,
     start_index: int | None = None,
     end_index: int | None = None,
-):
+) -> None:
     if verbose == 0:
         level = 30
     elif verbose == 1:
@@ -79,16 +79,7 @@ def generate(
     # use the generator to initialize the config file
     else:
         assert initialize, f"{config_file} does not exist. Use -i to initialize."
-
-        generator_type = click.prompt(
-            "Generator type",
-            type=click.Choice(sp.generators.__generators__),
-            default=sp.generators.__generators__[0],
-        )
-        generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
-        template = generator_func.generate_template_config()
-        with config_file.open("w") as F:
-            F.write(template)
+        dump_config(config_file)
         return
 
     # TODO config overwriting
@@ -100,6 +91,18 @@ def generate(
     generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
     generator = generator_func(config=config)
     generator.start()
+
+
+def dump_config(config_file: Path) -> None:
+    generator_type = click.prompt(
+        "Generator type",
+        type=click.Choice(sp.generators.__generators__),
+        default=sp.generators.__generators__[0],
+    )
+    generator_func: type[sp.generators.Generator] = getattr(sp.generators, generator_type)
+    template = generator_func.generate_template_config()
+    with config_file.open("w") as F:
+        F.write(template)
 
 
 if __name__ == "__main__":

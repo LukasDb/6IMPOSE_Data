@@ -1,11 +1,12 @@
+import simpose as sp
 from .dataset import Dataset
 from pathlib import Path
 import tensorflow as tf
 import numpy as np
 import cv2
 import json
-from simpose.exr import EXR
 from PIL import Image
+from typing import Generator
 
 
 class SimposeDataset(Dataset):
@@ -28,7 +29,7 @@ class SimposeDataset(Dataset):
 
     @staticmethod
     def get(root_dir: Path, get_keys: None | list[str] = None) -> tf.data.Dataset:
-        def generator():
+        def generator() -> Generator:
             indices = [int(f.name[3:8]) for f in (root_dir / "gt").iterdir() if f.is_file()]
 
             for idx in indices:
@@ -99,10 +100,9 @@ class SimposeDataset(Dataset):
                 if get_keys is None or Dataset.RGB_R in get_keys:
                     try:
                         bgr_R = np.array(Image.open(str(root_dir / "rgb" / f"rgb_{idx:04}_R.png")))
-
+                        data[Dataset.RGB_R] = bgr_R
                     except Exception:
                         bgr_R = None
-                    data[Dataset.RGB_R] = bgr_R
 
                 if get_keys is None or Dataset.DEPTH in get_keys:
                     depth = np.array(
@@ -124,7 +124,7 @@ class SimposeDataset(Dataset):
 
                 if get_keys is None or Dataset.MASK in get_keys:
                     mask_path = root_dir.joinpath(f"mask/mask_{idx:04}.exr")
-                    mask = EXR(mask_path).read("visib.R").astype(np.uint8)
+                    mask = sp.EXR(mask_path).read("visib.R").astype(np.uint8)
                     data[Dataset.MASK] = mask
 
                 yield data

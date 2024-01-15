@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import requests
 import tqdm
+from typing import Any
 
 from .downloader import Downloader
 
@@ -17,10 +18,10 @@ from .downloader import Downloader
 class YCBDownloader(Downloader):
     base_url = "http://ycb-benchmarks.s3-website-us-east-1.amazonaws.com/data/"
 
-    def __init__(self, output_dir: Path):
+    def __init__(self, output_dir: Path) -> None:
         super().__init__(output_dir)
 
-    def run(self):
+    def run(self) -> None:
         objects_url = self.base_url + "objects.json"
 
         objects = self.fetch_objects(objects_url)
@@ -40,31 +41,29 @@ class YCBDownloader(Downloader):
             self.extract_tgz(filename)
             bar.update(1)
 
-    def fetch_objects(self, url):
+    def fetch_objects(self, url: str) -> Any:
         response = requests.get(url)
         html = response.text
         objects = json.loads(html)
         return objects["objects"]
 
-    def download_file(self, url, filename):
+    def download_file(self, url: str, filename: str) -> None:
         with open(filename, "wb") as F:
             r = requests.get(url, allow_redirects=True)
             F.write(r.content)
         # print(f"Downloaded {url}")
 
-    def tgz_url(self, base_url, object, type):
+    def tgz_url(self, base_url: str, object: str, type: str) -> str:
         if type in ["berkeley_rgbd", "berkeley_rgb_highres"]:
             return base_url + "berkeley/{object}/{object}_{type}.tgz".format(
                 object=object, type=type
             )
         elif type in ["berkeley_processed"]:
-            return base_url + "berkeley/{object}/{object}_berkeley_meshes.tgz".format(
-                object=object, type=type
-            )
+            return base_url + f"berkeley/{object}/{object}_berkeley_meshes.tgz"
         else:
             return base_url + "google/{object}_{type}.tgz".format(object=object, type=type)
 
-    def extract_tgz(self, filename):
+    def extract_tgz(self, filename: str) -> None:
         if not Path(filename).exists():
             return
         # print(f"Extracting {filename}")

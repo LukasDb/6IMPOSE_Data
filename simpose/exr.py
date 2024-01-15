@@ -8,7 +8,7 @@ class EXR:
     def __init__(self, filepath: Path) -> None:
         self.filepath = filepath
 
-    def read(self, channel_name: str):
+    def read(self, channel_name: str) -> np.ndarray:
         if not self.filepath.exists():
             raise FileNotFoundError(f"File {self.filepath} does not exist")
 
@@ -20,6 +20,7 @@ class EXR:
 
             exr_channel = channels[channel_name]
             pixel_type = exr_channel.type
+            np_dtype: type[np.floating | np.integer]
             if pixel_type == Imath.PixelType(Imath.PixelType.FLOAT):
                 np_dtype = np.float32
             elif pixel_type == Imath.PixelType(Imath.PixelType.UINT):
@@ -43,7 +44,7 @@ class EXR:
     def write(
         self,
         channels: dict[str, np.ndarray],
-    ):
+    ) -> None:
         """write dict of Channels to a multilayer EXR file. Only np arrays with np.float16, np.float32 or np.uint32 are supported"""
         if len(channels) == 0:
             raise ValueError("No channels to write")

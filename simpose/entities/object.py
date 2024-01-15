@@ -1,23 +1,19 @@
 from scipy.spatial.transform import Rotation as R
 from typing import Tuple, List
 from .placeable import Placeable
-import logging
 import re
 from pathlib import Path
 import numpy as np
-import pybullet as p
 from enum import Enum
 
 import simpose as sp
-from simpose import _redirect_stdout
-
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import bpy
 
 
-class _ObjectAppearance(Enum):
+class ObjectAppearance(Enum):
     METALLIC = "Metallic"
     ROUGHNESS = "Roughness"
     HUE = "Hue"
@@ -32,9 +28,9 @@ class Object(Placeable):
     It has no internal state, everything is delegated to the blender object.
     """
 
-    ObjectAppearance = _ObjectAppearance
+    # ObjectAppearance = _ObjectAppearance
 
-    def __init__(self, bl_object) -> None:
+    def __init__(self, bl_object: "bpy.types.Object") -> None:
         super().__init__(bl_object)
 
     @property
@@ -55,23 +51,23 @@ class Object(Placeable):
 
     @property
     def has_semantics(self) -> bool:
-        return self._bl_object["semantics"]
+        return self._bl_object["semantics"]  # type: ignore
 
     @property
-    def object_id(self):
+    def object_id(self) -> int:
         return self._bl_object.pass_index
 
     def copy(self) -> "Object":
-        # clear blender selection
         import bpy
 
+        # clear blender selection
         bpy.ops.object.select_all(action="DESELECT")
         # select object
         self._bl_object.select_set(True)
         # returns a new object with a linked data block
-        with _redirect_stdout():
+        with sp.redirect_stdout():
             bpy.ops.object.duplicate(linked=False)
-        bl_object = bpy.context.selected_objects[0]
+        bl_object = list(bpy.context.selected_objects)[0]
         bl_object.active_material = self._bl_object.active_material.copy()  # type: ignore
 
         new_obj = Object(bl_object)
@@ -88,15 +84,15 @@ class Object(Placeable):
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
-    ):
+    ) -> "Object":
         import bpy
 
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
-        with _redirect_stdout():
+        with sp.redirect_stdout():
             bpy.ops.import_scene.obj(filepath=str(filepath.resolve()), use_split_objects=False)  # type: ignore
         try:
-            bl_object = bpy.context.selected_objects[0]
+            bl_object = list(bpy.context.selected_objects)[0]
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
@@ -119,16 +115,16 @@ class Object(Placeable):
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
-    ):
+    ) -> "Object":
         import bpy
 
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
-        with _redirect_stdout():
+        with sp.redirect_stdout():
             bpy.ops.import_scene.gltf(filepath=str(filepath.resolve()))
 
         try:
-            bl_object = bpy.context.selected_objects[0]
+            bl_object = list(bpy.context.selected_objects)[0]
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
@@ -151,27 +147,28 @@ class Object(Placeable):
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
-    ):
+    ) -> "Object":
         import bpy
 
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
-        with _redirect_stdout():
+        with sp.redirect_stdout():
             bpy.ops.import_scene.fbx(filepath=str(filepath.resolve()), use_anim=False)
 
         # how many objects are selected?
-        if len(bpy.context.selected_objects) > 1:
+        selected = list(bpy.context.selected_objects)
+        if len(selected) > 1:
             # choose active object to be joined to
             # select the one not containing "transparent" -> more likely to have a proper name
-            bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
-            for obj in bpy.context.selected_objects:
-                if "transparent" not in obj.name:
-                    bpy.context.view_layer.objects.active = obj
+            bpy.context.view_layer.objects.active = selected[0]
+            for bl_obj in selected:
+                if "transparent" not in bl_obj.name:
+                    bpy.context.view_layer.objects.active = bl_obj
                     break
             bpy.ops.object.join()
 
         try:
-            bl_object = bpy.context.selected_objects[0]
+            bl_object = selected[0]
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
@@ -194,15 +191,15 @@ class Object(Placeable):
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
-    ):
+    ) -> "Object":
         import bpy
 
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
-        with _redirect_stdout():
+        with sp.redirect_stdout():
             bpy.ops.import_mesh.ply(filepath=str(filepath.resolve()))  # type: ignore
         try:
-            bl_object: bpy.types.Object = bpy.context.selected_objects[0]
+            bl_object: bpy.types.Object = list(bpy.context.selected_objects)[0]
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
@@ -234,14 +231,14 @@ class Object(Placeable):
         )
         return obj
 
-    def export_as_ply(self, output_dir: Path):
+    def export_as_ply(self, output_dir: Path) -> None:
         """export mesh as ply file"""
         import bpy
 
         output_dir.mkdir(parents=True, exist_ok=True)
         bpy.ops.object.select_all(action="DESELECT")
         self._bl_object.select_set(True)
-        with _redirect_stdout():
+        with sp.redirect_stdout():
             old_loc = self.location
             old_rot = self.rotation
             try:
@@ -255,7 +252,6 @@ class Object(Placeable):
                     use_colors=False,
                     use_mesh_modifiers=False,
                     use_ascii=False,
-
                 )
             finally:
                 self.set_location(old_loc)
@@ -264,7 +260,9 @@ class Object(Placeable):
         sp.logger.info("Exported mesh to " + str(output_dir / f"{self.get_class()}.ply"))
 
     @staticmethod
-    def _export_collision_mesh(bl_object: "bpy.types.Object", filepath: Path, scale: float):
+    def _export_collision_mesh(
+        bl_object: "bpy.types.Object", filepath: Path, scale: float
+    ) -> Path:
         """exports *currently selected* object"""
         import bpy
 
@@ -277,7 +275,7 @@ class Object(Placeable):
         bl_object.rotation_mode = "XYZ"
         bl_object.rotation_euler = (0.0, 0.0, 0.0)
 
-        with _redirect_stdout():
+        with sp.redirect_stdout():
             if not collision_obj_path.exists():
                 bpy.ops.wm.obj_export(
                     filepath=str(collision_obj_path),
@@ -291,7 +289,7 @@ class Object(Placeable):
                 )
         return collision_obj_path
 
-    def hide(self):
+    def hide(self) -> None:
         if self.is_hidden:
             return
 
@@ -302,7 +300,7 @@ class Object(Placeable):
 
         self._bl_object.hide_render = True
 
-    def show(self):
+    def show(self) -> None:
         if not self.is_hidden:
             return
         try:
@@ -313,56 +311,60 @@ class Object(Placeable):
 
     def get_appearance(self, appearance: ObjectAppearance) -> float:
         if appearance.value in [
-            _ObjectAppearance.METALLIC.value,
-            _ObjectAppearance.ROUGHNESS.value,
+            ObjectAppearance.METALLIC.value,
+            ObjectAppearance.ROUGHNESS.value,
         ]:
             return self.shader_nodes[0].inputs[appearance.value].default_value  # type: ignore
 
         elif appearance.value in [
-            _ObjectAppearance.HUE.value,
-            _ObjectAppearance.SATURATION.value,
-            _ObjectAppearance.VALUE.value,
+            ObjectAppearance.HUE.value,
+            ObjectAppearance.SATURATION.value,
+            ObjectAppearance.VALUE.value,
         ]:
             return self.hsv_nodes[0].inputs[appearance.value].default_value  # type: ignore
         else:
             raise ValueError(f"Unknown appearance: {appearance}")
 
     def get_default_appearance(self, appearance: ObjectAppearance) -> float:
-        return self._bl_object[f"default_{appearance.value}"]
+        value = self._bl_object[f"default_{appearance.value}"]
+        assert isinstance(value, float)
+        return value
 
-    def set_appearance(self, appearance: ObjectAppearance, value, set_default=True):
+    def set_appearance(
+        self, appearance: ObjectAppearance, value: float, set_default: bool = True
+    ) -> None:
         if set_default:
             self._bl_object[f"default_{appearance.value}"] = value
 
         if appearance.value in [
-            _ObjectAppearance.METALLIC.value,
-            _ObjectAppearance.ROUGHNESS.value,
+            ObjectAppearance.METALLIC.value,
+            ObjectAppearance.ROUGHNESS.value,
         ]:
             for shader_node in self.shader_nodes:
                 shader_node.inputs[appearance.value].default_value = value  # type: ignore
 
         elif appearance.value in [
-            _ObjectAppearance.HUE.value,
-            _ObjectAppearance.SATURATION.value,
-            _ObjectAppearance.VALUE.value,
+            ObjectAppearance.HUE.value,
+            ObjectAppearance.SATURATION.value,
+            ObjectAppearance.VALUE.value,
         ]:
             for hsv_node in self.hsv_nodes:
                 hsv_node.inputs[appearance.value].default_value = value  # type: ignore
 
-    def set_metallic(self, value, set_default=True):
-        self.set_appearance(_ObjectAppearance.METALLIC, value, set_default=set_default)
+    def set_metallic(self, value: float, set_default: bool = True) -> None:
+        self.set_appearance(ObjectAppearance.METALLIC, value, set_default=set_default)
 
-    def set_roughness(self, value, set_default=True):
-        self.set_appearance(_ObjectAppearance.ROUGHNESS, value, set_default=set_default)
+    def set_roughness(self, value: float, set_default: bool = True) -> None:
+        self.set_appearance(ObjectAppearance.ROUGHNESS, value, set_default=set_default)
 
-    def set_hue(self, value, set_default=True):
-        self.set_appearance(_ObjectAppearance.HUE, value, set_default=set_default)
+    def set_hue(self, value: float, set_default: bool = True) -> None:
+        self.set_appearance(ObjectAppearance.HUE, value, set_default=set_default)
 
-    def set_saturation(self, value, set_default=True):
-        self.set_appearance(_ObjectAppearance.SATURATION, value, set_default=set_default)
+    def set_saturation(self, value: float, set_default: bool = True) -> None:
+        self.set_appearance(ObjectAppearance.SATURATION, value, set_default=set_default)
 
-    def set_value(self, value, set_default=True):
-        self.set_appearance(_ObjectAppearance.VALUE, value, set_default=set_default)
+    def set_value(self, value: float, set_default: bool = True) -> None:
+        self.set_appearance(ObjectAppearance.VALUE, value, set_default=set_default)
 
     def get_name(self) -> str:
         return self._bl_object.name
@@ -375,7 +377,7 @@ class Object(Placeable):
     def __str__(self) -> str:
         return f"Object(name={self.get_name()}, class={self.get_class()}"
 
-    def set_location(self, location: Tuple | np.ndarray, ignore_pybullet=False):
+    def set_location(self, location: Tuple | np.ndarray, ignore_pybullet: bool = False) -> None:
         try:
             if not ignore_pybullet:
                 self._set_pybullet_pose(location, self.rotation)
@@ -383,7 +385,7 @@ class Object(Placeable):
             pass
         return super().set_location(location)
 
-    def set_rotation(self, rotation: R, ignore_pybullet=False):
+    def set_rotation(self, rotation: R, ignore_pybullet: bool = False) -> None:
         try:
             if not ignore_pybullet:
                 self._set_pybullet_pose(self.location, rotation)
@@ -391,7 +393,9 @@ class Object(Placeable):
             pass
         return super().set_rotation(rotation)
 
-    def _set_pybullet_pose(self, location: Tuple | np.ndarray, rotation: R):
+    def _set_pybullet_pose(self, location: Tuple | np.ndarray, rotation: R) -> None:
+        import pybullet as p
+
         try:
             # update physics representation
             pb_id = self._bl_object["pb_id"]
@@ -402,10 +406,12 @@ class Object(Placeable):
         except KeyError:
             pass
 
-    def apply_pybullet_pose(self):
+    def apply_pybullet_pose(self) -> None:
+        import pybullet as p
+
         pb_id = self._bl_object["pb_id"]
         com = np.array(self._bl_object["COM"])
-        pos, orn = p.getBasePositionAndOrientation(pb_id)  # orn [xyzw]
+        pos, orn = p.getBasePositionAndOrientation(pb_id)  # orn [xyz w]
 
         orn = R.from_quat(orn)
         # since we update *from* pybullet, we don't need to update pybullet again
@@ -413,8 +419,8 @@ class Object(Placeable):
         location = pos + orn.apply(np.array(com))
         self.set_location(location, ignore_pybullet=True)
 
-    def remove(self):
-        import bpy
+    def remove(self) -> None:
+        import bpy, pybullet as p
 
         try:
             self._remove_pybullet_object()
@@ -438,6 +444,8 @@ class Object(Placeable):
                 bpy.data.materials.remove(material, do_unlink=True)
 
     def _add_pybullet_object(self) -> int:
+        import pybullet as p
+
         coll_id = self._bl_object["coll_id"]
         mass = self._bl_object["mass"]
         friction = self._bl_object["friction"]
@@ -447,6 +455,8 @@ class Object(Placeable):
             baseCollisionShapeIndex=coll_id,
             baseInertialFramePosition=[0.0, 0.0, 0.0],
         )
+        assert isinstance(pb_id, int), "Could not create pybullet object"
+
         p.changeDynamics(
             pb_id,
             -1,
@@ -457,11 +467,13 @@ class Object(Placeable):
         self._set_pybullet_pose(self.location, self.rotation)
         return pb_id
 
-    def _remove_pybullet_object(self):
+    def _remove_pybullet_object(self) -> None:
+        import pybullet as p
+
         p.removeBody(self._bl_object["pb_id"])
         del self._bl_object["pb_id"]
 
-    def set_semantic_id(self, id: int):
+    def set_semantic_id(self, id: int) -> None:
         self._bl_object.pass_index = id
 
     @staticmethod
@@ -473,9 +485,9 @@ class Object(Placeable):
         mass: float | None,
         friction: float,
     ) -> "Object":
-        # scale object
-        import bpy
+        import bpy, pybullet as p
 
+        # scale object
         bl_object.scale = (scale, scale, scale)
         materials: list[bpy.types.bpy.types.Material] = bl_object.data.materials  # type: ignore
         for material in materials:
@@ -531,7 +543,7 @@ class Object(Placeable):
             )
             if not out_path.exists():
                 # hierarchical decomposition for dynamic collision of concave objects
-                with _redirect_stdout():
+                with sp.redirect_stdout():
                     p.vhacd(
                         str(collision_obj_path.resolve()),
                         str(out_path),
@@ -545,7 +557,7 @@ class Object(Placeable):
             bpy.ops.object.origin_set(type="ORIGIN_CURSOR")
 
             try:
-                with _redirect_stdout():
+                with sp.redirect_stdout():
                     coll_id = p.createCollisionShape(
                         p.GEOM_MESH,
                         fileName=str(out_path),
@@ -560,7 +572,7 @@ class Object(Placeable):
                 )
                 # find center of mass of the object
 
-                with _redirect_stdout():
+                with sp.redirect_stdout():
                     coll_id = p.createCollisionShape(
                         p.GEOM_MESH,
                         fileName=str(collision_obj_path.resolve()),
@@ -576,9 +588,7 @@ class Object(Placeable):
         return obj
 
     @staticmethod
-    def add_ID_to_material(mat: "bpy.types.Material"):
-        import bpy
-
+    def add_ID_to_material(mat: "bpy.types.Material") -> None:
         tree = mat.node_tree
 
         # create material output
@@ -586,7 +596,7 @@ class Object(Placeable):
         mat_output.location = (1200, 0)
         mat_output.target = "EEVEE"
 
-        # view layer object index: -1: rgb, 0: visb, 1: obj1, 2: obj2, ...
+        # view layer object index: -1: rgb, 0: visib, 1: obj1, 2: obj2, ...
         vl: bpy.types.ShaderNodeAttribute = tree.nodes.new("ShaderNodeAttribute")  # type: ignore
         vl.attribute_type = "VIEW_LAYER"
         vl.attribute_name = "object_index"

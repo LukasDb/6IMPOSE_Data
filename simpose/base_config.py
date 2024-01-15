@@ -1,16 +1,15 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from typing import Any, Literal
 import yaml
-from abc import abstractmethod
 
 
 class BaseConfig(BaseModel, extra="forbid"):
     @classmethod
-    @abstractmethod
     def get_description(cls) -> dict[str, str]:
         return {}
 
     @classmethod
-    def dump_with_comments(cls: type["BaseConfig"], **kwargs):
+    def dump_with_comments(cls: type["BaseConfig"], **kwargs: Any) -> str:
         self = cls(**kwargs)
         yaml_str = yaml.safe_dump(self.model_dump(mode="json"), sort_keys=False, line_break="\n")
 

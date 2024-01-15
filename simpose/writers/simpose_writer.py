@@ -3,7 +3,6 @@ import simpose as sp
 import numpy as np
 from pathlib import Path
 import cv2
-import logging
 from ..exr import EXR
 from .writer import Writer, WriterConfig
 
@@ -18,7 +17,7 @@ class SimposeWriter(Writer):
         self._data_dir = self.output_dir / "gt"
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
-    def get_pending_indices(self):
+    def get_pending_indices(self) -> np.ndarray:
         if not self.overwrite:
             existing_files = self.output_dir.joinpath("gt").glob("*.json")
             existing_ids = [int(x.stem.split("_")[-1]) for x in existing_files]
@@ -27,7 +26,7 @@ class SimposeWriter(Writer):
             indices = np.arange(self.start_index, self.end_index + 1)
         return indices
 
-    def _write_data(self, scene: sp.Scene, dataset_index: int):
+    def _write_data(self, scene: sp.Scene, dataset_index: int) -> None:
         sp.logger.debug(f"Generating data for {dataset_index}")
         scene.frame_set(dataset_index)  # this sets the suffix for file names
 
@@ -94,7 +93,7 @@ class SimposeWriter(Writer):
         with (self._data_dir / f"gt_{dataset_index:05}.json").open("w") as F:
             json.dump(meta_dict, F, indent=2)
 
-    def _get_bbox(self, mask, object_id):
+    def _get_bbox(self, mask: np.ndarray, object_id: int) -> list[int]:
         y, x = np.where(mask == object_id)
         if len(y) == 0:
             return [0, 0, 0, 0]
@@ -104,7 +103,7 @@ class SimposeWriter(Writer):
         y2 = np.max(y).tolist()
         return [x1, y1, x2, y2]
 
-    def _cleanup(self, dataset_index):
+    def _cleanup(self, dataset_index: int) -> None:
         gt_path = self._data_dir / f"gt_{dataset_index:05}.json"
         if gt_path.exists():
             sp.logger.debug(f"Removing {gt_path}")

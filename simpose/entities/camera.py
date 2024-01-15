@@ -1,10 +1,9 @@
 from scipy.spatial.transform import Rotation as R
 import numpy as np
-
 from .placeable import Placeable
 import simpose as sp
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import bpy
@@ -19,24 +18,24 @@ class Camera(Placeable):
     In this case, a camera is an 'Empty' Blender Object with one (or two) cameras attached to it.
     """
 
-    def __init__(self, bl_cam):
+    def __init__(self, bl_cam: "bpy.types.Object") -> None:
         Placeable.__init__(self, bl_object=bl_cam)
 
     @staticmethod
     def create(
         name: str,
         baseline: float | None = None,
-    ):
+    ) -> "Camera":
         import bpy, mathutils
 
         # create empty blender
         bpy.ops.object.empty_add(type="PLAIN_AXES")
-        frame = bpy.context.selected_objects[0]
+        frame = list(bpy.context.selected_objects)[0]
         frame.name = name
 
         # create camera
         bpy.ops.object.camera_add()
-        bl_cam = bpy.context.selected_objects[0]
+        bl_cam = list(bpy.context.selected_objects)[0]
         bl_cam.name = name + "_L"
         # rotate by 180 degrees around x to follow OpenCV convention
         # blender: scalar first, scipy: scalar last
@@ -52,7 +51,7 @@ class Camera(Placeable):
 
         if baseline is not None:
             bpy.ops.object.camera_add()
-            bl_cam_right = bpy.context.selected_objects[0]
+            bl_cam_right = list(bpy.context.selected_objects)[0]
             bl_cam_right.name = name + "_R"
 
             bl_cam_right.location = mathutils.Vector([baseline, 0, 0])
@@ -68,7 +67,7 @@ class Camera(Placeable):
         return self._bl_object.name
 
     @property
-    def baseline(self) -> float:
+    def baseline(self) -> Any:
         return self._bl_object["sp_baseline"]
 
     @property
@@ -103,7 +102,7 @@ class Camera(Placeable):
         return self._calculate_intrinsics(self.data, img_w, img_h)
 
     @staticmethod
-    def _calculate_intrinsics(cam_data: "bpy.types.Camera", img_w, img_h):
+    def _calculate_intrinsics(cam_data: "bpy.types.Camera", img_w: int, img_h: int) -> np.ndarray:
         cam_data.lens_unit = "MILLIMETERS"  # switch to focal length
         cam_data.sensor_fit = (
             "HORIZONTAL"  # sensor width is fixed, height is variable, depending on aspect ratio
@@ -124,7 +123,7 @@ class Camera(Placeable):
 
         return np.array([[alpha_u, 0.0, u_0], [0, alpha_v, v_0], [0, 0, 1]])
 
-    def set_from_hfov(self, hfov: float, img_w: int, img_h: int, degrees: bool = False):
+    def set_from_hfov(self, hfov: float, img_w: int, img_h: int, degrees: bool = False) -> None:
         """Set camera intrinsics from horizontal field of view"""
         if degrees:
             hfov = np.deg2rad(hfov)
@@ -133,7 +132,7 @@ class Camera(Placeable):
             self._set_from_hfov(self.right_camera.data, hfov, img_w, img_h)  # type: ignore
 
     @staticmethod
-    def _set_from_hfov(cam_data: "bpy.types.Camera", hfov, img_w, img_h):
+    def _set_from_hfov(cam_data: "bpy.types.Camera", hfov: float, img_w: int, img_h: int) -> None:
         """Set camera intrinsics from horizontal field of view"""
         cam_data.sensor_fit = (
             "HORIZONTAL"  # sensor width is fixed, height is variable, depending on aspect ratio
@@ -143,7 +142,7 @@ class Camera(Placeable):
         cam_data.shift_x = 0.0
         cam_data.shift_y = 0.0
 
-    def set_from_intrinsics(self, intrinsic_matrix: np.ndarray, img_w: int, img_h: int):
+    def set_from_intrinsics(self, intrinsic_matrix: np.ndarray, img_w: int, img_h: int) -> None:
         if np.abs(intrinsic_matrix[1][1] - intrinsic_matrix[0][0]) > 0.001:
             sp.logger.warning(
                 "Intrinsic matrix is not symmetric. At the moment only square pixels are supported."
@@ -159,7 +158,7 @@ class Camera(Placeable):
     @staticmethod
     def _set_intrinsics(
         cam_data: "bpy.types.Camera", intrinsic_matrix: np.ndarray, img_w: int, img_h: int
-    ):
+    ) -> None:
         cam_data.lens_unit = "MILLIMETERS"  # switch to focal length
         cam_data.sensor_fit = (
             "HORIZONTAL"  # sensor width is fixed, height is variable, depending on aspect ratio

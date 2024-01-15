@@ -3,7 +3,7 @@ from .placeable import Placeable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import bpy
+    import bpy, mathutils
 
 
 class Light(Placeable):
@@ -18,11 +18,14 @@ class Light(Placeable):
     TYPE_SPOT = "SPOT"
     TYPE_AREA = "AREA"
 
-    def __init__(self, bl_light):
+    def __init__(self, bl_light: "bpy.types.Object") -> None:
+        import bpy
+
+        assert isinstance(bl_light.data, bpy.types.Light), "Not a light"
         super().__init__(bl_object=bl_light)
 
     @staticmethod
-    def create(name: str, energy, type="POINT"):
+    def create(name: str, energy: float, type: str = "POINT") -> "Light":
         import bpy
 
         light_data = bpy.data.lights.new(name=name, type=type)
@@ -32,7 +35,7 @@ class Light(Placeable):
         bl_light.name = name
         return Light(bl_light)
 
-    def remove(self):
+    def remove(self) -> None:
         import bpy
 
         try:
@@ -46,7 +49,7 @@ class Light(Placeable):
             # first, remove mesh data
             bpy.data.lights.remove(light_data, do_unlink=True)
 
-    def set_rotation(self, rotation: R):
+    def set_rotation(self, rotation: R) -> None:
         """set rotation, with z+ pointing"""
         rot = rotation * R.from_euler("x", 180, degrees=True)
         return super().set_rotation(rot)
@@ -58,30 +61,30 @@ class Light(Placeable):
         return self._bl_object.data  # type: ignore
 
     @property
-    def energy(self):
+    def energy(self) -> float:
         return self.light_data.energy
 
     @energy.setter
-    def energy(self, energy):
+    def energy(self, energy: float) -> None:
         self.light_data.energy = energy
 
     @property
-    def color(self):
+    def color(self) -> "list[float] | tuple[float, float, float]|mathutils.Color":
         return self.light_data.color
 
     @color.setter
-    def color(self, color):
+    def color(self, color: list[float] | tuple[float, float, float]) -> None:
         self.light_data.color = color
 
     @property
-    def size(self):
+    def size(self) -> float:
         import bpy
 
         assert isinstance(self.light_data, bpy.types.AreaLight), "Not an area light"
         return self.light_data.size
 
     @size.setter
-    def size(self, size):
+    def size(self, size: float) -> None:
         import bpy
 
         assert isinstance(self.light_data, bpy.types.AreaLight), "Not an area light"

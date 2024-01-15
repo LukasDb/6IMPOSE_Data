@@ -1,4 +1,3 @@
-import json
 import os
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
@@ -8,7 +7,6 @@ from scipy.spatial.transform import Rotation as R
 from pathlib import Path
 import streamlit as st
 import click
-from simpose.exr import EXR
 import h5py
 import time
 import simpose as sp
@@ -18,7 +16,7 @@ import tensorflow as tf
 
 
 @st.cache_data()
-def get_idx(img_dir):
+def get_idx(img_dir: Path) -> np.ndarray | list[int]:
     if (img_dir / "data.h5").exists():
         # h5 dataset
         F = None
@@ -37,11 +35,11 @@ def get_idx(img_dir):
 
     if len(list((img_dir / "rgb").glob("*.tfrecord"))) > 0:
         # tfrecord dataset
-        end_inds = [
+        end_indices = [
             int(x.stem.split(".")[0].split("_")[-1])
             for x in Path(img_dir / "rgb").glob("*.tfrecord")
         ]
-        end_index = max(end_inds)
+        end_index = max(end_indices)
         return np.arange(end_index + 1)
 
     # simpose dataset
@@ -58,7 +56,7 @@ def get_idx(img_dir):
 
 @click.command()
 @click.argument("data_dir", type=click.Path(exists=True, path_type=Path))
-def main(data_dir: Path):
+def main(data_dir: Path) -> None:
     st.set_page_config(layout="wide", page_title="Dataset Viewer")
 
     if "last_idx" not in st.session_state:
@@ -90,7 +88,7 @@ def main(data_dir: Path):
 
     st.header(f"Datapoint: #{idx:05} (of total {len(indices)} images)")
 
-    assert isinstance(idx, int | np.int64), f"Got {type(idx)} instead"
+    assert isinstance(idx, int), f"Got {type(idx)} instead"
 
     data = load_data(Path(img_dir), idx, use_bbox=use_bbox, use_pose=use_pose)
 
@@ -160,7 +158,16 @@ def main(data_dir: Path):
         st.image(colored_semantic_mask_rgb, caption=f"Semantic Mask {mask.shape}, {mask.dtype}")
 
 
-def create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox, use_pose):
+def create_visualization(
+    bgr: np.ndarray,
+    bgr_R: np.ndarray,
+    depth: np.ndarray,
+    mask: np.ndarray,
+    cam_data: dict[str, np.ndarray],
+    objs_data: list[dict],
+    use_bbox: bool,
+    use_pose: bool,
+) -> dict[str, np.ndarray]:
     cam_matrix = cam_data["cam_matrix"]
     cam_rot = R.from_quat(cam_data["cam_rot"]).as_matrix()
     cam_pos = cam_data["cam_pos"]
@@ -234,12 +241,14 @@ def create_visualization(bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox,
     }
 
 
-def load_data(img_dir: Path, idx: int, use_bbox=False, use_pose=False):
+def load_data(
+    img_dir: Path, idx: int, use_bbox: bool = False, use_pose: bool = False
+) -> dict[str, np.ndarray]:
     if st.session_state["last_idx"] != idx or "loaded_data" not in st.session_state:
         st.session_state["last_idx"] = idx
 
         if "tfds" not in st.session_state:
-            # instanciate tf.data.Dataset
+            # instantiate tf.data.Dataset
             keys = [
                 sp.data.Dataset.RGB,
                 sp.data.Dataset.RGB_R,
@@ -259,7 +268,7 @@ def load_data(img_dir: Path, idx: int, use_bbox=False, use_pose=False):
             if (Path(img_dir) / "data.h5").exists():
                 print("LOADING H5")
                 raise NotImplementedError("H5 loading not implemented yet")
-                loaded_data = load_data_h5(img_dir, idx)
+                # loaded_data = load_data_h5(img_dir, idx)
             elif len(list((img_dir / "rgb").glob("*.tfrecord"))) > 0:
                 print("LOADING TFRECORD")
                 tfds = sp.data.TFRecordDataset.get(img_dir, get_keys=keys)

@@ -1,4 +1,4 @@
-import simpose
+import simpose as sp
 import numpy as np
 from pathlib import Path
 
@@ -23,11 +23,13 @@ class BackgroundRandomizer(Randomizer):
     ) -> None:
         super().__init__(params)
         self._backgrounds_dir: Path = params.backgrounds_dir.expanduser()
-        self._backgrounds: list = list(self._backgrounds_dir.glob("*.jpg"))
-        simpose.logger.debug(
+        self._backgrounds: list[Path] = list(self._backgrounds_dir.glob("*.jpg"))
+        sp.logger.debug(
             f"Loaded {len(self._backgrounds)} backgrounds from {self._backgrounds_dir}"
         )
 
-    def call(self, scene: simpose.Scene):
-        bg = np.random.choice(self._backgrounds)
+    def call(self, scene: sp.observers.Observable) -> None:
+        assert isinstance(scene, sp.Scene)
+        i = np.random.choice(np.arange(len(self._backgrounds)))
+        bg = self._backgrounds[i]
         scene.set_background(bg)

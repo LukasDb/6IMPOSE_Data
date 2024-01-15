@@ -1,3 +1,4 @@
+from typing import Any
 import tensorflow as tf
 from pathlib import Path
 from .dataset import Dataset
@@ -54,8 +55,8 @@ class TFRecordDataset(Dataset):
     def get(
         root_dir: Path,
         get_keys: None | list[str] = None,
-        deterministic=False,
-        pattern="*.tfrecord",
+        deterministic: bool = False,
+        pattern: str = "*.tfrecord",
     ) -> tf.data.Dataset:
         """create a tf.data.Dataset from 6IMPOSE tfrecord dataset. Returns a dict with the specified keys"""
         if get_keys is not None:
@@ -71,12 +72,12 @@ class TFRecordDataset(Dataset):
         }
 
         # create a parsed dataset per file type
-        ds = []
+        ds: list[tf.data.Dataset] = []
         for name, keys in per_file_keys.items():
             files = tf.io.matching_files(str(root_dir / name / pattern))  # type: ignore
             shards = tf.data.Dataset.from_tensor_slices(files)
 
-            def parse_tfrecord(example_proto):
+            def parse_tfrecord(example_proto: Any) -> Any:
                 return tf.io.parse_single_example(
                     example_proto, TFRecordDataset._get_proto_from_keys(keys)
                 )
@@ -92,22 +93,22 @@ class TFRecordDataset(Dataset):
 
         parse_to_tensors = TFRecordDataset._parse_to_tensors(key_map, per_file_keys)
 
-        dataset = tf.data.Dataset.zip(tuple(ds)).map(
+        dataset = tf.data.Dataset.zip(tuple(ds)).map(  # type: ignore
             parse_to_tensors, num_parallel_calls=tf.data.AUTOTUNE, deterministic=deterministic
         )
         return dataset
 
     @staticmethod
-    def _get_proto_from_keys(keys: list[str]):
+    def _get_proto_from_keys(keys: list[str]) -> dict[str, tf.io.FixedLenFeature]:
         return {k: tf.io.FixedLenFeature([], tf.string) for k in keys}
 
     @staticmethod
     def _parse_to_tensors(
         key_map: dict[str, tf.dtypes.DType], per_file_keys: dict[str, list[str]]
-    ):
+    ) -> Any:
         """creates a map function that parses the tfrecord dataset to a dict of tensors"""
 
-        def parser(*args):
+        def parser(*args: dict) -> dict[str, tf.Tensor]:
             return {
                 key: tf.io.parse_tensor(data_dict[key], key_map[key])
                 for data_dict, keys in zip(args, per_file_keys.values())

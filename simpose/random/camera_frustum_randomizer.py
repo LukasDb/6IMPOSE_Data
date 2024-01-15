@@ -1,9 +1,7 @@
 import simpose
 import numpy as np
-from typing import List
-import logging
 from scipy.spatial.transform import Rotation as R
-
+from simpose.observers import Observable
 from .randomizer import Randomizer, RandomizerConfig, register_operator
 
 
@@ -29,7 +27,9 @@ class CameraFrustumRandomizer(Randomizer):
         self._r_range = params.r_range
         self._yp_limit = params.yp_limit
 
-    def call(self, scene: simpose.Scene):
+    def call(self, caller: Observable) -> None:
+        scene = caller
+        assert isinstance(scene, simpose.Scene)
         aspect_ratio = scene.resolution[0] / scene.resolution[1]
         cam = scene.get_cameras()[0]
         cam_data = cam.data

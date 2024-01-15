@@ -2,8 +2,6 @@ import simpose as sp
 import numpy as np
 from typing import Tuple
 from scipy.spatial.transform import Rotation as R
-import logging
-
 from .randomizer import Randomizer, RandomizerConfig, register_operator
 
 
@@ -33,7 +31,9 @@ class CameraPlacementRandomizer(Randomizer):
         super().__init__(params)
         self.params = params
 
-    def call(self, scene: sp.Scene):
+    def call(self, caller: sp.observers.Observable) -> None:
+        scene = caller
+        assert isinstance(scene, sp.Scene)
         p = self.params
         cam_view = np.array([0.0, 0.0, 1.0])
         radius = np.random.uniform(*p.distance_range)

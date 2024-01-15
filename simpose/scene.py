@@ -1,37 +1,42 @@
 import contextlib
-import multiprocessing
-from .redirect_stdout import redirect_stdout
-
-# with redirect_stdout():
-import pybullet as p
+import yaml
 
 import numpy as np
 import time
 from pathlib import Path
 
 import simpose as sp
-from simpose.observers import Observable, Event
-from typing import TYPE_CHECKING
+
+from typing import TYPE_CHECKING, ContextManager
 
 if TYPE_CHECKING:
     import bpy
 
 
-class Scene(Observable):
-    def __init__(self, bl_scene: "bpy.types.Scene") -> None:
-        Observable.__init__(self)
-        self._bl_scene: bpy.types.Scene = bl_scene
+class Scene(sp.observers.Observable):
+    def __init__(
+        self,
+        bl_scene: "bpy.types.Scene|None" = None,
+        img_h: int | None = None,
+        img_w: int | None = None,
+    ) -> None:
+        sp.observers.Observable.__init__(self)
 
-    @staticmethod
-    def create(img_h: int = 480, img_w: int = 640, debug=False):
         import bpy
 
-        # delete old temp blend file
+        if bl_scene is not None:
+            self._bl_scene: bpy.types.Scene = bl_scene
+        else:
+            assert (
+                img_h is not None and img_w is not None
+            ), "Must specify resolution when creating a scene"
+            self._initialize(img_h, img_w)
+            sp.logger.debug(f"Created scene: {self._bl_scene}")
 
-        self = Scene(bpy.data.scenes["Scene"])
-        sp.logger.debug(f"Created scene: {self._bl_scene}")
+    def _initialize(self, img_h: int = 480, img_w: int = 640) -> None:
+        import bpy, pybullet as p
 
-        scene = self._bl_scene
+        self._bl_scene = scene = bpy.data.scenes["Scene"]
         scene["id_counter"] = 0
 
         # delete cube, light, camera
@@ -55,10 +60,8 @@ class Scene(Observable):
         self._setup_compositor()
         self._register_new_id("visib")
 
-        if debug:
-            p.connect(p.GUI)
-        else:
-            p.connect(p.DIRECT)
+        # p.connect(p.GUI) # activate if you want to observe the physics simulation
+        p.connect(p.DIRECT)
 
         p.resetSimulation()
         p.setGravity(0, 0, -9.81)
@@ -68,34 +71,37 @@ class Scene(Observable):
         # disable mouse interaction
         p.configureDebugVisualizer(p.COV_ENABLE_GUI, 0)
 
-        self.notify(Event.ON_SCENE_CREATED)
-        return self
+        self.notify(sp.observers.Event.ON_SCENE_CREATED)
 
     @property
-    def resolution(self):
+    def resolution(self) -> np.ndarray:
         return np.array((self._bl_scene.render.resolution_x, self._bl_scene.render.resolution_y))
 
     @property
-    def resolution_x(self):
+    def resolution_x(self) -> int:
         return self._bl_scene.render.resolution_x
 
     @property
-    def resolution_y(self):
+    def resolution_y(self) -> int:
         return self._bl_scene.render.resolution_y
 
-    def step_physics(self, dt):
+    def step_physics(self, dt: float) -> None:
         """steps 1/240sec of physics simulation"""
+        import pybullet as p
+
         sp.logger.debug(f"Stepping physics for {dt} seconds")
-        self.notify(Event.BEFORE_PHYSICS_STEP)
+        self.notify(sp.observers.Event.BEFORE_PHYSICS_STEP)
 
         num_steps = np.floor(240 * dt).astype(int)
         for _ in range(max(1, num_steps)):
             p.stepSimulation()
         # now apply transform to objects
         self._apply_simulation()
-        self.notify(Event.AFTER_PHYSICS_STEP)
+        self.notify(sp.observers.Event.AFTER_PHYSICS_STEP)
 
-    def run_simulation(self, with_export=False):
+    def run_simulation(self, with_export: bool = False) -> None:
+        import pybullet as p
+
         p.setRealTimeSimulation(1)
         while True:
             time.sleep(1 / 60.0)
@@ -104,17 +110,18 @@ class Scene(Observable):
             self._apply_simulation()
             self.export_blend()
 
-    def _apply_simulation(self):
+    def _apply_simulation(self) -> None:
+        """applies pose of physics simulation to blender scene"""
         for obj in self.get_active_objects():
             try:
                 obj.apply_pybullet_pose()
             except KeyError:
                 pass
 
-    def render(self, gpu_semaphore=contextlib.nullcontext()):
+    def render(self, gpu_semaphore: ContextManager = contextlib.nullcontext()) -> None:
         import bpy
 
-        self.notify(Event.BEFORE_RENDER)
+        self.notify(sp.observers.Event.BEFORE_RENDER)
 
         # render RGB, depth using cycles
         # disable all view layers except 'ViewLayer'
@@ -132,7 +139,7 @@ class Scene(Observable):
             sp.logger.debug(f"Acquired GPU semaphore ({gpu_semaphore})")
             if camera.is_stereo_camera():
                 self._bl_scene.camera = camera.right_camera
-                with redirect_stdout():
+                with sp.redirect_stdout():
                     bpy.ops.render.render(write_still=False)
                 # rename rendered depth and rgb with suffix _R
                 rgb_path = self.output_dir / "rgb" / f"rgb_{self._bl_scene.frame_current:04}.png"
@@ -146,7 +153,7 @@ class Scene(Observable):
 
             # for left image and the labels
             self._bl_scene.camera = camera.left_camera
-            with redirect_stdout():
+            with sp.redirect_stdout():
                 sp.logger.debug(f"Rendering left to {self.output_dir}")
                 bpy.ops.render.render(write_still=False)
 
@@ -158,54 +165,59 @@ class Scene(Observable):
             self._bl_scene.render.engine = "BLENDER_EEVEE"
             self.output_node.mute = True
             self.mask_output.mute = False
-            with redirect_stdout():
+            with sp.redirect_stdout():
                 bpy.ops.render.render(write_still=False)
 
         sp.logger.debug(f"GPU semaphore ({gpu_semaphore}) released")
 
-        self.notify(Event.AFTER_RENDER)
+        self.notify(sp.observers.Event.AFTER_RENDER)
 
     def get_new_object_id(self) -> int:
+        assert isinstance(self._bl_scene["id_counter"], int)
         self._bl_scene["id_counter"] += 1
         return self._bl_scene["id_counter"]
 
-    def frame_set(self, frame_num: int):
+    def frame_set(self, frame_num: int) -> None:
         self._bl_scene.frame_set(frame_num)  # this sets the suffix for file names
 
-    def set_output_path(self, output_dir: Path):
+    def set_output_path(self, output_dir: Path) -> None:
         self.output_dir = output_dir
         self.output_node.base_path = str((self.output_dir).resolve())
         self.mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
 
-    def create_plane(self, size: float = 2, with_physics: bool = True):
+    def create_plane(self, size: float = 2, with_physics: bool = True) -> sp.entities.Plane:
         import bpy
 
-        plane = sp.Plane.create(size, with_physics)
+        plane = sp.entities.Plane.create(size, with_physics)
         bpy.data.collections["Objects"].objects.link(plane._bl_object)
         return plane
 
-    def get_cameras(self) -> list[sp.Camera]:
-        return [sp.Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects]
+    def get_cameras(self) -> list[sp.entities.Camera]:
+        return [
+            sp.entities.Camera(x) for x in self._bl_scene.collection.children["Cameras"].objects
+        ]
 
-    def create_camera(self, cam_name: str) -> sp.Camera:
+    def create_camera(self, cam_name: str) -> sp.entities.Camera:
         import bpy
 
-        cam = sp.Camera.create(cam_name, baseline=None)
+        cam = sp.entities.Camera.create(cam_name, baseline=None)
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam
 
-    def create_stereo_camera(self, cam_name: str, baseline: float) -> sp.Camera:
+    def create_stereo_camera(self, cam_name: str, baseline: float) -> sp.entities.Camera:
         import bpy
 
-        cam = sp.Camera.create(cam_name, baseline=baseline)
+        cam = sp.entities.Camera.create(cam_name, baseline=baseline)
         bpy.data.collections["Cameras"].objects.link(cam._bl_object)
         return cam
 
-    def get_active_objects(self) -> list[sp.Object]:
-        objects = [sp.Object(x) for x in self._bl_scene.collection.children["Objects"].objects]
+    def get_active_objects(self) -> list[sp.entities.Object]:
+        objects = [
+            sp.entities.Object(x) for x in self._bl_scene.collection.children["Objects"].objects
+        ]
         return list([x for x in objects if not x.is_hidden])
 
-    def get_labelled_objects(self) -> list[sp.Object]:
+    def get_labelled_objects(self) -> list[sp.entities.Object]:
         return list([x for x in self.get_active_objects() if x.has_semantics])
 
     def create_object(
@@ -216,12 +228,26 @@ class Scene(Observable):
         friction: float = 0.5,
         scale: float = 1.0,
         hide: bool = False,
-    ) -> sp.Object:
+    ) -> sp.entities.Object:
         import bpy
 
         obj_path = obj_path.expanduser()
+
+        if (obj_path.parent / "6IMPOSE_META").exists():
+            # overwrite args with meta file
+            sp.logger.debug(f"Found META file for {obj_path}")
+            meta_path = obj_path.parent / "6IMPOSE_META"
+            with open(meta_path, "r") as f:
+                meta = yaml.safe_load(f)
+            if "mass" in meta:
+                mass = float(meta["mass"])
+            if "friction" in meta:
+                friction = float(meta["friction"])
+            if "scale" in meta:
+                scale = float(meta["scale"])
+
         if obj_path.suffix == ".obj":
-            obj = sp.Object.from_obj(
+            obj = sp.entities.Object.from_obj(
                 filepath=obj_path,
                 add_semantics=add_semantics,
                 mass=mass,
@@ -229,7 +255,7 @@ class Scene(Observable):
                 scale=scale,
             )
         elif obj_path.suffix == ".ply":
-            obj = sp.Object.from_ply(
+            obj = sp.entities.Object.from_ply(
                 filepath=obj_path,
                 add_semantics=add_semantics,
                 mass=mass,
@@ -237,7 +263,7 @@ class Scene(Observable):
                 scale=scale,
             )
         elif obj_path.suffix == ".gltf":
-            obj = sp.Object.from_gltf(
+            obj = sp.entities.Object.from_gltf(
                 filepath=obj_path,
                 add_semantics=add_semantics,
                 mass=mass,
@@ -245,7 +271,7 @@ class Scene(Observable):
                 scale=scale,
             )
         elif obj_path.suffix == ".fbx":
-            obj = sp.Object.from_fbx(
+            obj = sp.entities.Object.from_fbx(
                 filepath=obj_path,
                 add_semantics=add_semantics,
                 mass=mass,
@@ -265,20 +291,20 @@ class Scene(Observable):
 
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
 
-        self.notify(Event.ON_OBJECT_CREATED)
+        self.notify(sp.observers.Event.ON_OBJECT_CREATED)
         return obj
 
-    def create_copy(self, object: sp.Object) -> sp.Object:
+    def create_copy(self, object: sp.entities.Object) -> sp.entities.Object:
         obj = object.copy()
         if obj.has_semantics:
             new_id = self.get_new_object_id()
             obj.set_semantic_id(new_id)
             self._register_new_id(new_id)
 
-        self.notify(Event.ON_OBJECT_CREATED)
+        self.notify(sp.observers.Event.ON_OBJECT_CREATED)
         return obj
 
-    def _register_new_id(self, new_id: str | int):
+    def _register_new_id(self, new_id: str | int) -> None:
         # create a new view layer
         if isinstance(new_id, int):
             id = new_id
@@ -301,17 +327,17 @@ class Scene(Observable):
         self.mask_output.file_slots.new(layer_name)
         tree.links.new(layer_node.outputs["Image"], self.mask_output.inputs[layer_name])
 
-    def create_light(self, light_name: str, energy: float, type="POINT") -> sp.Light:
+    def create_light(self, light_name: str, energy: float, type: str = "POINT") -> sp.entities.Light:
         import bpy
 
-        light = sp.Light.create(light_name, energy, type)
+        light = sp.entities.Light.create(light_name, energy, type)
         bpy.data.collections["Lights"].objects.link(light._bl_object)
         return light
 
-    def get_lights(self):
-        return [sp.Light(x) for x in self._bl_scene.collection.children["Lights"].objects]
+    def get_lights(self) -> list[sp.entities.Light]:
+        return [sp.entities.Light(x) for x in self._bl_scene.collection.children["Lights"].objects]
 
-    def _setup_rendering_device(self):
+    def _setup_rendering_device(self) -> None:
         import bpy
 
         self._bl_scene.cycles.device = "GPU"
@@ -350,7 +376,7 @@ class Scene(Observable):
         else:
             self._bl_scene.cycles.denoiser = "OPENIMAGEDENOISE"
 
-    def set_background(self, filepath: Path):
+    def set_background(self, filepath: Path) -> None:
         import bpy
 
         # get composition node_tree
@@ -370,7 +396,7 @@ class Scene(Observable):
         # scale_to_fit = np.max(self.resolution / np.array(self.current_bg_img.size))
         sp.logger.debug(f"Set background to {filepath}")
 
-    def export_blend(self, filepath: Path = Path("scene.blend")):
+    def export_blend(self, filepath: Path = Path("scene.blend")) -> None:
         import bpy
         import simpose.register_addon
 
@@ -378,17 +404,17 @@ class Scene(Observable):
         bpy.ops.script.python_file_run(filepath=str(register_script))
 
         self._bl_scene.render.engine = "CYCLES"
-        with redirect_stdout():
+        with sp.redirect_stdout():
             bpy.ops.wm.save_as_mainfile(filepath=str(filepath.resolve()))
         sp.logger.debug(f"Export scene to {filepath.resolve()}")
 
-    def export_meshes(self, output_dir: Path):
+    def export_meshes(self, output_dir: Path) -> None:
         """export meshes as ply files in 'meshes' folder"""
         objs = {obj.get_class(): obj for obj in self.get_labelled_objects()}
         for obj in objs.values():
             obj.export_as_ply(output_dir)
 
-    def _setup_compositor(self):
+    def _setup_compositor(self) -> None:
         import bpy
 
         self._bl_scene.use_nodes = True

@@ -2,8 +2,13 @@ import os
 
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
-BL_OPS = []
-import logging, coloredlogs
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import bpy
+
+BL_OPS: list["type[bpy.types.Operator]"] = []
+import logging, coloredlogs  # type: ignore
 import multiprocessing as mp
 
 logger = mp.get_logger()
@@ -15,32 +20,14 @@ coloredlogs.install(
     reconfigure=False,
 )
 
-# tools
-from simpose.redirect_stdout import redirect_stdout as _redirect_stdout
-from simpose.observers import Event
-
-# 6impose
-from simpose.entities import Object, Camera, Plane, Light
+from simpose.exr import EXR
+from simpose.remote_semaphore import RemoteSemaphore
+from simpose.redirect_stdout import redirect_stdout
+import simpose.observers as observers
+import simpose.entities as entities
 from simpose.scene import Scene
 import simpose.random as random
 import simpose.writers as writers
 import simpose.generators as generators
 import simpose.downloaders as downloaders
 import simpose.data as data
-
-
-__all__ = [
-    "random",
-    "downloaders",
-    "data",
-    "logger",
-    "_redirect_stdout",
-    "Scene",
-    "writers",
-    "generators",
-    "Camera",
-    "Object",
-    "Plane",
-    "Light",
-    "Event",
-]

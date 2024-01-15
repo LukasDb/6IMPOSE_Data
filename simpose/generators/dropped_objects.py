@@ -1,6 +1,4 @@
 import simpose as sp
-from simpose.random import Randomizer, RandomizerConfig
-from simpose.random.light_randomizer import LightRandomizer
 from .generator import Generator, GeneratorParams
 
 import multiprocessing as mp
@@ -8,29 +6,29 @@ from pathlib import Path
 import logging
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-from tqdm import tqdm
 import random
 
 
-class RandomImagerPickerConfig(RandomizerConfig):
+class RandomImagePickerConfig(sp.random.RandomizerConfig):
     img_dir: Path
 
     @classmethod
-    def get_description(cls):
-        pass
+    def get_description(cls) -> dict[str, str]:
+        description = super().get_description()
+        return description
 
 
-class RandomImagePicker(Randomizer):
-    def __init__(self, params: RandomImagerPickerConfig) -> None:
+class RandomImagePicker(sp.random.Randomizer):
+    def __init__(self, params: RandomImagePickerConfig) -> None:
         super().__init__(params)
         self._img_paths = [
             x for x in params.img_dir.expanduser().iterdir() if "norm" not in x.name
         ]
 
-    def randomize_plane(self, plane: sp.Plane):
+    def randomize_plane(self, plane: sp.entities.Plane) -> None:
         self._plane = plane
 
-    def call(self, _: sp.Scene):
+    def call(self, _: sp.observers.Observable) -> None:
         i = np.random.randint(0, len(self._img_paths))
         img_path = self._img_paths[i]
         sp.logger.debug(f"Set plane texture to {img_path.name}")
@@ -65,7 +63,7 @@ class DroppedObjectsConfig(GeneratorParams):
     value: float = 1.0
 
     @classmethod
-    def get_description(cls):
+    def get_description(cls) -> dict[str, str]:
         description = super().get_description()
         description.update(
             {
@@ -85,7 +83,7 @@ class DroppedObjectsConfig(GeneratorParams):
                 "num_primary_distractors": "Number of distractors that are dropped first",
                 "num_secondary_distractors": "Number of distractors that are dropped together with the main objects",
                 "main_obj_path": "Path to main object .obj file or list of paths",
-                "num_main_objs": "Number of main objects (each, if multiple main objs)",
+                "num_main_objs": "Number of main objects (total, if multiple main objs)",
                 "scale": "Main object scale",
                 "metallic": "Default Main object metallic value",
                 "roughness": "Default Main object roughness value",
@@ -102,7 +100,7 @@ def indent(text: str) -> str:
     return "\n".join(pad + line for line in text.split("\n"))
 
 
-def entry(name: str, type: str, params: str):
+def entry(name: str, type: str, params: str) -> str:
     spec = indent(f"type: {type}\nparams:\n{indent(params)}")
     return f"{name}:\n{spec}"
 
@@ -117,29 +115,29 @@ class DroppedObjects(Generator):
         writer_params = sp.writers.WriterConfig.dump_with_comments()
 
         app_params = sp.random.AppearanceRandomizerConfig.dump_with_comments(
-            trigger=sp.Event.BEFORE_RENDER
+            trigger=sp.observers.Event.BEFORE_RENDER
         )
 
         light_params = sp.random.LightRandomizerConfig.dump_with_comments(
-            trigger=sp.Event.BEFORE_RENDER
+            trigger=sp.observers.Event.BEFORE_RENDER
         )
 
         bg_params = sp.random.BackgroundRandomizerConfig.dump_with_comments(
-            trigger=sp.Event.BEFORE_RENDER
+            trigger=sp.observers.Event.BEFORE_RENDER
         )
         cam_loc_params = sp.random.CameraPlacementRandomizerConfig.dump_with_comments(
-            trigger=sp.Event.BEFORE_RENDER
+            trigger=sp.observers.Event.BEFORE_RENDER
         )
 
         ycb_params = sp.random.ModelLoaderConfig.dump_with_comments(
             root=Path("path/to/ycb/models"),
-            trigger=sp.Event.NONE,
+            trigger=sp.observers.Event.NONE,
             source=sp.random.ModelSource.YCB,
         )
 
         ugreal_params = sp.random.ModelLoaderConfig.dump_with_comments(
             root=Path("path/to/ugreal/models"),
-            trigger=sp.Event.NONE,
+            trigger=sp.observers.Event.NONE,
             source=sp.random.ModelSource.SYNTHDET,
         )
         ycb_entry = entry("ycb_loader", "ModelLoader", ycb_params)
@@ -172,22 +170,15 @@ class DroppedObjects(Generator):
         writer: sp.writers.Writer,
         randomizers: dict[str, sp.random.Randomizer],
         indices: list[int],
-    ):
+    ) -> None:
         p = config
         assert p.num_main_objs > 0, "num_main_objs must be > 0"
 
         proc_name = mp.current_process().name
-        is_primary_worker = (
-            proc_name == "Process-1"
-            or proc_name == "MainProcess"
-            or proc_name == "ForkPoolWorker-2"
-            or proc_name == "SpawnPoolWorker-2"
-        )
-
-        debug = is_primary_worker and sp.logger.level < logging.DEBUG
+        is_primary_worker = proc_name == "SpawnPoolWorker-2"
 
         # -- SCENE --
-        scene = sp.Scene.create(img_h=p.img_h, img_w=p.img_w, debug=debug)
+        scene = sp.Scene(img_h=p.img_h, img_w=p.img_w)
         plane = scene.create_plane()
 
         # -- CAMERA --
@@ -199,12 +190,9 @@ class DroppedObjects(Generator):
 
         # -- RANDOMIZERS --
         for randomizer in randomizers.values():
-            randomizer.reset_listening()
             randomizer.listen_to(scene)
 
-        cfg = RandomImagerPickerConfig(
-            img_dir=p.floor_textures_dir, trigger=sp.Event.BEFORE_RENDER
-        )
+        cfg = RandomImagePickerConfig(img_dir=p.floor_textures_dir, trigger=sp.observers.Event.BEFORE_RENDER)
         randimages = RandomImagePicker(cfg)
         randimages.listen_to(scene)
         randimages.randomize_plane(plane)
@@ -216,7 +204,11 @@ class DroppedObjects(Generator):
             main_obj_paths = p.main_obj_path
 
         main_objs = []
-        for obj_path in main_obj_paths:
+        chosen_obj_path_indices = np.random.choice(
+            np.arange(len(main_obj_paths)), p.num_main_objs, replace=True
+        )
+        for obj_path_index in chosen_obj_path_indices:
+            obj_path = main_obj_paths[obj_path_index]
             main_obj = scene.create_object(
                 obj_path,
                 mass=0.2,
@@ -231,8 +223,6 @@ class DroppedObjects(Generator):
             main_obj.set_value(p.value)
 
             main_objs.append(main_obj)
-            for i in range(p.num_main_objs - 1):
-                main_objs.append(scene.create_copy(main_obj))
 
         if is_primary_worker:
             scene.export_meshes(writer.output_dir / "meshes")
@@ -250,20 +240,20 @@ class DroppedObjects(Generator):
                 for _ in range(p.num_camera_locations):
                     writer.write_data(scene, indices[i])
 
-                    if i == 0 and debug:
-                        scene.export_blend()
+                    # if i == 0 and debug:
+                    #     scene.export_blend()
 
                     i += 1
                     if i == len(indices):
-                        return scene
+                        return
 
     @staticmethod
     def setup_new_scene(
         config: DroppedObjectsConfig,
         scene: sp.Scene,
         randomizers: dict[str, sp.random.Randomizer],
-        main_objs: list[sp.Object],
-    ):
+        main_objs: list[sp.entities.Object],
+    ) -> None:
         model_loader: sp.random.ModelLoader = randomizers["distractors"]  # type: ignore
         model_loader.reset()
         # add 20 objects and let fall
@@ -272,7 +262,7 @@ class DroppedObjects(Generator):
             #     self.scene, p.num_primary_distractors, mass=1, friction=p.friction, hide=True
             # ):
             # obj.show()
-            obj = model_loader.get_object(scene, mass=0.2, friction=config.friction)
+            obj = model_loader.get_object(scene, mass=0.2, friction=config.friction, hide=False)
             obj.set_location(
                 (
                     np.random.uniform(-0.05, 0.05),

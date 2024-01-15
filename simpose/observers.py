@@ -13,10 +13,10 @@ class Event(Enum):
 
 
 class Observable:
-    def __init__(self):
+    def __init__(self) -> None:
         self._observers: list[Observer] = []
 
-    def notify(self, event):
+    def notify(self, event: Event) -> None:
         for o in [o for o in self._observers if o.event_trigger == event]:
             o.call(self)
 
@@ -27,12 +27,9 @@ class Observer(ABC):
     def __init__(self, on_event: Event) -> None:
         self.event_trigger = on_event
 
-    def listen_to(self, caller: Observable):
+    def listen_to(self, caller: Observable) -> None:
         caller._observers.append(self)
 
-    def reset_listening(self):
-        self._observers = []
-
     @abstractmethod
-    def call(self, caller: Observable):
+    def call(self, caller: Observable) -> None:
         pass

@@ -2,18 +2,19 @@ import simpose as sp
 from .object import Object
 from pathlib import Path
 
-# with sp._redirect_stdout():
-import pybullet as p
-import pybullet_data
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import bpy
 
 
 class Plane(Object):
-    def __init__(self, bl_object) -> None:
+    def __init__(self, bl_object: "bpy.types.Object") -> None:
         super().__init__(bl_object)
 
     @staticmethod
-    def create(size: float = 2, with_physics: bool = True):
-        import bpy
+    def create(size: float = 2, with_physics: bool = True) -> "Plane":
+        import bpy, pybullet as p, pybullet_data
 
         if with_physics:
             p.setAdditionalSearchPath(pybullet_data.getDataPath())
@@ -72,7 +73,7 @@ class Plane(Object):
 
         return obj
 
-    def set_image(self, filepath: Path):
+    def set_image(self, filepath: Path) -> None:
         import bpy
 
         image_node: bpy.types.ShaderNodeTexImage = self.materials[0].node_tree.nodes["sp_image"]  # type: ignore

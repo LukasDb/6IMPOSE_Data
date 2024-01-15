@@ -4,4 +4,4 @@ from .dropped_objects import DroppedObjects, DroppedObjectsConfig
 
 __generators__ = ["DroppedObjects"]
 
-__all__ = __generators__ + ["Generator", "GeneratorParams", "DroppedObjectsConfig"]
+__all__ = ["Generator", "GeneratorParams", "DroppedObjectsConfig", "DroppedObjects"]
