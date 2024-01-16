@@ -134,9 +134,7 @@ class Scene(sp.observers.Observable):
 
         camera = self.get_cameras()[0]
 
-        sp.logger.debug(f"Acquiring GPU semaphore ({gpu_semaphore})")
         with gpu_semaphore:
-            sp.logger.debug(f"Acquired GPU semaphore ({gpu_semaphore})")
             if camera.is_stereo_camera():
                 self._bl_scene.camera = camera.right_camera
                 with sp.redirect_stdout():
@@ -168,7 +166,6 @@ class Scene(sp.observers.Observable):
             with sp.redirect_stdout():
                 bpy.ops.render.render(write_still=False)
 
-        sp.logger.debug(f"GPU semaphore ({gpu_semaphore}) released")
 
         self.notify(sp.observers.Event.AFTER_RENDER)
 

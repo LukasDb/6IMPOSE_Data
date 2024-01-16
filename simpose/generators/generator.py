@@ -106,7 +106,7 @@ class Generator(ABC):
         ] = queue.Queue()
 
         semaphores = {
-            gpu: sp.RemoteSemaphore(timeout=30.0, comm=mp.Queue(params.n_parallel_on_gpu))
+            gpu: sp.RemoteSemaphore(comm=mp.Queue(params.n_parallel_on_gpu))
             for gpu in params.gpus or [0]
         }
 
@@ -117,7 +117,6 @@ class Generator(ABC):
             writer_config = self.writer_params()
             writer_config.start_index = min(index_list)
             writer_config.end_index = max(index_list)
-            # writer_config._gpu_semaphore_comm = gpu_semaphore._comm
             writer_config._active_gpu = active_gpu
             writer_config._q_rendered = num_rendered_accumulator
 
@@ -137,7 +136,7 @@ class Generator(ABC):
                 new_job = job_queue.get(block=False)
             except queue.Empty:
                 return False
-            proc = mp.Process(target=self.process, args=new_job)
+            proc = mp.Process(target=self.process, args=new_job, daemon=True)
             proc.start()
             current_jobs[proc.name] = new_job[0]
             return True
@@ -160,28 +159,39 @@ class Generator(ABC):
 
         try:
             while not finished:
-                # print(f"Current jobs: {[x for x in current_jobs.keys()]}")
-                # check for timeouts and reschedule job
-                for remote_semaphore in semaphores.values():
-                    terminated_workers = remote_semaphore.run()
-                    for terminated_worker in terminated_workers:
-                        # put job back into queue
-                        schedule_job(current_jobs[terminated_worker])
+                # operate semaphores, reschedule job on timeout
+                for s in semaphores.values():
+                    s.run()
 
-                # check workers
-                finished = True
-                for proc_name in list(current_jobs.keys()):
-                    if proc_name not in [p.name for p in mp.active_children()]:
-                        # worker is done, start new one if job is available
-                        current_jobs.pop(proc_name)
+                # finished when:
+                # 1) all semaphores released
+                # 2) no more scheduled jobs in queue
+                # 3) all workers are done
 
-                        if not launch_worker():
-                            # no job available -> did not launch new worker -> finished?
-                            continue
-                        finished = False  # started new worker -> not finished
-                    else:
-                        # some worker is still working -> not finished
-                        finished = False
+                # 1) check if all semaphores are released ==  # all are not acquired
+                running_workers = list([p.name for p in mp.active_children()])
+                is_dead = lambda x: x not in running_workers
+
+                finished = (
+                    all([not s.is_acquired() for s in semaphores.values()])
+                    and job_queue.empty()
+                    and all(is_dead(n) for n in current_jobs.keys())
+                )
+
+                # check dead workers
+                for proc_name in [x for x in current_jobs.keys() if is_dead(x)]:
+                    for s in [x for x in semaphores.values() if x.is_acquired(proc_name)]:
+                        # release semaphore
+                        sp.logger.error(f"{proc_name} died. Releasing {s} and rescheduling.")
+                        s.release(proc_name)
+                        # reschedule job (since worker did not release)
+                        schedule_job(current_jobs[proc_name])
+
+                    # remove from current jobs
+                    current_jobs.pop(proc_name)
+
+                    # in any case try to launch a new worker for each dead worker
+                    launch_worker()
 
                 # empty accumulator and update progress
                 while True:
@@ -189,7 +199,6 @@ class Generator(ABC):
                         bar.update(num_rendered_accumulator.get(block=False))
                     except queue.Empty:
                         break
-                # time.sleep(1.0)
 
         except KeyboardInterrupt:
             # operate semaphores until all workers are done
@@ -197,9 +206,10 @@ class Generator(ABC):
             signal.signal(signal.SIGINT, signal.SIG_IGN)  # ignore from here on
             for p in mp.active_children():
                 p.terminate()
+            # keep operating semaphores until all workers are done
             while any([p.is_alive() for p in mp.active_children()]):
-                for remote_semaphore in semaphores.values():
-                    remote_semaphore.run()
+                for s in semaphores.values():
+                    s.run()
 
         sp.logger.info("All workers finished.")
         bar.close()
