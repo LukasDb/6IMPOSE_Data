@@ -200,6 +200,10 @@ class Generator(ABC):
                     except queue.Empty:
                         break
 
+                bar.set_postfix_str(
+                    f"| queued: {job_queue.qsize()} jobs; {job_queue.qsize()*params.worker_shards} images"
+                )
+
         except KeyboardInterrupt:
             # operate semaphores until all workers are done
             sp.logger.error("KeyboardInterrupt received. Please wait for workers to finish.")

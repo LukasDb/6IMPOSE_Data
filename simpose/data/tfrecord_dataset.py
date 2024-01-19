@@ -1,3 +1,4 @@
+from fileinput import filename
 from typing import Any
 import tensorflow as tf
 from pathlib import Path
@@ -57,62 +58,55 @@ class TFRecordDataset(Dataset):
         get_keys: None | list[str] = None,
         deterministic: bool = False,
         pattern: str = "*.tfrecord",
+        num_parallel_files: int = 1024,
     ) -> tf.data.Dataset:
-        """create a tf.data.Dataset from 6IMPOSE tfrecord dataset. Returns a dict with the specified keys"""
-        if get_keys is not None:
-            # filter keymap
-            key_map = {k: v for k, v in TFRecordDataset._key_mapping.items() if k in get_keys}
-        else:
-            key_map = TFRecordDataset._key_mapping
+        @tf.function
+        def read_tfrecord(record_file: tf.Tensor) -> tf.data.Dataset:
+            return tf.data.TFRecordDataset(record_file, compression_type="ZLIB")
 
-        per_file_keys = {
-            file_key: [x for x in TFRecordDataset.all_file_keys[file_key] if x in key_map]
-            for file_key in TFRecordDataset.all_file_keys
-            if any(x in key_map for x in TFRecordDataset.all_file_keys[file_key])
-        }
+        def get_parser(keys: list[str]) -> Any:
+            @tf.function
+            def parse(example_proto: Any) -> Any:
+                proto = {k: tf.io.FixedLenFeature([], tf.string) for k in keys}
+                serialized = tf.io.parse_single_example(example_proto, proto)
+                return {
+                    key: tf.io.parse_tensor(serialized[key], TFRecordDataset._key_mapping[key])
+                    for key in keys
+                }
 
-        # create a parsed dataset per file type
-        ds: list[tf.data.Dataset] = []
-        for name, keys in per_file_keys.items():
-            files = tf.io.matching_files(str(root_dir / name / pattern))  # type: ignore
-            shards = tf.data.Dataset.from_tensor_slices(files)
+            return parse
 
-            def parse_tfrecord(example_proto: Any) -> Any:
-                return tf.io.parse_single_example(
-                    example_proto, TFRecordDataset._get_proto_from_keys(keys)
+        chosen_keys = get_keys if get_keys is not None else TFRecordDataset._key_mapping.keys()
+        file_types = [
+            x
+            for x in TFRecordDataset.all_file_keys.keys()
+            if any(k in chosen_keys for k in TFRecordDataset.all_file_keys[x])
+        ]
+        # file_types = ["rgb", "gt", "depth"]
+        keys_per_file_type = [
+            [x for x in chosen_keys if x in TFRecordDataset.all_file_keys[t]] for t in file_types
+        ]  # [[rgb, rgb_R], [cam_matrix, obj_classes, etc], [depth]] for example
+
+        parsers = {t: get_parser(keys) for t, keys in zip(file_types, keys_per_file_type)}
+        num_parallel_files = max(1, num_parallel_files // len(file_types))
+        return tf.data.Dataset.zip(
+            tuple(
+                tf.data.Dataset.from_tensor_slices(
+                    tf.io.match_filenames_once(str(root_dir / file_type / pattern))  # type: ignore
                 )
-
-            # has to be deterministic, otherwise the order of the shards is random
-            tf_ds = shards.interleave(
-                lambda x: tf.data.TFRecordDataset(x, compression_type="ZLIB"),
-                deterministic=True,
-                num_parallel_calls=tf.data.AUTOTUNE,
-            ).map(parse_tfrecord, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
-
-            ds.append(tf_ds)
-
-        parse_to_tensors = TFRecordDataset._parse_to_tensors(key_map, per_file_keys)
-
-        dataset = tf.data.Dataset.zip(tuple(ds)).map(  # type: ignore
-            parse_to_tensors, num_parallel_calls=tf.data.AUTOTUNE, deterministic=deterministic
+                .interleave(
+                    read_tfrecord,
+                    num_parallel_calls=tf.data.AUTOTUNE,
+                    deterministic=True,
+                    cycle_length=num_parallel_files,
+                )
+                .map(
+                    parsers[file_type], num_parallel_calls=tf.data.AUTOTUNE, deterministic=True
+                )  # yields dicts
+                for file_type in file_types
+            )
+        ).map(
+            lambda *args: {k: v for d in args for k, v in d.items()},
+            num_parallel_calls=tf.data.AUTOTUNE,
+            deterministic=True,
         )
-        return dataset
-
-    @staticmethod
-    def _get_proto_from_keys(keys: list[str]) -> dict[str, tf.io.FixedLenFeature]:
-        return {k: tf.io.FixedLenFeature([], tf.string) for k in keys}
-
-    @staticmethod
-    def _parse_to_tensors(
-        key_map: dict[str, tf.dtypes.DType], per_file_keys: dict[str, list[str]]
-    ) -> Any:
-        """creates a map function that parses the tfrecord dataset to a dict of tensors"""
-
-        def parser(*args: dict) -> dict[str, tf.Tensor]:
-            return {
-                key: tf.io.parse_tensor(data_dict[key], key_map[key])
-                for data_dict, keys in zip(args, per_file_keys.values())
-                for key in keys
-            }
-
-        return parser
