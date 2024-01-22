@@ -56,7 +56,6 @@ class TFRecordDataset(Dataset):
     def get(
         root_dir: Path,
         get_keys: None | list[str] = None,
-        deterministic: bool = False,
         pattern: str = "*.tfrecord",
         num_parallel_files: int = 1024,
     ) -> tf.data.Dataset:

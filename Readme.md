@@ -59,6 +59,7 @@ If you want to write your own dataset generation script, a typical script would 
 
 
 ## Included Dataset Writer
+*TODO update this section*
 The included dataset writer generates a dataset with instance annotations. If `render_object_masks=True`, the writer will render masks for each object with semantics without occlusions and calculate the visible fraction of pixels, as well as the bounding box without occlusions. This will slow down rendering, but includes additional information in the dataset. The writer will create a folder structure like this:
 
 ```
@@ -102,3 +103,56 @@ For each datapoint, `gt_<datapoint_index>.json` contains the following informati
 
 If `render_object_masks = False`:
 There will be no rendered masks without occlusions `masks/mask_<object id>_<datapoint_index>.exr` and `"px_count_all"` and `"visib_fract"` will be `0.0`, and `"bbox_obj"` will be `[0, 0, 0, 0]` for all objects.
+
+
+## Included Dataset Reader
+> Note: `num_parallel_files` can have a huge impact on RAM and CPU usage. Recommended are much lower values or even start with `num_parallel_files=1`.
+
+For easier use of the generated Dataset (if the TFRecordWriter was used), 6IMPOSE_Data includes a high-performance Tensorflow dataloader. To initalize it use:
+```
+import simpose as sp
+
+tensorflow_dataset = sp.data.TFRecordDataset.get(
+        root_dir: Path,
+        get_keys: None | list[str] = None,
+        pattern: str = "*.tfrecord",
+        num_parallel_files: int = 1024
+        )
+
+# some example
+for data in tensorflow_datasat:
+    rgb = data[sp.data.Dataset.RGB]                 # [h,w,3] tf.uint8
+    classes = data[sp.data.Dataset.OBJ_CLASSES]     # [n,] tf.string
+    ids = data[sp.data.Dataset.OBJ_IDS]             # [n,] tf.int64
+    mask = data[sp.data.Dataset.MASK]               # [h,w] tf.int64
+
+    for cls, id in zip(classes, ids):
+        if cls == 'some_class':
+            # to get a binary mask for a specific object
+            mask = tf.where(mask == id, 1, 0) # [h,w] tf.int64
+            
+
+```
+The resulting Dataset is a regular `tf.data.Dataset` yielding dictionaries with the keys specified in get_keys or all of them if get_keys is not specified. The following keys according to the specification above are available:
+```
+simpose.data.Dataset.RGB
+simpose.data.Dataset.RGB_R
+simpose.data.Dataset.DEPTH
+simpose.data.Dataset.DEPTH_R
+simpose.data.Dataset.MASK
+simpose.data.Dataset.GT
+simpose.data.Dataset.CAM_MATRIX
+simpose.data.Dataset.CAM_LOCATION
+simpose.data.Dataset.CAM_ROTATION
+simpose.data.Dataset.STEREO_BASELINE
+simpose.data.Dataset.OBJ_CLASSES
+simpose.data.Dataset.OBJ_IDS
+simpose.data.Dataset.OBJ_POS
+simpose.data.Dataset.OBJ_ROT
+simpose.data.Dataset.OBJ_BBOX_VISIB
+simpose.data.Dataset.OBJ_VISIB_FRACT
+simpose.data.Dataset.OBJ_PX_COUNT_VISIB
+simpose.data.Dataset.OBJ_PX_COUNT_VALID
+simpose.data.Dataset.OBJ_PX_COUNT_ALL
+simpose.data.Dataset.OBJ_BBOX_OBJ
+```
