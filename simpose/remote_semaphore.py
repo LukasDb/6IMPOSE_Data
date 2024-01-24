@@ -1,32 +1,38 @@
 import multiprocessing as mp
-import multiprocessing.queues
+import multiprocessing.queues as mpq
 import queue
 import time
 from typing import Any
 import simpose as sp
 
 
+class SignalType:
+    REQUEST_RELEASE = "r_rls"
+
+    REQUEST_ACQUIRE = "r_acq"
+    GRANTED_ACQUIRE = "g_acq"
+
+
 class RemoteSemaphore:
     """A semaphore that can be acquired and released from a different process with Timeout."""
 
-    RELEASED = "released"
-    IDLE = "idle"
-    ACQUIRED = "acquired"
+    MAIN = "main"
 
     def __init__(
         self,
-        comm: multiprocessing.queues.Queue,
+        comm: mpq.Queue,
         value: int = 1,
         timeout: float | None = None,
     ):
-        self._comm: multiprocessing.queues.Queue[Any] = comm
+        self._comm: mpq.Queue[dict] = comm
         self._timeout = timeout
+        self._start_value = value
         self._value = value
         self._timers: dict[str, float] = {}
+        self.name = mp.current_process().name
 
     def start(self) -> None:
-        for _ in range(self._value):
-            self._comm.put((self.IDLE, mp.current_process().name))
+        return
 
     def __enter__(self) -> "RemoteSemaphore":
         self.acquire()
@@ -41,26 +47,31 @@ class RemoteSemaphore:
     # in the worker:
     def acquire(self) -> None:
         """blocking acquire semaphore"""
-        sp.logger.debug(f"{mp.current_process().name} wants to acquire {self}")
-
-        while True:
-            signal, name = self._comm.get()  # blocking
-            if signal == self.IDLE:
-                self._comm.put((self.ACQUIRED, mp.current_process().name))
-                sp.logger.debug(f"{mp.current_process().name} acquired {self}")
-                break
-            else:
-                # put back "acquired"|"released"
-                self._comm.put((signal, name))
-                time.sleep(0.1)
+        sp.logger.debug(f"{self.name} wants to acquire {self}")
+        self._request(SignalType.REQUEST_ACQUIRE, self.name)
+        self._confirm(SignalType.GRANTED_ACQUIRE)
 
     def release(self, process_name: str | None = None) -> None:
         """if this is not called, eventually the semaphore will time out
         optionally, can release the semaphore of another process"""
-        if process_name is None:
-            process_name = mp.current_process().name
-        self._comm.put((self.RELEASED, process_name))
+        name = self.name if process_name is None else process_name
+
+        self._request(SignalType.REQUEST_RELEASE, name)
+
         sp.logger.debug(f"{process_name} released {self}")
+
+    def _request(self, request_type: str, sender: str) -> None:
+        self._comm.put({"type": request_type, "sender": sender, "receiver": self.MAIN})
+
+    def _confirm(self, grant_type: str) -> None:
+        while True:
+            signal = self._comm.get()
+            if signal["receiver"] == self.name and signal["type"] == grant_type:
+                break
+            else:
+                # put back
+                self._comm.put(signal)
+                time.sleep(0.1)
 
     def is_acquired(self, process_name: str | None = None) -> bool:
         """non blocking check if semaphore is acquired (by any other process, or a specific one)"""
@@ -75,32 +86,41 @@ class RemoteSemaphore:
         detected the respective worker is terminated. A list of the
         terminated mp.Process.name is returned"""
 
-        # 1) capture pending signals
-        captured = []
+        # 1) capture all pending signals
+        captured_signal: list[dict] = []
         while True:
             try:
-                captured.append(self._comm.get(block=False))  # non blocking
+                captured_signal.append(self._comm.get(block=False))  # non blocking
             except queue.Empty:
                 break
 
         # 2) process captured signals
-        for signal, name in captured:
-            if signal == self.IDLE:
-                # retrieved own idle signal -> put back
-                self._comm.put((self.IDLE, name))
+        for signal in captured_signal:
+            if signal["receiver"] != self.MAIN:
+                # put back
+                self._comm.put(signal)
+                continue
 
-            elif signal == self.ACQUIRED:
-                # start timer
-                self._timers[name] = time.time()
+            if signal["type"] == SignalType.REQUEST_ACQUIRE and self._value > 0:
+                self._value -= 1
+                self._comm.put(
+                    {
+                        "type": SignalType.GRANTED_ACQUIRE,
+                        "sender": self.name,
+                        "receiver": signal["sender"],
+                    }
+                )
+                self._timers[signal["sender"]] = time.time()  # start timer
 
-            elif signal == self.RELEASED:
-                # retrieved release signal -> allow new acquire
-                self._timers.pop(name)  # remove timer
-                self._comm.put((self.IDLE, mp.current_process().name))
+            elif signal["type"] == SignalType.REQUEST_RELEASE:
+                self._value += 1
+                self._timers.pop(signal["sender"])  # remove timer
+            else:
+                raise AssertionError(f"Unknown signal type: {signal['type']} for main process!")
 
         # 3) check if timed out and kill process
         terminated: list[str] = []
-        for name, t_started in self._timers.items():
+        for name, t_started in dict(self._timers).items():
             if self._timeout is not None and (time.time() - t_started) > self._timeout:
                 # semaphore timed out -> allow new acquire
                 proc = [p for p in mp.active_children() if p.name == name]
@@ -109,10 +129,9 @@ class RemoteSemaphore:
                     # kill if found (otherwise it's already dead)
                     proc[0].kill()
 
-                self._comm.put((self.IDLE, mp.current_process().name))
-                terminated.append(name)
+                self._value += 1
+                self._timers.pop(name)  # remove timer
 
-        for name in terminated:
-            self._timers.pop(name)  # remove timer
+                terminated.append(name)
 
         return terminated

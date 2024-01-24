@@ -155,17 +155,21 @@ class Scene(sp.observers.Observable):
                 sp.logger.debug(f"Rendering left to {self.output_dir}")
                 bpy.ops.render.render(write_still=False)
 
+            self.export_blend(Path("scene_rgb.blend"))  # HACK
+
             # render mask into a single EXR using eevee
             # enable all view layers except ViewLayer
             for layer in self._bl_scene.view_layers:
                 layer.use = True
             self._bl_scene.view_layers["ViewLayer"].use = False
+            self.output_node.mute = True  # 'mute' rgb output
+            self.mask_output.mute = False  # 'unmute' mask output
+
             self._bl_scene.render.engine = "BLENDER_EEVEE"
-            self.output_node.mute = True
-            self.mask_output.mute = False
+            bpy.context.scene.render.engine = "BLENDER_EEVEE"
+
             with sp.redirect_stdout():
                 bpy.ops.render.render(write_still=False)
-
 
         self.notify(sp.observers.Event.AFTER_RENDER)
 
@@ -278,9 +282,10 @@ class Scene(sp.observers.Observable):
         else:
             raise NotImplementedError(f"Unsupported file format: {obj_path.suffix}")
 
+        new_id = self.get_new_object_id()
+        obj.set_semantic_id(new_id)
+
         if add_semantics:
-            new_id = self.get_new_object_id()
-            obj.set_semantic_id(new_id)
             self._register_new_id(new_id)
 
         if hide:
@@ -293,15 +298,16 @@ class Scene(sp.observers.Observable):
 
     def create_copy(self, object: sp.entities.Object) -> sp.entities.Object:
         obj = object.copy()
+        new_id = self.get_new_object_id()
+        obj.set_semantic_id(new_id)
         if obj.has_semantics:
-            new_id = self.get_new_object_id()
-            obj.set_semantic_id(new_id)
             self._register_new_id(new_id)
 
         self.notify(sp.observers.Event.ON_OBJECT_CREATED)
         return obj
 
     def _register_new_id(self, new_id: str | int) -> None:
+        """creates a view (render) layer that exclusively renders the object with the given ID"""
         # create a new view layer
         if isinstance(new_id, int):
             id = new_id
@@ -324,7 +330,9 @@ class Scene(sp.observers.Observable):
         self.mask_output.file_slots.new(layer_name)
         tree.links.new(layer_node.outputs["Image"], self.mask_output.inputs[layer_name])
 
-    def create_light(self, light_name: str, energy: float, type: str = "POINT") -> sp.entities.Light:
+    def create_light(
+        self, light_name: str, energy: float, type: str = "POINT"
+    ) -> sp.entities.Light:
         import bpy
 
         light = sp.entities.Light.create(light_name, energy, type)
@@ -395,12 +403,12 @@ class Scene(sp.observers.Observable):
 
     def export_blend(self, filepath: Path = Path("scene.blend")) -> None:
         import bpy
-        import simpose.register_addon
+        #import simpose.register_addon
 
-        register_script = simpose.register_addon.__file__
-        bpy.ops.script.python_file_run(filepath=str(register_script))
+        # this does not work atm
+        # register_script = simpose.register_addon.__file__
+        # bpy.ops.script.python_file_run(filepath=str(register_script))
 
-        self._bl_scene.render.engine = "CYCLES"
         with sp.redirect_stdout():
             bpy.ops.wm.save_as_mainfile(filepath=str(filepath.resolve()))
         sp.logger.debug(f"Export scene to {filepath.resolve()}")

@@ -60,8 +60,8 @@ class Generator(ABC):
         writer = self.Writer(self.writer_params(), comm=mp.Queue())
         writer.dump_config(self.config)
 
-        all_pending_indices = writer.get_pending_indices()
-        n_datapoints = len(all_pending_indices)
+        pending_indices = writer.get_pending_indices()
+        n_datapoints = len(pending_indices)
         if n_datapoints == 0:
             sp.logger.info("No images to render.")
             return
@@ -72,14 +72,6 @@ class Generator(ABC):
             self.generator_params.n_workers, n_datapoints // self.generator_params.worker_shards
         )
 
-        # # split work into chunks of ~100 images
-        if n_datapoints > self.generator_params.worker_shards:
-            pending_indices = np.array_split(
-                all_pending_indices, n_datapoints // self.generator_params.worker_shards
-            )
-        else:
-            pending_indices = [np.array(all_pending_indices)]
-
         self._launch_parallel(self.generator_params, pending_indices, n_workers, n_datapoints)
 
         writer.post_process()
@@ -87,7 +79,7 @@ class Generator(ABC):
     def _launch_parallel(
         self,
         params: GeneratorParams,
-        pending_indices: list[np.ndarray],
+        pending_indices: np.ndarray,
         n_workers: int,
         n_datapoints: int,
     ) -> None:
@@ -106,9 +98,11 @@ class Generator(ABC):
         ] = queue.Queue()
 
         semaphores = {
-            gpu: sp.RemoteSemaphore(comm=mp.Queue(params.n_parallel_on_gpu))
+            gpu: sp.RemoteSemaphore(value=params.n_parallel_on_gpu, comm=mp.Queue())
             for gpu in params.gpus or [0]
         }
+        for s in semaphores.values():
+            s.start()
 
         def schedule_job(index_list: np.ndarray) -> None:
             active_gpu = next(active_gpus)
@@ -142,12 +136,11 @@ class Generator(ABC):
             return True
 
         # initialize job queue with all jobs
-        for index_list in pending_indices:
+        shards = np.array_split(
+            pending_indices, max(1, n_datapoints // self.generator_params.worker_shards)
+        )
+        for index_list in shards:
             schedule_job(index_list)
-
-        # start timeout semaphores
-        for s in semaphores.values():
-            s.start()
 
         # create and start workers, wait for started
         for _ in range(n_workers):
@@ -197,21 +190,23 @@ class Generator(ABC):
                 while True:
                     try:
                         bar.update(num_rendered_accumulator.get(block=False))
+                        bar.set_postfix_str(
+                            f"| queued: {job_queue.qsize()} jobs; {job_queue.qsize()*params.worker_shards} images"
+                        )
                     except queue.Empty:
                         break
-
-                bar.set_postfix_str(
-                    f"| queued: {job_queue.qsize()} jobs; {job_queue.qsize()*params.worker_shards} images"
-                )
+                time.sleep(0.1)
 
         except KeyboardInterrupt:
             # operate semaphores until all workers are done
             sp.logger.error("KeyboardInterrupt received. Please wait for workers to finish.")
             signal.signal(signal.SIGINT, signal.SIG_IGN)  # ignore from here on
-            for p in mp.active_children():
+            processes = list(mp.active_children())
+            for p in processes:
                 p.terminate()
             # keep operating semaphores until all workers are done
-            while any([p.is_alive() for p in mp.active_children()]):
+            while any([p.is_alive() for p in processes]):
+                time.sleep(1.0)
                 for s in semaphores.values():
                     s.run()
 

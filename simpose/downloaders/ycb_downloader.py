@@ -51,7 +51,6 @@ class YCBDownloader(Downloader):
         with open(filename, "wb") as F:
             r = requests.get(url, allow_redirects=True)
             F.write(r.content)
-        # print(f"Downloaded {url}")
 
     def tgz_url(self, base_url: str, object: str, type: str) -> str:
         if type in ["berkeley_rgbd", "berkeley_rgb_highres"]:

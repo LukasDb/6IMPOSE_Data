@@ -23,7 +23,7 @@ class AppearanceRandomizerConfig(RandomizerConfig):
         }
 
 
-@register_operator(cls_params=AppearanceRandomizerConfig)
+#@register_operator(cls_params=AppearanceRandomizerConfig)
 class AppearanceRandomizer(Randomizer):
     def __init__(
         self,

@@ -3,13 +3,14 @@ from setuptools import setup, find_packages
 package_list = [
     "silence_tensorflow",
     "tqdm",
-    "bpy==3.6",
+    "bpy==4.0",
     "fake-bpy-module-latest",
     "scipy",
     "click",
     "pybullet",
     "coloredlogs",
     "streamlit",
+    "streamlit-image-comparison",
     "openexr",
     "pydantic",
     "pyyaml",
@@ -25,7 +26,7 @@ except ImportError:
 
 setup(
     name="simpose",
-    version="1.2.0",
+    version="1.3.0",
     description="Synthetic Image Generator based on Blender",
     url="https://github.com/LukasDb/6IMPOSE_Data",
     author="Lukas Dirnberger",

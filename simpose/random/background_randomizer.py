@@ -15,7 +15,7 @@ class BackgroundRandomizerConfig(RandomizerConfig):
         }
 
 
-@register_operator(cls_params=BackgroundRandomizerConfig)
+#@register_operator(cls_params=BackgroundRandomizerConfig)
 class BackgroundRandomizer(Randomizer):
     def __init__(
         self,

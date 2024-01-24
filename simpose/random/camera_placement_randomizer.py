@@ -25,7 +25,7 @@ class CameraPlacementRandomizerConfig(RandomizerConfig):
         }
 
 
-@register_operator(cls_params=CameraPlacementRandomizerConfig)
+#@register_operator(cls_params=CameraPlacementRandomizerConfig)
 class CameraPlacementRandomizer(Randomizer):
     def __init__(self, params: CameraPlacementRandomizerConfig):
         super().__init__(params)

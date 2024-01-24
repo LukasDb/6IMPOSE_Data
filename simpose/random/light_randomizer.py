@@ -24,7 +24,7 @@ class LightRandomizerConfig(RandomizerConfig):
         }
 
 
-@register_operator(cls_params=LightRandomizerConfig)
+#@register_operator(cls_params=LightRandomizerConfig)
 class LightRandomizer(Randomizer):
     def __init__(self, params: LightRandomizerConfig):
         super().__init__(params)

@@ -88,7 +88,7 @@ def main(data_dir: Path) -> None:
 
     st.header(f"Datapoint: #{idx:05} (of total {len(indices)} images)")
 
-    assert isinstance(idx, int), f"Got {type(idx)} instead"
+    assert isinstance(idx, np.int64), f"Got {type(idx)} instead"
 
     data = load_data(Path(img_dir), idx, use_bbox=use_bbox, use_pose=use_pose)
 
@@ -196,16 +196,13 @@ def create_visualization(
         # bbox
         if use_bbox:
             bbox = obj_data["bbox_visib"]
-            # bbox_size = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
-            # "visib_fract": visib_fract,
-            if obj_data["visib_fract"] > 0.1:
-                bgr = cv2.rectangle(
-                    bgr.copy(),
-                    (bbox[0], bbox[1]),
-                    (bbox[2], bbox[3]),
-                    color=cls_colors[cls],
-                    thickness=2,
-                )
+            bgr = cv2.rectangle(
+                bgr.copy(),
+                (bbox[0], bbox[1]),
+                (bbox[2], bbox[3]),
+                color=cls_colors[cls],
+                thickness=2,
+            )
 
         if use_pose:
             obj_pos = np.array(obj_data["pos"])

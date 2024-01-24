@@ -17,7 +17,7 @@ class CameraFrustumRandomizerConfig(RandomizerConfig):
         }
 
 
-@register_operator(cls_params=CameraFrustumRandomizerConfig)
+#@register_operator(cls_params=CameraFrustumRandomizerConfig)
 class CameraFrustumRandomizer(Randomizer):
     def __init__(
         self,

@@ -90,7 +90,7 @@ class Object(Placeable):
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with sp.redirect_stdout():
-            bpy.ops.import_scene.obj(filepath=str(filepath.resolve()), use_split_objects=False)  # type: ignore
+            bpy.ops.wm.obj_import(filepath=str(filepath.resolve()), use_split_objects=False)  # type: ignore
         try:
             bl_object = list(bpy.context.selected_objects)[0]
         except IndexError:
@@ -197,7 +197,8 @@ class Object(Placeable):
         # clear selection
         bpy.ops.object.select_all(action="DESELECT")
         with sp.redirect_stdout():
-            bpy.ops.import_mesh.ply(filepath=str(filepath.resolve()))  # type: ignore
+            # BPY <4.0bpy.ops.import_mesh.ply(filepath=str(filepath.resolve()))  # type: ignore
+            bpy.ops.wm.ply_import(filepath=str(filepath.resolve()))  # type: ignore
         try:
             bl_object: bpy.types.Object = list(bpy.context.selected_objects)[0]
         except IndexError:

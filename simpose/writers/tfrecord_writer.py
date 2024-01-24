@@ -65,9 +65,10 @@ class TFRecordWriter(Writer):
 
         mask_path = Path(self.output_dir / f"mask/mask_{dataset_index:04}.exr")
         mask = EXR(mask_path).read("visib.R")
+
         # for each object, deactivate all but one and render mask
         # only for labelled objects we have a mask
-        objs = scene.get_labelled_objects()
+        objs = scene.get_active_objects()
         obj_list = []
         for obj in objs:
             px_count_visib = np.count_nonzero(mask == obj.object_id)
@@ -77,13 +78,14 @@ class TFRecordWriter(Writer):
             px_count_valid = 0.0
             visib_fract = 0.0
 
-            obj_mask = EXR(mask_path).read(f"{obj.object_id:04}.R")
-
-            bbox_obj = self._get_bbox(obj_mask, 1)
-            px_count_all = np.count_nonzero(obj_mask == 1)
-            px_count_valid = np.count_nonzero(depth[mask == obj.object_id])
-            if px_count_all != 0:
-                visib_fract = px_count_visib / px_count_all
+            if obj.has_semantics:
+                # for fully labelled objects, get additional data
+                obj_mask = EXR(mask_path).read(f"{obj.object_id:04}.R")
+                bbox_obj = self._get_bbox(obj_mask, 1)
+                px_count_all = np.count_nonzero(obj_mask == 1)
+                px_count_valid = np.count_nonzero(depth[mask == obj.object_id])
+                if px_count_all != 0:
+                    visib_fract = px_count_visib / px_count_all
 
             obj_list.append(
                 {
@@ -170,7 +172,6 @@ class TFRecordWriter(Writer):
             self._writers["depth"].write(serialized_depths)
         sp.logger.debug("Written to tfrecord.")
 
-        # here I could clean up the temporary files
         self.remove_temporary_files(dataset_index)
         sp.logger.debug("Temporary files removed.")
 
