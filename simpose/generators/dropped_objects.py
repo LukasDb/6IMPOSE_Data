@@ -224,8 +224,7 @@ class DroppedObjects(Generator):
 
             main_objs.append(main_obj)
 
-        if is_primary_worker:
-            scene.export_meshes(writer.output_dir / "meshes")
+        scene.export_meshes(writer.output_dir / "meshes")
 
         for obj in main_objs:
             obj.hide()

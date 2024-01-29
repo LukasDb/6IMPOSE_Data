@@ -236,6 +236,10 @@ class Object(Placeable):
         """export mesh as ply file"""
         import bpy
 
+        out_path = output_dir.joinpath(f"{self.get_class()}.ply")
+        if out_path.exists():
+            return
+
         output_dir.mkdir(parents=True, exist_ok=True)
         bpy.ops.object.select_all(action="DESELECT")
         self._bl_object.select_set(True)
@@ -246,7 +250,7 @@ class Object(Placeable):
                 self.set_location((0, 0, 0))
                 self.set_rotation(R.from_euler("x", 0, degrees=True))
                 bpy.ops.export_mesh.ply(  # type: ignore
-                    filepath=str(output_dir / f"{self.get_class()}.ply"),
+                    filepath=str(out_path),
                     use_selection=True,
                     use_normals=True,
                     use_uv_coords=False,
@@ -258,7 +262,7 @@ class Object(Placeable):
                 self.set_location(old_loc)
                 self.set_rotation(old_rot)
 
-        sp.logger.info("Exported mesh to " + str(output_dir / f"{self.get_class()}.ply"))
+        sp.logger.info("Exported mesh to " + str(out_path))
 
     @staticmethod
     def _export_collision_mesh(
