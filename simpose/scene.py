@@ -109,7 +109,6 @@ class Scene(sp.observers.Observable):
             if not with_export:
                 continue
             self._apply_simulation()
-            self.export_blend()
 
     def _apply_simulation(self) -> None:
         """applies pose of physics simulation to blender scene"""
