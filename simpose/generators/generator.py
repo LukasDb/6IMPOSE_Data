@@ -152,15 +152,16 @@ class Generator(ABC):
 
         finished = False
         bar = tqdm(total=n_datapoints, disable=False)
-        is_dead = lambda x: x not in running_workers
 
         while not finished:
             # operate semaphores, reschedule job on timeout
             for s in semaphores.values():
                 s.run()
 
+            running_workers = list([p.name for p in mp.active_children()])
+
             # check dead workers
-            for proc_name in [x for x in current_jobs.keys() if is_dead(x)]:
+            for proc_name in [x for x in current_jobs.keys() if x not in running_workers]:
                 for s in [x for x in semaphores.values() if x.is_acquired(proc_name)]:
                     # release semaphore
                     sp.logger.error(f"{proc_name} died. Releasing {s} and rescheduling.")
@@ -180,12 +181,11 @@ class Generator(ABC):
             # 3) all workers are done
 
             # 1) check if all semaphores are released ==  # all are not acquired
-            running_workers = list([p.name for p in mp.active_children()])
 
             finished = (
                 all([not s.is_acquired() for s in semaphores.values()])
                 and job_queue.empty()
-                and all(is_dead(n) for n in current_jobs.keys())
+                and all(n not in running_workers for n in current_jobs.keys())
             )
 
             # empty accumulator and update progress
