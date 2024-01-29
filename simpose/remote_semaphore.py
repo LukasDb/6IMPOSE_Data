@@ -101,7 +101,13 @@ class RemoteSemaphore:
                 self._comm.put(signal)
                 continue
 
-            if signal["type"] == SignalType.REQUEST_ACQUIRE and self._value > 0:
+            if signal["type"] == SignalType.REQUEST_ACQUIRE:
+                # ignore request for now
+                if self._value <= 0:
+                    # put back
+                    self._comm.put(signal)
+                    continue
+
                 self._value -= 1
                 self._comm.put(
                     {
@@ -121,17 +127,19 @@ class RemoteSemaphore:
         # 3) check if timed out and kill process
         terminated: list[str] = []
         for name, t_started in dict(self._timers).items():
-            if self._timeout is not None and (time.time() - t_started) > self._timeout:
-                # semaphore timed out -> allow new acquire
-                proc = [p for p in mp.active_children() if p.name == name]
-                sp.logger.error(f"Semaphore timed out for {name}. Terminating process.")
-                if len(proc) == 1:
-                    # kill if found (otherwise it's already dead)
-                    proc[0].kill()
+            if self._timeout is None or (time.time() - t_started) < self._timeout:
+                continue
 
-                self._value += 1
-                self._timers.pop(name)  # remove timer
+            # semaphore timed out -> allow new acquire
+            proc = [p for p in mp.active_children() if p.name == name]
+            sp.logger.error(f"Semaphore timed out for {name}. Terminating process.")
+            if len(proc) == 1:
+                # kill if found (otherwise it's already dead)
+                proc[0].kill()
 
-                terminated.append(name)
+            self._value += 1
+            self._timers.pop(name)  # remove timer
+
+            terminated.append(name)
 
         return terminated

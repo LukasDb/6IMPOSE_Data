@@ -56,7 +56,10 @@ class Generator(ABC):
         )
 
     def start(self) -> None:
-        mp.set_start_method("spawn")
+        try:
+            mp.set_start_method("spawn")
+        except RuntimeError:
+            pass
         writer = self.Writer(self.writer_params(), comm=mp.Queue())
         writer.dump_config(self.config)
 
@@ -150,65 +153,51 @@ class Generator(ABC):
         finished = False
         bar = tqdm(total=n_datapoints, disable=False)
 
-        try:
-            while not finished:
-                # operate semaphores, reschedule job on timeout
-                for s in semaphores.values():
-                    s.run()
+        while not finished:
+            # operate semaphores, reschedule job on timeout
+            for s in semaphores.values():
+                s.run()
 
-                # finished when:
-                # 1) all semaphores released
-                # 2) no more scheduled jobs in queue
-                # 3) all workers are done
+            # check dead workers
+            for proc_name in [x for x in current_jobs.keys() if is_dead(x)]:
+                for s in [x for x in semaphores.values() if x.is_acquired(proc_name)]:
+                    # release semaphore
+                    sp.logger.error(f"{proc_name} died. Releasing {s} and rescheduling.")
+                    s.release(proc_name)
+                    # reschedule job (since worker did not release)
+                    schedule_job(current_jobs[proc_name])
 
-                # 1) check if all semaphores are released ==  # all are not acquired
-                running_workers = list([p.name for p in mp.active_children()])
-                is_dead = lambda x: x not in running_workers
+                # remove from current jobs
+                current_jobs.pop(proc_name)
 
-                finished = (
-                    all([not s.is_acquired() for s in semaphores.values()])
-                    and job_queue.empty()
-                    and all(is_dead(n) for n in current_jobs.keys())
-                )
+                # in any case try to launch a new worker for each dead worker
+                launch_worker()
 
-                # check dead workers
-                for proc_name in [x for x in current_jobs.keys() if is_dead(x)]:
-                    for s in [x for x in semaphores.values() if x.is_acquired(proc_name)]:
-                        # release semaphore
-                        sp.logger.error(f"{proc_name} died. Releasing {s} and rescheduling.")
-                        s.release(proc_name)
-                        # reschedule job (since worker did not release)
-                        schedule_job(current_jobs[proc_name])
+            # finished when:
+            # 1) all semaphores released
+            # 2) no more scheduled jobs in queue
+            # 3) all workers are done
 
-                    # remove from current jobs
-                    current_jobs.pop(proc_name)
+            # 1) check if all semaphores are released ==  # all are not acquired
+            running_workers = list([p.name for p in mp.active_children()])
+            is_dead = lambda x: x not in running_workers
 
-                    # in any case try to launch a new worker for each dead worker
-                    launch_worker()
+            finished = (
+                all([not s.is_acquired() for s in semaphores.values()])
+                and job_queue.empty()
+                and all(is_dead(n) for n in current_jobs.keys())
+            )
 
-                # empty accumulator and update progress
-                while True:
-                    try:
-                        bar.update(num_rendered_accumulator.get(block=False))
-                        bar.set_postfix_str(
-                            f"| queued: {job_queue.qsize()} jobs; {job_queue.qsize()*params.worker_shards} images"
-                        )
-                    except queue.Empty:
-                        break
-                time.sleep(0.1)
-
-        except KeyboardInterrupt:
-            # operate semaphores until all workers are done
-            sp.logger.error("KeyboardInterrupt received. Please wait for workers to finish.")
-            signal.signal(signal.SIGINT, signal.SIG_IGN)  # ignore from here on
-            processes = list(mp.active_children())
-            for p in processes:
-                p.terminate()
-            # keep operating semaphores until all workers are done
-            while any([p.is_alive() for p in processes]):
-                time.sleep(1.0)
-                for s in semaphores.values():
-                    s.run()
+            # empty accumulator and update progress
+            while True:
+                try:
+                    bar.update(num_rendered_accumulator.get(block=False))
+                    bar.set_postfix_str(
+                        f"| queued: {job_queue.qsize()} jobs; {job_queue.qsize()*params.worker_shards} images"
+                    )
+                except queue.Empty:
+                    break
+            time.sleep(0.1)
 
         sp.logger.info("All workers finished.")
         bar.close()
