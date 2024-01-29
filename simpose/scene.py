@@ -155,8 +155,6 @@ class Scene(sp.observers.Observable):
                 sp.logger.debug(f"Rendering left to {self.output_dir}")
                 bpy.ops.render.render(write_still=False)
 
-            self.export_blend(Path("scene_rgb.blend"))  # HACK
-
             # render mask into a single EXR using eevee
             # enable all view layers except ViewLayer
             for layer in self._bl_scene.view_layers:
@@ -403,7 +401,8 @@ class Scene(sp.observers.Observable):
 
     def export_blend(self, filepath: Path = Path("scene.blend")) -> None:
         import bpy
-        #import simpose.register_addon
+
+        # import simpose.register_addon
 
         # this does not work atm
         # register_script = simpose.register_addon.__file__

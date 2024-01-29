@@ -57,8 +57,7 @@ class RemoteSemaphore:
         name = self.name if process_name is None else process_name
 
         self._request(SignalType.REQUEST_RELEASE, name)
-
-        sp.logger.debug(f"{process_name} released {self}")
+        sp.logger.debug(f"{name} released {self}")
 
     def _request(self, request_type: str, sender: str) -> None:
         self._comm.put({"type": request_type, "sender": sender, "receiver": self.MAIN})
