@@ -93,13 +93,20 @@ class Writer(ABC):
         """determine which indices to generate according the current config"""
         pass
 
-    def write_data(self, scene: sp.Scene, dataset_index: int) -> None:
+    def write_data(
+        self,
+        dataset_index: int,
+        *,
+        scene: sp.Scene | None = None,
+        render_product: sp.RenderProduct | None = None,
+    ) -> None:
         """dont allow CTRl+C during data generation"""
-        scene.set_output_path(self.output_dir)
+        if scene is not None:
+            scene.set_output_path(self.output_dir)
 
         with DelayedKeyboardInterrupt(dataset_index, on_term=lambda: self._cleanup(dataset_index)):
             try:
-                self._write_data(scene, dataset_index)
+                self._write_data(dataset_index, scene=scene, render_product=render_product)
                 if self.q_rendered is not None:
                     self.q_rendered.put(1)
             except Exception as e:
@@ -113,7 +120,13 @@ class Writer(ABC):
         pass
 
     @abstractmethod
-    def _write_data(self, scene: sp.Scene, dataset_index: int) -> None:
+    def _write_data(
+        self,
+        dataset_index: int,
+        *,
+        scene: sp.Scene | None,
+        render_product: sp.RenderProduct | None,
+    ) -> None:
         pass
 
     @abstractmethod

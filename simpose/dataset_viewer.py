@@ -7,7 +7,6 @@ from scipy.spatial.transform import Rotation as R
 from pathlib import Path
 import streamlit as st
 import click
-import h5py
 import time
 import simpose as sp
 
@@ -17,22 +16,6 @@ import tensorflow as tf
 
 @st.cache_data()
 def get_idx(img_dir: Path) -> np.ndarray | list[int]:
-    if (img_dir / "data.h5").exists():
-        # h5 dataset
-        F = None
-        with st.spinner("Waiting for free h5 file..."):
-            while F is None:
-                try:
-                    F = h5py.File(img_dir / "data.h5", "r")
-                except BlockingIOError:
-                    time.sleep(0.01)
-
-        existing_ids = F["indices"]
-        assert isinstance(existing_ids, h5py.Dataset)
-        existing_ids = np.unique(existing_ids)
-        F.close()
-        return existing_ids
-
     if len(list((img_dir / "rgb").glob("*.tfrecord"))) > 0:
         # tfrecord dataset
         end_indices = [
@@ -191,7 +174,7 @@ def create_visualization(
         # semantic
         cls = obj_data["class"]
         cls_colors.setdefault(cls, np.random.randint(0, 256, size=3).astype(np.uint8).tolist())
-        colored_semantic_mask_bgr[mask == obj_data["object id"]] = cls_colors[cls]
+        colored_semantic_mask_bgr[mask == obj_data["obj_id"]] = cls_colors[cls]
 
         # bbox
         if use_bbox:
@@ -239,7 +222,7 @@ def create_visualization(
 
 
 def load_data(
-    img_dir: Path, idx: int, use_bbox: bool = False, use_pose: bool = False
+    img_dir: Path, idx: np.int64, use_bbox: bool = False, use_pose: bool = False
 ) -> dict[str, np.ndarray]:
     if st.session_state["last_idx"] != idx or "loaded_data" not in st.session_state:
         st.session_state["last_idx"] = idx
@@ -295,7 +278,7 @@ def load_data(
         objs_data = [
             {
                 "class": cls,
-                "object id": obj_id,
+                "obj_id": obj_id,
                 "pos": pos,
                 "rotation": rot,
                 "bbox_visib": bbox_visib,
@@ -364,7 +347,7 @@ def load_data(
 #     assert isinstance(objs, h5py.Group)
 
 #     cls_ds = objs["class"]
-#     id_ds = objs["object id"]
+#     id_ds = objs["obj_id"]
 #     pos_ds = objs["pos"]
 #     rot_ds = objs["rotation"]
 #     bbox_ds = objs["bbox_visib"]
@@ -380,7 +363,7 @@ def load_data(
 #     objs_data = [
 #         {
 #             "class": cls_ds[i],
-#             "object id": id_ds[i],
+#             "obj_id": id_ds[i],
 #             "pos": pos_ds[i],
 #             "rotation": rot_ds[i],
 #             "bbox_visib": bbox_ds[i],

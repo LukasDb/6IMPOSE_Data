@@ -192,7 +192,9 @@ class DroppedObjects(Generator):
         for randomizer in randomizers.values():
             randomizer.listen_to(scene)
 
-        cfg = RandomImagePickerConfig(img_dir=p.floor_textures_dir, trigger=sp.observers.Event.BEFORE_RENDER)
+        cfg = RandomImagePickerConfig(
+            img_dir=p.floor_textures_dir, trigger=sp.observers.Event.BEFORE_RENDER
+        )
         randimages = RandomImagePicker(cfg)
         randimages.listen_to(scene)
         randimages.randomize_plane(plane)
@@ -237,7 +239,7 @@ class DroppedObjects(Generator):
                 scene.step_physics(p.time_step)
 
                 for _ in range(p.num_camera_locations):
-                    writer.write_data(scene, indices[i])
+                    writer.write_data(indices[i], scene=scene)
 
                     # if i == 0 and debug:
                     #     scene.export_blend()

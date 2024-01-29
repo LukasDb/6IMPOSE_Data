@@ -91,7 +91,7 @@ For each datapoint, `gt_<datapoint_index>.json` contains the following informati
 - `"cam_matrix"`: intrinsic camera matrix in OpenCV format
 - `"objs"`: List of labels for all objects in this datapoint:
     - `"class"`: class name as a string, derived from the object filename
-    - `"object id"`: instance id as `int`, unique for all objects, only valid for current datapoint
+    - `"obj_id"`: instance id as `int`, unique for all objects, only valid for current datapoint
     - `"pos"`: object position in world frame [x,y,z]
     - `"rotation"`: quaternion in world frame [x,y,z,w]
     - `"bbox_visib"`: [x1,y1,x2,y2] in absolute pixels, bounding box of visible object
@@ -102,7 +102,7 @@ For each datapoint, `gt_<datapoint_index>.json` contains the following informati
     - `"visib_fract"`: px_count_visib / px_count_all (or 0.)
 
 If `render_object_masks = False`:
-There will be no rendered masks without occlusions `masks/mask_<object id>_<datapoint_index>.exr` and `"px_count_all"` and `"visib_fract"` will be `0.0`, and `"bbox_obj"` will be `[0, 0, 0, 0]` for all objects.
+There will be no rendered masks without occlusions `masks/mask_<obj_id>_<datapoint_index>.exr` and `"px_count_all"` and `"visib_fract"` will be `0.0`, and `"bbox_obj"` will be `[0, 0, 0, 0]` for all objects.
 
 
 ## Included Dataset Reader

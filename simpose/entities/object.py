@@ -249,14 +249,12 @@ class Object(Placeable):
             try:
                 self.set_location((0, 0, 0))
                 self.set_rotation(R.from_euler("x", 0, degrees=True))
-                bpy.ops.export_mesh.ply(  # type: ignore
+                bpy.ops.wm.ply_export(  # type: ignore
                     filepath=str(out_path),
-                    use_selection=True,
-                    use_normals=True,
-                    use_uv_coords=False,
-                    use_colors=False,
-                    use_mesh_modifiers=False,
-                    use_ascii=False,
+                    export_selected_objects=True,
+                    export_normals=True,
+                    apply_modifiers=False,
+                    ascii_format=False,
                 )
             finally:
                 self.set_location(old_loc)

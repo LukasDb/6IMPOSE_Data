@@ -20,6 +20,7 @@ coloredlogs.install(
     reconfigure=False,
 )
 
+from simpose.render_product import RenderProduct, ObjectAnnotation
 from simpose.exr import EXR
 from simpose.remote_semaphore import RemoteSemaphore
 from simpose.redirect_stdout import redirect_stdout

@@ -1,10 +1,11 @@
 import contextlib
 import yaml
-
 import numpy as np
 import time
 from pathlib import Path
-
+import cv2
+from PIL import Image
+from .exr import EXR
 import simpose as sp
 
 from typing import TYPE_CHECKING, ContextManager
@@ -118,7 +119,152 @@ class Scene(sp.observers.Observable):
             except KeyError:
                 pass
 
-    def render(self, gpu_semaphore: ContextManager = contextlib.nullcontext()) -> None:
+    def render(self, gpu_semaphore: ContextManager = contextlib.nullcontext()) -> sp.RenderProduct:
+        """renders Blender scene and returns a RenderProduct object"""
+        self.bpy_render(gpu_semaphore)
+
+        index = self._bl_scene.frame_current
+
+        rgb_path = Path(self.output_dir, "rgb", f"rgb_{index:04}.png")
+        rgb_R_path = Path(self.output_dir, "rgb", f"rgb_{index:04}_R.png")
+        depth_path = Path(self.output_dir, "depth", f"depth_{index:04}.exr")
+        depth_R_path = Path(self.output_dir, "depth", f"depth_{index:04}_R.exr")
+        mask_path = Path(self.output_dir / f"mask/mask_{index:04}.exr")
+
+        rgb = None if not rgb_path.exists() else np.array(Image.open(str(rgb_path)))
+        rgb_R = None if not rgb_R_path.exists() else np.array(Image.open(str(rgb_R_path)))
+
+        if depth_path.exists():
+            depth = np.array(
+                cv2.imread(
+                    str(depth_path),
+                    cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
+                )
+            )[..., 0].astype(np.float32)
+            depth[depth > 100.0] = 0.0
+        else:
+            depth = None
+
+        if depth_R_path.exists():
+            depth_R = np.array(
+                cv2.imread(
+                    str(depth_R_path),
+                    cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
+                )
+            )[..., 0].astype(np.float32)
+            depth_R[depth_R > 100.0] = 0.0
+        else:
+            depth_R = None
+
+        if mask_path.exists():
+            mask = EXR(mask_path).read("visib.R")
+        else:
+            mask = None
+
+        cam = self.get_cameras()[0]  # TODO in the future save all cameras
+        cam_pos = cam.location
+        cam_rot = cam.rotation.as_quat()
+        cam_matrix = cam.calculate_intrinsics(self.resolution_x, self.resolution_y)
+
+        # for each object, deactivate all but one and render mask
+        # only for labelled objects we have a mask
+        obj_annotations: list[sp.ObjectAnnotation] = []
+        objs = self.get_active_objects()
+        for obj in objs:
+            px_count_visib = np.count_nonzero(mask == obj.object_id)
+            bbox_visib = (0, 0, 0, 0) if mask is None else self._get_bbox(mask, obj.object_id)
+            bbox_obj = (0, 0, 0, 0)
+            px_count_all = 0
+            px_count_valid = 0
+            visib_fract = 0.0
+
+            if obj.has_semantics:
+                # for fully labelled objects, get additional data
+                obj_mask = EXR(mask_path).read(f"{obj.object_id:04}.R")
+                bbox_obj = self._get_bbox(obj_mask, 1)
+                px_count_all = np.count_nonzero(obj_mask == 1)
+                px_count_valid = (
+                    0
+                    if mask is None or depth is None
+                    else np.count_nonzero(depth[mask == obj.object_id])
+                )
+                if px_count_all != 0:
+                    visib_fract = px_count_visib / px_count_all
+
+            annotation = sp.ObjectAnnotation(
+                cls=obj.get_class(),
+                object_id=obj.object_id,
+                position=obj.location,
+                quat_xyzw=obj.rotation.as_quat(canonical=False),
+                bbox_visib=bbox_visib,
+                bbox_obj=bbox_obj,
+                px_count_visib=px_count_visib,
+                px_count_valid=px_count_valid,
+                px_count_all=px_count_all,
+                visib_fract=visib_fract,
+            )
+            obj_annotations.append(annotation)
+
+        stereo_baseline = None if not cam.is_stereo_camera() else cam.baseline
+
+        self.remove_temporary_files(index)  # here?
+        return sp.RenderProduct(
+            rgb=rgb,
+            rgb_R=rgb_R,
+            depth=depth,
+            depth_R=depth_R,
+            mask=mask,
+            objs=obj_annotations,
+            cam_position=cam_pos,
+            cam_quat_xyzw=cam_rot,
+            intrinsics=cam_matrix,
+            stereo_baseline=stereo_baseline,
+        )
+
+    def remove_temporary_files(self, dataset_index: int) -> None:
+        output_dir = Path(self.output_node.base_path)
+
+        rgb_path = output_dir / "rgb" / f"rgb_{dataset_index:04}.png"
+        if rgb_path.exists():
+            sp.logger.debug(f"Removing {rgb_path}")
+            rgb_path.unlink()
+
+        rgb_R_path = output_dir / "rgb" / f"rgb_{dataset_index:04}_R.png"
+        if rgb_R_path.exists():
+            sp.logger.debug(f"Removing {rgb_R_path}")
+            rgb_R_path.unlink()
+
+        mask_path = output_dir / "mask" / f"mask_{dataset_index:04}.exr"
+        if mask_path.exists():
+            sp.logger.debug(f"Removing {mask_path}")
+            mask_path.unlink()
+
+        depth_path = output_dir / "depth" / f"depth_{dataset_index:04}.exr"
+        if depth_path.exists():
+            sp.logger.debug(f"Removing {depth_path}")
+            depth_path.unlink()
+
+        depth_R_path = output_dir / "depth" / f"depth_{dataset_index:04}_R.exr"
+        if depth_R_path.exists():
+            sp.logger.debug(f"Removing {depth_R_path}")
+            depth_R_path.unlink()
+
+        mask_paths = (output_dir / "mask").glob(f"mask_*_{dataset_index:04}.exr")
+        for mask_path in mask_paths:
+            sp.logger.debug(f"Removing {mask_path}")
+            mask_path.unlink()
+
+    def _get_bbox(self, mask: np.ndarray, object_id: int) -> tuple[int, int, int, int]:
+        y, x = np.where(mask == object_id)
+        if len(y) == 0:
+            return (0, 0, 0, 0)
+        x1 = np.min(x).tolist()
+        x2 = np.max(x).tolist()
+        y1 = np.min(y).tolist()
+        y2 = np.max(y).tolist()
+        return (x1, y1, x2, y2)
+
+    def bpy_render(self, gpu_semaphore: ContextManager = contextlib.nullcontext()) -> None:
         import bpy
 
         self.notify(sp.observers.Event.BEFORE_RENDER)
