@@ -283,6 +283,7 @@ class Scene(sp.observers.Observable):
             if camera.is_stereo_camera():
                 self._bl_scene.camera = camera.right_camera
                 with sp.redirect_stdout():
+                    sp.logger.debug(f"Rendering right to {self.output_dir}")
                     bpy.ops.render.render(write_still=False)
                 # rename rendered depth and rgb with suffix _R
                 rgb_path = self.output_dir / "rgb" / f"rgb_{self._bl_scene.frame_current:04}.png"
@@ -312,6 +313,7 @@ class Scene(sp.observers.Observable):
             bpy.context.scene.render.engine = "BLENDER_EEVEE"
 
             with sp.redirect_stdout():
+                sp.logger.debug(f"Rendering masks to {self.output_dir}")
                 bpy.ops.render.render(write_still=False)
 
         self.notify(sp.observers.Event.AFTER_RENDER)

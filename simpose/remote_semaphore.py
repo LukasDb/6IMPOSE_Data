@@ -25,6 +25,7 @@ class RemoteSemaphore:
         timeout: float | None = None,
     ):
         self._comm: mpq.Queue[dict] = comm
+        self._signal_queue: queue.Queue[dict] = queue.Queue()
         self._timeout = timeout
         self._start_value = value
         self._value = value
@@ -50,6 +51,7 @@ class RemoteSemaphore:
         sp.logger.debug(f"{self.name} wants to acquire {self}")
         self._request(SignalType.REQUEST_ACQUIRE, self.name)
         self._confirm(SignalType.GRANTED_ACQUIRE)
+        sp.logger.debug(f"{self.name} acquired {self}")
 
     def release(self, process_name: str | None = None) -> None:
         """if this is not called, eventually the semaphore will time out
@@ -63,14 +65,14 @@ class RemoteSemaphore:
         self._comm.put({"type": request_type, "sender": sender, "receiver": self.MAIN})
 
     def _confirm(self, grant_type: str) -> None:
-        while True:
+        granted = False
+        while not granted:
             signal = self._comm.get()
             if signal["receiver"] == self.name and signal["type"] == grant_type:
-                break
+                granted = True
             else:
                 # put back
                 self._comm.put(signal)
-                time.sleep(0.1)
 
     def is_acquired(self, process_name: str | None = None) -> bool:
         """non blocking check if semaphore is acquired (by any other process, or a specific one)"""
@@ -85,26 +87,31 @@ class RemoteSemaphore:
         detected the respective worker is terminated. A list of the
         terminated mp.Process.name is returned"""
 
-        # 1) capture all pending signals
-        captured_signal: list[dict] = []
+        # drain signals into private queue
         while True:
             try:
-                captured_signal.append(self._comm.get(block=False))  # non blocking
+                signal = self._comm.get(block=False)
+                self._signal_queue.put(signal)
             except queue.Empty:
                 break
 
-        # 2) process captured signals
-        for signal in captured_signal:
-            if signal["receiver"] != self.MAIN:
-                # put back
+        signals = []
+        # put signals not for MAIN back into communication queue
+        while self._signal_queue.qsize() > 0:
+            signal = self._signal_queue.get()
+            if signal["receiver"] == self.MAIN:
+                signals.append(signal)
+            else:
                 self._comm.put(signal)
-                continue
 
+        # process the signals (put back in private queue if not ready yet)
+        for signal in signals:
             if signal["type"] == SignalType.REQUEST_ACQUIRE:
                 # ignore request for now
                 if self._value <= 0:
                     # put back
-                    self._comm.put(signal)
+                    self._signal_queue.put(signal)
+                    sp.logger.debug(f"Ignoring request from {signal['sender']} for now")
                     continue
 
                 self._value -= 1

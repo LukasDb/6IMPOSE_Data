@@ -88,7 +88,7 @@ class Generator(ABC):
     ) -> None:
         active_gpus = it.cycle(params.gpus or [0])
         num_rendered_accumulator: mp.Queue[int] = mp.Queue()
-        current_jobs: dict[str, np.ndarray] = {}
+        current_jobs: dict[mp.Process, np.ndarray] = {}
         job_queue: queue.Queue[
             tuple[
                 np.ndarray,
@@ -101,7 +101,7 @@ class Generator(ABC):
         ] = queue.Queue()
 
         semaphores = {
-            gpu: sp.RemoteSemaphore(value=params.n_parallel_on_gpu, comm=mp.Queue())
+            gpu: sp.RemoteSemaphore(value=params.n_parallel_on_gpu, comm=mp.Queue(), timeout=60.0)
             for gpu in params.gpus or [0]
         }
         for s in semaphores.values():
@@ -135,7 +135,8 @@ class Generator(ABC):
                 return False
             proc = mp.Process(target=self.process, args=new_job, daemon=True)
             proc.start()
-            current_jobs[proc.name] = new_job[0]
+            current_jobs[proc] = new_job[0]
+            sp.logger.info(f"Launched new worker: {proc.name}")
             return True
 
         # initialize job queue with all jobs
@@ -155,22 +156,25 @@ class Generator(ABC):
 
         while not finished:
             # operate semaphores, reschedule job on timeout
+            time.sleep(1.0)
             for s in semaphores.values():
                 s.run()
 
-            running_workers = list([p.name for p in mp.active_children()])
-
             # check dead workers
-            for proc_name in [x for x in current_jobs.keys() if x not in running_workers]:
-                for s in [x for x in semaphores.values() if x.is_acquired(proc_name)]:
+            for proc in list([x for x in current_jobs.keys() if x not in mp.active_children()]):
+                for s in [x for x in semaphores.values() if x.is_acquired(proc.name)]:
                     # release semaphore
-                    sp.logger.error(f"{proc_name} died. Releasing {s} and rescheduling.")
-                    s.release(proc_name)
-                    # reschedule job (since worker did not release)
-                    schedule_job(current_jobs[proc_name])
+                    sp.logger.error(f"{proc.name} died. Releasing {s} and rescheduling.")
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    s.release(proc.name)
+                    # reschedule job (since worker did not release -> likely crashed)
+                    schedule_job(current_jobs[proc])
 
                 # remove from current jobs
-                current_jobs.pop(proc_name)
+                current_jobs.pop(proc)
 
                 # in any case try to launch a new worker for each dead worker
                 launch_worker()
@@ -185,19 +189,18 @@ class Generator(ABC):
             finished = (
                 all([not s.is_acquired() for s in semaphores.values()])
                 and job_queue.empty()
-                and all(n not in running_workers for n in current_jobs.keys())
+                and all(n not in mp.active_children() for n in current_jobs.keys())
             )
 
             # empty accumulator and update progress
             while True:
                 try:
                     bar.update(num_rendered_accumulator.get(block=False))
-                    bar.set_postfix_str(
-                        f"| queued: {job_queue.qsize()} jobs; {job_queue.qsize()*params.worker_shards} images"
-                    )
                 except queue.Empty:
                     break
-            time.sleep(0.1)
+            bar.set_postfix_str(
+                f"| queued: {job_queue.qsize()} jobs | current: {[x.name for x in current_jobs.keys()]}"
+            )
 
         sp.logger.info("All workers finished.")
         bar.close()

@@ -169,13 +169,10 @@ class DroppedObjects(Generator):
         config: DroppedObjectsConfig,
         writer: sp.writers.Writer,
         randomizers: dict[str, sp.random.Randomizer],
-        indices: list[int],
+        indices: np.ndarray,
     ) -> None:
         p = config
         assert p.num_main_objs > 0, "num_main_objs must be > 0"
-
-        proc_name = mp.current_process().name
-        is_primary_worker = proc_name == "SpawnPoolWorker-2"
 
         # -- SCENE --
         scene = sp.Scene(img_h=p.img_h, img_w=p.img_w)
