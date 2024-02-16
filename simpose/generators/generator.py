@@ -216,7 +216,7 @@ class Generator(ABC):
         generator_config: GeneratorParams,
         randomizer_configs: dict[str, dict[str, str | dict]],
         comm: mp.Queue,
-    ) -> int:
+    ) -> None:
         import silence_tensorflow.auto
         import os
 
@@ -237,7 +237,6 @@ class Generator(ABC):
                 randomizers=randomizers,
                 indices=indices,
             )
-        return len(indices)
 
     @staticmethod
     @abstractmethod

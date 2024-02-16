@@ -11,32 +11,32 @@ import yaml
 from typing import Callable
 
 
-class DelayedKeyboardInterrupt:
-    def __init__(self, index: int, on_term: None | Callable[[], None] = None) -> None:
-        self.index = index
-        self._signals = [signal.SIGINT, signal.SIGTERM]
-        self._old_handlers = {s: signal.getsignal(s) for s in self._signals}
-        self.signal_received: None | int = None
-        self._on_term = on_term
+# class DelayedKeyboardInterrupt:
+#     def __init__(self, index: int, on_term: None | Callable[[], None] = None) -> None:
+#         self.index = index
+#         self._signals = [signal.SIGINT, signal.SIGTERM]
+#         self._old_handlers = {s: signal.getsignal(s) for s in self._signals}
+#         self.signal_received: None | int = None
+#         self._on_term = on_term
 
-    def __enter__(self) -> None:
-        for s in self._signals:
-            signal.signal(s, self.handler)
+#     def __enter__(self) -> None:
+#         for s in self._signals:
+#             signal.signal(s, self.handler)
 
-    def handler(self, sig: int, frame: Any) -> None:
-        if self.signal_received is None:
-            self.signal_received = sig
-            sp.logger.warn(f"{sig} received. Finishing rendering {self.index}...")
+#     def handler(self, sig: int, frame: Any) -> None:
+#         if self.signal_received is None:
+#             self.signal_received = sig
+#             sp.logger.warn(f"{sig} received. Finishing rendering {self.index}...")
 
-    def __exit__(self, type: Any, value: Any, traceback: Any) -> None:
-        if self.signal_received is not None and self._on_term is not None:
-            self._on_term()
+#     def __exit__(self, type: Any, value: Any, traceback: Any) -> None:
+#         if self.signal_received is not None and self._on_term is not None:
+#             self._on_term()
 
-        for s in self._signals:
-            signal.signal(s, self._old_handlers[s])
+#         for s in self._signals:
+#             signal.signal(s, self._old_handlers[s])
 
-        if self.signal_received is not None:
-            signal.raise_signal(self.signal_received)
+#         if self.signal_received is not None:
+#             signal.raise_signal(self.signal_received)
 
 
 class WriterConfig(base_config.BaseConfig):
@@ -95,17 +95,17 @@ class Writer(ABC):
         if scene is not None:
             scene.set_output_path(self.output_dir)
 
-        with DelayedKeyboardInterrupt(dataset_index, on_term=lambda: self._cleanup(dataset_index)):
-            try:
-                self._write_data(dataset_index, scene=scene, render_product=render_product)
-                if self.q_rendered is not None:
-                    self.q_rendered.put(1)
-            except Exception as e:
-                # clean up possibly corrupted data
-                sp.logger.critical(f"Error while generating data no. {dataset_index}")
-                sp.logger.critical(e)
-                self._cleanup(dataset_index)
-                raise e
+        # with DelayedKeyboardInterrupt(dataset_index, on_term=lambda: self._cleanup(dataset_index)):
+        try:
+            self._write_data(dataset_index, scene=scene, render_product=render_product)
+            if self.q_rendered is not None:
+                self.q_rendered.put(1)
+        except Exception as e:
+            # clean up possibly corrupted data
+            sp.logger.critical(f"Error while generating data no. {dataset_index}")
+            sp.logger.critical(e)
+            self._cleanup(dataset_index)
+            raise e
 
     def post_process(self) -> None:
         pass
