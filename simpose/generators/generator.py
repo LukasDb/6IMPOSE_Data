@@ -74,6 +74,7 @@ class Generator(ABC):
         n_workers = min(
             self.generator_params.n_workers, n_datapoints // self.generator_params.worker_shards
         )
+        n_workers = max(1, n_workers)
 
         self._launch_parallel(self.generator_params, pending_indices, n_workers, n_datapoints)
 
@@ -88,6 +89,7 @@ class Generator(ABC):
     ) -> None:
         active_gpus = it.cycle(params.gpus or [0])
         num_rendered_accumulator: mp.Queue[int] = mp.Queue()
+
         current_jobs: dict[mp.Process, np.ndarray] = {}
         job_queue: queue.Queue[
             tuple[
@@ -101,7 +103,7 @@ class Generator(ABC):
         ] = queue.Queue()
 
         semaphores = {
-            gpu: sp.RemoteSemaphore(value=params.n_parallel_on_gpu, comm=mp.Queue(), timeout=60.0)
+            gpu: sp.RemoteSemaphore(value=params.n_parallel_on_gpu, comm=mp.Queue(), timeout=100.0)
             for gpu in params.gpus or [0]
         }
         for s in semaphores.values():
@@ -156,7 +158,7 @@ class Generator(ABC):
 
         while not finished:
             # operate semaphores, reschedule job on timeout
-            time.sleep(1.0)
+            time.sleep(0.2)
             for s in semaphores.values():
                 s.run()
 

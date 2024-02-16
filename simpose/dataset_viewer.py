@@ -16,11 +16,14 @@ import tensorflow as tf
 
 @st.cache_data()
 def get_idx(img_dir: Path) -> np.ndarray | list[int]:
-    if len(list((img_dir / "rgb").glob("*.tfrecord"))) > 0:
+    tfrecord_dir = (
+        img_dir.joinpath("data") if img_dir.joinpath("data").exists() else img_dir.joinpath("rgb")
+    )
+
+    if len(list(tfrecord_dir.glob("*.tfrecord"))) > 0:
         # tfrecord dataset
         end_indices = [
-            int(x.stem.split(".")[0].split("_")[-1])
-            for x in Path(img_dir / "rgb").glob("*.tfrecord")
+            int(x.stem.split(".")[0].split("_")[-1]) for x in tfrecord_dir.glob("*.tfrecord")
         ]
         end_index = max(end_indices)
         return np.arange(end_index + 1)
@@ -249,7 +252,10 @@ def load_data(
                 print("LOADING H5")
                 raise NotImplementedError("H5 loading not implemented yet")
                 # loaded_data = load_data_h5(img_dir, idx)
-            elif len(list((img_dir / "rgb").glob("*.tfrecord"))) > 0:
+            elif (
+                len(list((img_dir / "rgb").glob("*.tfrecord"))) > 0
+                or len(list((img_dir / "data").glob("*.tfrecord"))) > 0
+            ):
                 print("LOADING TFRECORD")
                 tfds = sp.data.TFRecordDataset.get(img_dir, get_keys=keys)
             else:

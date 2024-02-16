@@ -65,17 +65,8 @@ class Writer(ABC):
         self.overwrite = params.overwrite
         self.start_index = params.start_index
         self.end_index = params.end_index
-        # self.gpu_semaphore = device_setup.get("gpu_semaphore", contextlib.nullcontext())
-        # comm = device_setup["gpu_semaphore"]
-
         self.gpu_semaphore: sp.RemoteSemaphore = sp.RemoteSemaphore(comm)
-
-        # self.gpu_semaphore: sp.RemoteSemaphore = sp.RemoteSemaphore(
-        #    comm=params._gpu_semaphore_comm
-        # )
         self.q_rendered: mp.Queue | None = params._q_rendered
-
-        # self.q_rendered: mp.Queue | None = device_setup.get("q_rendered", None)
 
     def __enter__(self) -> "Writer":
         return self

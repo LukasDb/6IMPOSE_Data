@@ -26,7 +26,7 @@ except ImportError:
 
 setup(
     name="simpose",
-    version="1.3.0",
+    version="1.4.0",
     description="Synthetic Image Generator based on Blender",
     url="https://github.com/LukasDb/6IMPOSE_Data",
     author="Lukas Dirnberger",
