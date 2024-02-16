@@ -157,21 +157,22 @@ class _TFRecordDatasetV1(Dataset):
                 proto = {k: tf.io.FixedLenFeature([], tf.string) for k in keys}
                 serialized = tf.io.parse_single_example(example_proto, proto)
                 return {
-                    key: tf.io.parse_tensor(serialized[key], TFRecordDataset._key_mapping[key])
+                    key: tf.io.parse_tensor(serialized[key], _TFRecordDatasetV1._key_mapping[key])
                     for key in keys
                 }
 
             return parse
 
-        chosen_keys = get_keys if get_keys is not None else TFRecordDataset._key_mapping.keys()
+        chosen_keys = get_keys if get_keys is not None else _TFRecordDatasetV1._key_mapping.keys()
         file_types = [
             x
-            for x in TFRecordDataset.all_file_keys.keys()
-            if any(k in chosen_keys for k in TFRecordDataset.all_file_keys[x])
+            for x in _TFRecordDatasetV1.all_file_keys.keys()
+            if any(k in chosen_keys for k in _TFRecordDatasetV1.all_file_keys[x])
         ]
         # file_types = ["rgb", "gt", "depth"]
         keys_per_file_type = [
-            [x for x in chosen_keys if x in TFRecordDataset.all_file_keys[t]] for t in file_types
+            [x for x in chosen_keys if x in _TFRecordDatasetV1.all_file_keys[t]]
+            for t in file_types
         ]  # [[rgb, rgb_R], [cam_matrix, obj_classes, etc], [depth]] for example
 
         parsers = {t: get_parser(keys) for t, keys in zip(file_types, keys_per_file_type)}
