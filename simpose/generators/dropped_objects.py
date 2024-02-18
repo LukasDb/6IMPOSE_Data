@@ -243,6 +243,7 @@ class DroppedObjects(Generator):
 
                     i += 1
                     if i == len(indices):
+                        sp.logger.info(f"Finished generating data {mp.current_process().name}")
                         return
 
     @staticmethod

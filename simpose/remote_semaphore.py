@@ -113,11 +113,14 @@ class RemoteSemaphore:
             except queue.Empty:
                 break
 
-
         for s in self._pending:
             if self._value > 0:
                 self.grant_acquire(s["sender"])
                 self._pending.remove(s)
+
+        # comm.put(
+        #     {"type": "finished", "sender": mp.current_process().name, "receiver": "main"}
+        # )
 
         # process the signals (put back in private queue if not ready yet)
         for signal in signals:
@@ -136,6 +139,13 @@ class RemoteSemaphore:
 
             elif signal["type"] == SignalType.REQUEST_RELEASE:
                 self.grant_release(signal["sender"])
+
+            elif signal["type"] == "finished":
+                sp.logger.info(f"Received finished signal from {signal['sender']}")
+                # find proc and terminate
+                proc = [p for p in mp.active_children() if p.name == signal["sender"]]
+                if len(proc) == 1:
+                    proc[0].kill()
 
             else:
                 raise AssertionError(f"Unknown signal type for main: {signal['type']}")

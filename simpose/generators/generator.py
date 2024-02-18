@@ -135,7 +135,7 @@ class Generator(ABC):
                 new_job = job_queue.get(block=False)
             except queue.Empty:
                 return False
-            proc = mp.Process(target=self.process, args=new_job, daemon=True)
+            proc = mp.Process(target=self.process, args=new_job, daemon=False)  # HACK was True
             proc.start()
             current_jobs[proc] = new_job[0]
             sp.logger.info(f"Launched new worker: {proc.name}")
@@ -162,8 +162,11 @@ class Generator(ABC):
             for s in semaphores.values():
                 s.run()
 
+            # update state of workers
+            # TODO the problem is: a worker will not be finished if the queue is not empty
+
             # check dead workers
-            for proc in list([x for x in current_jobs.keys() if x not in mp.active_children()]):
+            for proc in list([x for x in current_jobs.keys() if not x.is_alive()]):
                 for s in [x for x in semaphores.values() if x.is_acquired(proc.name)]:
                     # release semaphore
                     sp.logger.error(f"{proc.name} died. Releasing {s} and rescheduling.")
@@ -191,7 +194,7 @@ class Generator(ABC):
             finished = (
                 all([not s.is_acquired() for s in semaphores.values()])
                 and job_queue.empty()
-                and all(n not in mp.active_children() for n in current_jobs.keys())
+                and all(not n.is_alive() for n in current_jobs.keys())
             )
 
             # empty accumulator and update progress
@@ -201,7 +204,7 @@ class Generator(ABC):
                 except queue.Empty:
                     break
             bar.set_postfix_str(
-                f"| queued: {job_queue.qsize()} jobs | current: {[x.name for x in current_jobs.keys()]}"
+                f"| queued: {job_queue.qsize()} jobs | current: {[x.name for x in current_jobs.keys()]} | state: {[(x.is_alive(), x.exitcode) for x in current_jobs.keys() ]}"
             )
 
         sp.logger.info("All workers finished.")
@@ -237,6 +240,12 @@ class Generator(ABC):
                 randomizers=randomizers,
                 indices=indices,
             )
+            sp.logger.error(f"generate data finished {mp.current_process().name}")
+        sp.logger.error(f"exited writer, now exiting proc {mp.current_process().name}")
+
+        comm.put({"type": "finished", "sender": mp.current_process().name, "receiver": "main"})
+        raise SystemExit
+        exit(0)
 
     @staticmethod
     @abstractmethod
