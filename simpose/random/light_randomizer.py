@@ -24,7 +24,6 @@ class LightRandomizerConfig(RandomizerConfig):
         }
 
 
-#@register_operator(cls_params=LightRandomizerConfig)
 class LightRandomizer(Randomizer):
     def __init__(self, params: LightRandomizerConfig):
         super().__init__(params)
@@ -47,10 +46,15 @@ class LightRandomizer(Randomizer):
 
         for i in range(n_lights):
             energy = np.random.uniform(*self._energy_range)
-            light = scene.create_light(f"Light_{i}", type=sp.entities.Light.TYPE_AREA, energy=energy)
+            light = scene.create_light(
+                f"Light_{i}", type=sp.entities.Light.TYPE_AREA, energy=energy
+            )
             dist = np.random.uniform(*self._distance_range)
             dir = R.random().as_matrix() @ np.array([0, 0, 1])
             pos = dist * dir
+
+            if pos[2] < 0:
+                pos[2] = -pos[2]
 
             light.set_location(pos)
             light.point_at(np.array([0.0, 0.0, 0.0]))

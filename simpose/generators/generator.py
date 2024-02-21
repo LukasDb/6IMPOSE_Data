@@ -1,5 +1,4 @@
 import simpose as sp
-import signal
 import itertools as it
 from abc import ABC, abstractmethod
 import multiprocessing as mp
@@ -56,10 +55,7 @@ class Generator(ABC):
         )
 
     def start(self) -> None:
-        try:
-            mp.set_start_method("spawn")
-        except RuntimeError:
-            pass
+        mp.set_start_method("spawn", force=True)
         writer = self.Writer(self.writer_params(), comm=mp.Queue())
         writer.dump_config(self.config)
 
@@ -87,10 +83,7 @@ class Generator(ABC):
         n_workers: int,
         n_datapoints: int,
     ) -> None:
-        active_gpus = it.cycle(params.gpus or [0])
         num_rendered_accumulator: mp.Queue[int] = mp.Queue()
-
-        current_jobs: dict[mp.Process, np.ndarray] = {}
         job_queue: queue.Queue[
             tuple[
                 np.ndarray,
@@ -101,7 +94,8 @@ class Generator(ABC):
                 mpq.Queue,
             ]
         ] = queue.Queue()
-
+        current_jobs: dict[mp.Process, np.ndarray] = {}
+        active_gpus = it.cycle(params.gpus or [0])
         semaphores = {
             gpu: sp.RemoteSemaphore(value=params.n_parallel_on_gpu, comm=mp.Queue(), timeout=100.0)
             for gpu in params.gpus or [0]
@@ -155,15 +149,11 @@ class Generator(ABC):
 
         finished = False
         bar = tqdm(total=n_datapoints, disable=False)
-
         while not finished:
             # operate semaphores, reschedule job on timeout
             time.sleep(0.2)
             for s in semaphores.values():
                 s.run()
-
-            # update state of workers
-            # TODO the problem is: a worker will not be finished if the queue is not empty
 
             # check dead workers
             for proc in list([x for x in current_jobs.keys() if not x.is_alive()]):
@@ -204,11 +194,11 @@ class Generator(ABC):
                 except queue.Empty:
                     break
             bar.set_postfix_str(
-                f"| queued: {job_queue.qsize()} jobs | current: {[x.name for x in current_jobs.keys()]} | state: {[(x.is_alive(), x.exitcode) for x in current_jobs.keys() ]}"
+                f"| queued: {job_queue.qsize()} jobs | current: {[x.name for x in current_jobs.keys()]}"
             )
+        bar.close()
 
         sp.logger.info("All workers finished.")
-        bar.close()
 
     @classmethod
     def process(

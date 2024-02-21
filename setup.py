@@ -4,7 +4,6 @@ package_list = [
     "silence_tensorflow",
     "tqdm",
     "bpy==4.0",
-    "fake-bpy-module-latest",
     "scipy",
     "click",
     "pybullet",
@@ -15,6 +14,7 @@ package_list = [
     "pydantic",
     "pyyaml",
     "tensorflow",
+    "openxlab"
 ]
 
 # check if opencv-contrib-python is installed
@@ -26,7 +26,7 @@ except ImportError:
 
 setup(
     name="simpose",
-    version="1.4.0",
+    version="1.5.0",
     description="Synthetic Image Generator based on Blender",
     url="https://github.com/LukasDb/6IMPOSE_Data",
     author="Lukas Dirnberger",

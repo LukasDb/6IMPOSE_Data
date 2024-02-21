@@ -1,0 +1,107 @@
+Generator:
+  type: Dropjects
+  params:
+    n_workers: 4  # Number of worker processes
+    n_parallel_on_gpu: 1  # Number of parallel processes per GPU
+    gpus: [0]  # List of GPUs to use
+    worker_shards: 50  # Number of shards to split the work into
+    n_objects_per_scene: 50
+    n_images_per_scene: 50
+    drop_height: 1.0  # Height from which objects are dropped
+    drop_spread: 0.4  # Spread of objects when dropped (distance from origin in XY)
+    friction: 0.9  # Friction of objects
+    restitution: 0.1 # Restitution of objects
+    use_stereo: true  # Use stereo camera
+    cam_hfov: 70.0  # Camera horizontal field of view
+    cam_baseline: 0.063  # Camera baseline
+    img_w: 1920  # Image width
+    img_h: 1080  # Image height
+    floor_textures_dir: ~/data/backgrounds/  # Path to directory with textures for the floor
+    
+Writer:
+  type: TFRecordWriter
+  params:
+    output_dir: ~/data/dropjects_testing  # Path to the output directory
+    overwrite: true  # If True, overwrite existing files
+    start_index: 0  # Start index of the generated data
+    end_index: 4999  # End index of the generated data (including)
+    
+Randomizers:
+  appearance:
+    type: AppearanceRandomizer
+    params:
+      trigger: BEFORE_RENDER
+      metallic_range: 0.25  # standard deviation of the metallic value
+      roughness_range: 0.25  # standard deviation of the roughness value
+      hue_range: 0.01  # standard deviation of the hue value
+      saturation_range: 0.1  # standard deviation of the saturation value
+      value_range: 0.1  # standard deviation of the value value
+      
+  light:
+    type: LightRandomizer
+    params:
+      trigger: BEFORE_RENDER
+      no_of_lights_range:  # Range of number of lights
+      - 1
+      - 4
+      energy_range:  # Range of energy of lights
+      - 300.0
+      - 800.0
+      color_range:  # Range of color of lights
+      - 0.8
+      - 1.0
+      distance_range:  # Range of distance of lights to the origin
+      - 3.0
+      - 10.0
+      size_range:  # Range of size of the area lights
+      - 0.8
+      - 2.0
+      
+  background:
+    type: BackgroundRandomizer
+    params:
+      trigger: BEFORE_RENDER
+      backgrounds_dir: ~/data/backgrounds  # Path to the background directory
+      
+  camera_placement:
+    type: CameraSceneRandomizer
+    params:
+      trigger: BEFORE_RENDER
+      origin:  # point the camera towards
+      - 0.0
+      - 0.0
+      - 0.0
+      pitch_range:  # Elevation of the camera to the origin (Z+ is up == 90°)
+      - 10.0
+      - 90.0
+      fill_range:  # Distance of the camera from the objects
+      - 0.05
+      - 0.5
+      roll_jitter: 90.0  # Maximum jitter applied to camera roll angle when looking at the origin
+      pitch_jitter: 10.0  # Maximum jitter applied to camera pitch angle when looking at the origin
+      yaw_jitter: 10.0  # Maximum jitter applied to camera yaw angle when looking at the origin
+      
+  distractors:
+    type: Join
+    params:
+      ycb_loader:
+        type: ModelLoader
+        params:
+          trigger: NONE
+          root: ~/data/ycb_models  # Path to the root directory of the models
+          source: YCB  # Type of the dataset source
+          
+      ugreal_loader:
+        type: ModelLoader
+        params:
+          trigger: NONE
+          root: ~/data/SynthDet  # Path to the root directory of the models
+          source: SYNTHDET  # Type of the dataset source
+          
+      omni_loader:
+        type: ModelLoader
+        params:
+          trigger: NONE
+          root: ~/data/omni3d_models  # Path to the root directory of the models
+          source: OMNI3D  # Type of the dataset source
+          

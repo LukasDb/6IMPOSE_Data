@@ -1,6 +1,5 @@
 import simpose as sp
-from .randomizer import Randomizer, RandomizerConfig, register_operator, JoinableRandomizer
-import itertools as it
+from .randomizer import Randomizer, RandomizerConfig, JoinableRandomizer
 from pathlib import Path
 import numpy as np
 import random
@@ -11,6 +10,7 @@ class ModelSource(Enum):
     YCB = "YCB"
     SHAPENET = "SHAPENET"
     SYNTHDET = "SYNTHDET"
+    OMNI3D = "OMNI3D"
     GENERIC_OBJ = "obj"
     GENERIC_PLY = "ply"
     GENERIC_GLTF = "gltf"
@@ -20,7 +20,7 @@ class ModelSource(Enum):
 class ModelLoaderConfig(RandomizerConfig):
     root: Path = Path("path/to/models")
     source: ModelSource = ModelSource.GENERIC_OBJ
-    scale_range: tuple[float, float] = (0.5, 2)
+    scale_range: tuple[float, float] | float = 1.0  # (0.5, 2)
     exclude: list[str] = []
 
     @staticmethod
@@ -49,27 +49,34 @@ class ModelLoader(JoinableRandomizer):
 
         if model_source == ModelSource.SHAPENET:
             raise NotImplementedError("Shapenet objects behave incorrectly at the moment.")
-            shapenet_contents = self._root.iterdir()
-            _shapenet_types = list([x for x in shapenet_contents if x.is_dir()])
-            shapenet_objs = list(it.chain.from_iterable([x.iterdir() for x in _shapenet_types]))
-            model_paths = [x / "models/model_normalized.gltf" for x in shapenet_objs if x.is_dir()]
-            for model_path in model_paths:
-                if not model_path.exists():
-                    sp.logger.warning(f"Model path {model_path} does not exist.")
-            # shapenet scale is in weird "normalized range", so that diagonal = 1
-            # we scale to 0.2m which is more in the range of objects for robotic grasping
-            to_scale = 0.2
-            self._scale_range = (scale_range[0] * to_scale, scale_range[1] * to_scale)
 
         elif model_source == ModelSource.YCB:
-            model_paths = list([x / "google_16k/textured.obj" for x in self._root.iterdir()])
+            path_and_name = list(
+                [(x / "google_16k/textured.obj", x.name) for x in self._root.iterdir()]
+            )
             # scale is in m
 
         elif model_source == ModelSource.SYNTHDET:
-            model_paths = list((root / "Models").glob("*.fbx"))
+            path_and_name = list([(x, x.name) for x in root.joinpath("Models").glob("*.fbx")])
             # units are in INCHES! apply conversion factor to m to scale_range
             to_scale = 0.0254
-            self._scale_range = (scale_range[0] * to_scale, scale_range[1] * to_scale)
+            if isinstance(scale_range, tuple):
+                self._scale_range = (scale_range[0] * to_scale, scale_range[1] * to_scale)
+            else:
+                self._scale_range = scale_range * to_scale
+
+        elif model_source == ModelSource.OMNI3D:
+            path_and_name = list(
+                [
+                    (x / "Scan/simplified.obj", x.name)
+                    for x in self._root.joinpath("models").iterdir()
+                ]
+            )
+            to_scale = 0.001
+            if isinstance(scale_range, tuple):
+                self._scale_range = (scale_range[0] * to_scale, scale_range[1] * to_scale)
+            else:
+                self._scale_range = scale_range * to_scale
 
         elif model_source in [
             ModelSource.GENERIC_OBJ,
@@ -78,9 +85,9 @@ class ModelLoader(JoinableRandomizer):
             ModelSource.GENERIC_FBX,
         ]:
             # will ignore generated _vhacd models, and converted objs for collision
-            model_paths = list(
+            path_and_name = list(
                 [
-                    x
+                    (x, x.name)
                     for x in self._root.glob(f"**/*.{model_source.value}")
                     if not "_vhacd.obj" in x.name
                     and not "_collision.obj" in x.name
@@ -89,22 +96,26 @@ class ModelLoader(JoinableRandomizer):
             )
         else:
             raise NotImplementedError(f"ModelSource {model_source} not implemented.")
-        self._model_paths = model_paths
+        self._model_paths = path_and_name
 
         self.num_models = len(self._model_paths)
 
         sp.logger.debug(f"Found {len(self._model_paths)} models ({model_source}).")
 
     def get_objects(
-        self, scene: sp.Scene, num_objects: int, mass: float, friction: float, hide: bool
+        self,
+        scene: sp.Scene,
+        num_objects: int,
+        mass: float,
+        friction: float,
+        hide: bool,
+        restitution: float,
     ) -> list[sp.entities.Object]:
         """renews the list of objects and returns it"""
-        for _ in range(num_objects):
-            self.get_object(scene, mass, friction, hide)
-        return self._objects
+        return [self.get_object(scene, mass, friction, hide, restitution) for _ in range(num_objects)]
 
     def get_object(
-        self, scene: sp.Scene, mass: float, friction: float, hide: bool
+        self, scene: sp.Scene, mass: float, friction: float, hide: bool, restitution: float
     ) -> sp.entities.Object:
         if len(self._additional_loaders) > 1:
             # i = np.random.randint(0, len(self._additional_loaders))
@@ -114,23 +125,29 @@ class ModelLoader(JoinableRandomizer):
             )[0]
         else:
             loader = self
-        return loader._get_object(scene, mass, friction, hide)
+        return loader._get_object(scene, mass, friction, hide, restitution)
 
     def _get_object(
-        self, scene: sp.Scene, mass: float, friction: float, hide: bool
+        self, scene: sp.Scene, mass: float, friction: float, hide: bool, restitution: float
     ) -> sp.entities.Object:
         i = np.random.randint(0, len(self._model_paths))
-        model_path = self._model_paths[i]
+        model_path, obj_name = self._model_paths[i]
+        scale = (
+            np.random.uniform(*self._scale_range)
+            if isinstance(self._scale_range, tuple)
+            else self._scale_range
+        )
         obj = scene.create_object(
             model_path,
+            obj_name=obj_name,
             add_semantics=False,
-            scale=np.random.uniform(*self._scale_range),
+            scale=scale,
             mass=mass,
             friction=friction,
             hide=hide,
+            restitution=restitution,
         )
         self._objects.append(obj)
-        sp.logger.debug(f"Added object: {model_path}")
         return obj
 
     def reset(self) -> None:

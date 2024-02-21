@@ -3,10 +3,8 @@ from .generator import Generator, GeneratorParams
 
 import multiprocessing as mp
 from pathlib import Path
-import logging
 import numpy as np
 from scipy.spatial.transform import Rotation as R
-import random
 
 
 class RandomImagePickerConfig(sp.random.RandomizerConfig):
@@ -35,32 +33,19 @@ class RandomImagePicker(sp.random.Randomizer):
         self._plane.set_image(img_path)
 
 
-class DroppedObjectsConfig(GeneratorParams):
+class DropjectsConfig(GeneratorParams):
+    n_objects_per_scene: int = 50
+    n_images_per_scene: int = 50
     drop_height: float = 1.0
     drop_spread: float = 0.4
-    time_step: float = 0.25
-    num_time_steps: int = 10
-    num_camera_locations: int = 10
-    friction: float = 0.8
+    friction: float = 0.9
+    restitution: float = 0.1
     use_stereo: bool = True
     cam_hfov: float = 70
     cam_baseline: float = 0.063
     img_w: int = 1920
     img_h: int = 1080
-
     floor_textures_dir: Path = Path("path/to/floor/textures")
-
-    num_primary_distractors: int = 40
-    num_secondary_distractors: int = 5
-
-    main_obj_path: Path | list[Path] = Path("path/to/model.obj")
-    num_main_objs: int = 20
-    scale: float = 1.0
-    metallic: float = 0.0
-    roughness: float = 0.7
-    hue: float = 0.5
-    saturation: float = 1.0
-    value: float = 1.0
 
     @classmethod
     def get_description(cls) -> dict[str, str]:
@@ -69,9 +54,6 @@ class DroppedObjectsConfig(GeneratorParams):
             {
                 "drop_height": "Height from which objects are dropped",
                 "drop_spread": "Spread of objects when dropped (distance from origin in XY)",
-                "time_step": "Physics time step",
-                "num_time_steps": "Number of physics time steps",
-                "num_camera_locations": "Number of camera locations per timestep",
                 "friction": "Friction of objects",
                 "use_stereo": "Use stereo camera",
                 "cam_hfov": "Camera horizontal field of view",
@@ -80,16 +62,6 @@ class DroppedObjectsConfig(GeneratorParams):
                 "img_w": "Image width",
                 "img_h": "Image height",
                 "floor_textures_dir": "Path to directory with textures for the floor",
-                "num_primary_distractors": "Number of distractors that are dropped first",
-                "num_secondary_distractors": "Number of distractors that are dropped together with the main objects",
-                "main_obj_path": "Path to main object .obj file or list of paths",
-                "num_main_objs": "Number of main objects (total, if multiple main objs)",
-                "scale": "Main object scale",
-                "metallic": "Default Main object metallic value",
-                "roughness": "Default Main object roughness value",
-                "hue": "Default Main object hue value",
-                "saturation": "Default Main object saturation value",
-                "value": "Default Main object value value",
             }
         )
         return description
@@ -105,13 +77,13 @@ def entry(name: str, type: str, params: str) -> str:
     return f"{name}:\n{spec}"
 
 
-class DroppedObjects(Generator):
-    params: DroppedObjectsConfig
+class Dropjects(Generator):
+    params: DropjectsConfig
     appearance_randomizer: sp.random.AppearanceRandomizer
 
     @staticmethod
     def generate_template_config() -> str:
-        gen_params = DroppedObjectsConfig.dump_with_comments(n_workers=1, n_parallel_on_gpu=1)
+        gen_params = DropjectsConfig.dump_with_comments(n_workers=1, n_parallel_on_gpu=1)
         writer_params = sp.writers.WriterConfig.dump_with_comments()
 
         app_params = sp.random.AppearanceRandomizerConfig.dump_with_comments(
@@ -140,8 +112,15 @@ class DroppedObjects(Generator):
             trigger=sp.observers.Event.NONE,
             source=sp.random.ModelSource.SYNTHDET,
         )
+        omni3d_params = sp.random.ModelLoaderConfig.dump_with_comments(
+            root=Path("path/to/omni3d/models"),
+            trigger=sp.observers.Event.NONE,
+            source=sp.random.ModelSource.OMNI3D,
+        )
+
         ycb_entry = entry("ycb_loader", "ModelLoader", ycb_params)
         ugreal_entry = entry("ugreal_loader", "ModelLoader", ugreal_params)
+        omni3d_entry = entry("omni_loader", "ModelLoader", omni3d_params)
 
         randomizers_entries = "\n".join(
             [
@@ -149,13 +128,13 @@ class DroppedObjects(Generator):
                 entry("light", "LightRandomizer", light_params),
                 entry("background", "BackgroundRandomizer", bg_params),
                 entry("camera_placement", "CameraPlacementRandomizer", cam_loc_params),
-                entry("distractors", "Join", "\n".join((ycb_entry, ugreal_entry))),
+                entry("distractors", "Join", "\n".join((ycb_entry, ugreal_entry, omni3d_entry))),
             ]
         )
 
         output = "\n".join(
             [
-                entry("Generator", "DroppedObjects", gen_params),
+                entry("Generator", "Dropjects", gen_params),
                 entry("Writer", "TFRecordWriter", writer_params),
                 "Randomizers:",
                 indent(randomizers_entries),
@@ -166,17 +145,39 @@ class DroppedObjects(Generator):
 
     @staticmethod
     def generate_data(
-        config: DroppedObjectsConfig,
+        config: DropjectsConfig,
         writer: sp.writers.Writer,
         randomizers: dict[str, sp.random.Randomizer],
         indices: np.ndarray,
     ) -> None:
         p = config
-        assert p.num_main_objs > 0, "num_main_objs must be > 0"
+
+        # --- Generation params ---
+        i = 0
+        while True:
+            scene = Dropjects.setup_new_scene(p, randomizers)
+            scene.export_meshes(writer.output_dir / "meshes")
+
+            for _ in range(p.n_images_per_scene):
+                writer.write_data(indices[i], scene=scene)
+
+                # scene.export_blend()
+                # return
+
+                i += 1
+                if i == len(indices):
+                    sp.logger.info(f"Finished generating data {mp.current_process().name}")
+                    return
+
+    @staticmethod
+    def setup_new_scene(
+        p: DropjectsConfig,
+        randomizers: dict[str, sp.random.Randomizer],
+    ) -> sp.Scene:
 
         # -- SCENE --
         scene = sp.Scene(img_h=p.img_h, img_w=p.img_w)
-        plane = scene.create_plane()
+        plane = scene.create_plane(size=5.0)
 
         # -- CAMERA --
         if p.use_stereo:
@@ -196,98 +197,57 @@ class DroppedObjects(Generator):
         randimages.listen_to(scene)
         randimages.randomize_plane(plane)
 
-        # -- OBJECTS --
-        if isinstance(p.main_obj_path, Path):
-            main_obj_paths = [p.main_obj_path]
-        else:
-            main_obj_paths = p.main_obj_path
-
-        main_objs = []
-        chosen_obj_path_indices = np.random.choice(
-            np.arange(len(main_obj_paths)), p.num_main_objs, replace=True
-        )
-        for obj_path_index in chosen_obj_path_indices:
-            obj_path = main_obj_paths[obj_path_index]
-            main_obj = scene.create_object(
-                obj_path,
-                mass=0.2,
-                friction=p.friction,
-                add_semantics=True,
-                scale=p.scale,
-            )
-            main_obj.set_metallic(p.metallic)
-            main_obj.set_roughness(p.roughness)
-            main_obj.set_hue(p.hue)
-            main_obj.set_saturation(p.saturation)
-            main_obj.set_value(p.value)
-
-            main_objs.append(main_obj)
-
-        scene.export_meshes(writer.output_dir / "meshes")
-
-        for obj in main_objs:
-            obj.hide()
-
-        # --- Generation params ---
-        i = 0
-        while True:
-            DroppedObjects.setup_new_scene(p, scene, randomizers, main_objs)
-            for _ in range(p.num_time_steps):
-                scene.step_physics(p.time_step)
-
-                for _ in range(p.num_camera_locations):
-                    writer.write_data(indices[i], scene=scene)
-
-                    # if i == 0 and debug:
-                    #     scene.export_blend()
-
-                    i += 1
-                    if i == len(indices):
-                        sp.logger.info(f"Finished generating data {mp.current_process().name}")
-                        return
-
-    @staticmethod
-    def setup_new_scene(
-        config: DroppedObjectsConfig,
-        scene: sp.Scene,
-        randomizers: dict[str, sp.random.Randomizer],
-        main_objs: list[sp.entities.Object],
-    ) -> None:
         model_loader: sp.random.ModelLoader = randomizers["distractors"]  # type: ignore
         model_loader.reset()
-        # add 20 objects and let fall
-        for _ in range(config.num_primary_distractors):
-            # for obj in model_loader.get_objects(
-            #     self.scene, p.num_primary_distractors, mass=1, friction=p.friction, hide=True
-            # ):
-            # obj.show()
-            obj = model_loader.get_object(scene, mass=0.2, friction=config.friction, hide=False)
-            obj.set_location(
-                (
-                    np.random.uniform(-0.05, 0.05),
-                    np.random.uniform(-0.05, 0.05),
-                    config.drop_height,
-                )
-            )
-            obj.set_rotation(R.random())
-            scene.step_physics(0.4)  # initial fall
 
-        distractors = []
-        for _ in range(config.num_secondary_distractors):
-            obj = model_loader.get_object(scene, mass=0.2, friction=config.friction, hide=True)
-            distractors.append(obj)
+        n_classes = np.random.randint(1, p.n_objects_per_scene + 1)
 
-        drop_objects = main_objs + distractors
-        random.shuffle(drop_objects)
+        class_indices = np.random.randint(0, n_classes, size=p.n_objects_per_scene - n_classes)
 
-        for obj in drop_objects:
+        kwargs = dict(
+            scene=scene, mass=0.2, friction=p.friction, hide=True, restitution=p.restitution
+        )
+
+        first_pick = model_loader.get_object(**kwargs)
+        obj_classes = [first_pick]
+        base_diameter = first_pick.get_diameter()
+
+        for _ in range(n_classes - 1):
+            obj = model_loader.get_object(**kwargs)
+            ratio = np.abs(obj.get_diameter() - base_diameter) / base_diameter
+
+            while ratio > 0.7:
+                obj.remove()
+                obj = model_loader.get_object(**kwargs)
+                ratio = np.abs(obj.get_diameter() - base_diameter) / base_diameter
+
+            obj_classes.append(obj)
+
+        objs = [*obj_classes]
+        for class_index in class_indices:
+            obj = scene.create_copy(obj_classes[class_index])
+            objs.append(obj)
+            obj.hide()
+
+        sp.logger.debug(
+            f"Setting up scene with {n_classes} object classes (in total {len(objs)} objects)"
+        )
+
+        max_obj_diameter = max(np.max(o._bl_object.dimensions) for o in obj_classes)  # [8, 3]
+
+        for obj in objs:
+            heighest_point = max([o.location[2] for o in objs])
+
             obj.show()
             obj.set_location(
                 (
-                    np.random.uniform(-config.drop_spread, config.drop_spread),
-                    np.random.uniform(-config.drop_spread, config.drop_spread),
-                    config.drop_height,
+                    np.random.uniform(-p.drop_spread, p.drop_spread),
+                    np.random.uniform(-p.drop_spread, p.drop_spread),
+                    heighest_point + 2 * max_obj_diameter,
                 )
             )
             obj.set_rotation(R.random())
+            # this takes forever! run with p.GUI and check simulation and scaling?
             scene.step_physics(0.4)
+
+        return scene

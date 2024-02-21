@@ -31,6 +31,7 @@ class Scene(sp.observers.Observable):
             assert (
                 img_h is not None and img_w is not None
             ), "Must specify resolution when creating a scene"
+            self.reset()
             self._initialize(img_h, img_w)
             sp.logger.debug(f"Created scene: {self._bl_scene}")
 
@@ -61,7 +62,7 @@ class Scene(sp.observers.Observable):
         self._setup_compositor()
         self._register_new_id("visib")
 
-        # p.connect(p.GUI) # activate if you want to observe the physics simulation
+        # p.connect(p.GUI)  # activate if you want to observe the physics simulation
         p.connect(p.DIRECT)
 
         p.resetSimulation()
@@ -85,6 +86,20 @@ class Scene(sp.observers.Observable):
     @property
     def resolution_y(self) -> int:
         return self._bl_scene.render.resolution_y
+
+    def reset(self) -> None:
+        """completely resets the scene"""
+        import bpy, pybullet as p
+
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+
+        try:
+            p.resetSimulation()
+            p.setGravity(0, 0, -9.81)
+            p.setRealTimeSimulation(0)
+            p.setPhysicsEngineParameter(fixedTimeStep=1 / 240.0, numSubSteps=1)
+        except p.error:
+            pass
 
     def step_physics(self, dt: float) -> None:
         """steps 1/240sec of physics simulation"""
@@ -335,7 +350,7 @@ class Scene(sp.observers.Observable):
         import bpy
 
         plane = sp.entities.Plane.create(size, with_physics)
-        bpy.data.collections["Objects"].objects.link(plane._bl_object)
+        #bpy.data.collections["Objects"].objects.link(plane._bl_object)
         return plane
 
     def get_cameras(self) -> list[sp.entities.Camera]:
@@ -369,10 +384,12 @@ class Scene(sp.observers.Observable):
     def create_object(
         self,
         obj_path: Path,
+        obj_name: str,
         add_semantics: bool = False,
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
+        restitution: float = 0.99,
         hide: bool = False,
     ) -> sp.entities.Object:
         import bpy
@@ -391,39 +408,29 @@ class Scene(sp.observers.Observable):
                 friction = float(meta["friction"])
             if "scale" in meta:
                 scale = float(meta["scale"])
+            if "name" in meta:
+                obj_name = meta["name"]
+            if "restitution" in meta:
+                restitution = float(meta["restitution"])
+
+        kwargs = dict(
+            filepath=obj_path,
+            name=obj_name,
+            add_semantics=add_semantics,
+            mass=mass,
+            friction=friction,
+            scale=scale,
+            restitution=restitution,
+        )
 
         if obj_path.suffix == ".obj":
-            obj = sp.entities.Object.from_obj(
-                filepath=obj_path,
-                add_semantics=add_semantics,
-                mass=mass,
-                friction=friction,
-                scale=scale,
-            )
+            obj = sp.entities.Object.from_obj(**kwargs)
         elif obj_path.suffix == ".ply":
-            obj = sp.entities.Object.from_ply(
-                filepath=obj_path,
-                add_semantics=add_semantics,
-                mass=mass,
-                friction=friction,
-                scale=scale,
-            )
+            obj = sp.entities.Object.from_ply(**kwargs)
         elif obj_path.suffix == ".gltf":
-            obj = sp.entities.Object.from_gltf(
-                filepath=obj_path,
-                add_semantics=add_semantics,
-                mass=mass,
-                friction=friction,
-                scale=scale,
-            )
+            obj = sp.entities.Object.from_gltf(**kwargs)
         elif obj_path.suffix == ".fbx":
-            obj = sp.entities.Object.from_fbx(
-                filepath=obj_path,
-                add_semantics=add_semantics,
-                mass=mass,
-                friction=friction,
-                scale=scale,
-            )
+            obj = sp.entities.Object.from_fbx(**kwargs)
         else:
             raise NotImplementedError(f"Unsupported file format: {obj_path.suffix}")
 
@@ -435,6 +442,8 @@ class Scene(sp.observers.Observable):
 
         if hide:
             obj.hide()
+
+        sp.logger.debug(f"Added {obj.get_name()} to scene.")
 
         bpy.data.collections["Objects"].objects.link(obj._bl_object)
 

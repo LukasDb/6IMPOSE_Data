@@ -2,6 +2,8 @@ import click
 from pathlib import Path
 import subprocess
 import yaml
+import multiprocessing as mp
+
 import simpose as sp
 import silence_tensorflow.auto  # type: ignore
 
@@ -37,8 +39,11 @@ def view(data_dir: Path) -> None:
 @click.argument("output_dir", type=click.Path(path_type=Path))
 @click.argument("type", type=click.Choice(sp.downloaders.__datasets__))
 def download(output_dir: Path, type: str) -> None:
+    downloader: sp.downloaders.Downloader
     if type == "YCB":
         downloader = sp.downloaders.YCBDownloader(output_dir)
+    elif type == "Omni3D":
+        downloader = sp.downloaders.Omni3DDownloader(output_dir)
     else:
         raise NotImplementedError(f"Dataset {type} not implemented.")
     downloader.run()
@@ -57,6 +62,8 @@ def generate(
     start_index: int | None = None,
     end_index: int | None = None,
 ) -> None:
+    mp.set_start_method("spawn")
+
     if verbose == 0:
         level = 30
     elif verbose == 1:

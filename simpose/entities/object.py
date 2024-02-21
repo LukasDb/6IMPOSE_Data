@@ -80,10 +80,12 @@ class Object(Placeable):
     @staticmethod
     def from_obj(
         filepath: Path,
+        name: str,
         add_semantics: bool = False,
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
+        restitution: float = 0.99,
     ) -> "Object":
         import bpy
 
@@ -96,25 +98,30 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
-        collision_obj_path = Object._export_collision_mesh(bl_object, filepath, scale)
+        # collision_obj_path = Object._export_collision_mesh(bl_object, filepath, scale)
+        # in this case just use the same file for collision
 
         obj = Object._initialize_bl_object(
             bl_object=bl_object,
+            name=name,
             scale=scale,
             mass=mass,
-            collision_obj_path=collision_obj_path,
+            collision_obj_path=filepath,
             add_semantics=add_semantics,
             friction=friction,
+            restitution=restitution,
         )
         return obj
 
     @staticmethod
     def from_gltf(
         filepath: Path,
+        name: str,
         add_semantics: bool = False,
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
+        restitution: float = 0.99,
     ) -> "Object":
         import bpy
 
@@ -128,25 +135,29 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
-        collision_obj_path = Object._export_collision_mesh(bl_object, filepath, scale)
+        collision_obj_path = Object._export_collision_mesh(bl_object, filepath)
 
         obj = Object._initialize_bl_object(
             bl_object=bl_object,
+            name=name,
             scale=scale,
             mass=mass,
             collision_obj_path=collision_obj_path,
             add_semantics=add_semantics,
             friction=friction,
+            restitution=restitution,
         )
         return obj
 
     @staticmethod
     def from_fbx(
         filepath: Path,
+        name: str,
         add_semantics: bool = False,
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
+        restitution: float = 0.99,
     ) -> "Object":
         import bpy
 
@@ -172,25 +183,29 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
-        collision_obj_path = Object._export_collision_mesh(bl_object, filepath, scale)
+        collision_obj_path = Object._export_collision_mesh(bl_object, filepath)
 
         obj = Object._initialize_bl_object(
             bl_object=bl_object,
+            name=name,
             scale=scale,
             mass=mass,
             collision_obj_path=collision_obj_path,
             add_semantics=add_semantics,
             friction=friction,
+            restitution=restitution,
         )
         return obj
 
     @staticmethod
     def from_ply(
         filepath: Path,
+        name: str,
         add_semantics: bool = False,
         mass: float | None = None,
         friction: float = 0.5,
         scale: float = 1.0,
+        restitution: float = 0.99,
     ) -> "Object":
         import bpy
 
@@ -204,7 +219,7 @@ class Object(Placeable):
         except IndexError:
             raise RuntimeError(f"Could not import {filepath}")
 
-        collision_obj_path = Object._export_collision_mesh(bl_object, filepath, scale)
+        collision_obj_path = Object._export_collision_mesh(bl_object, filepath)
 
         # create new material for object
         material: bpy.types.Material = bpy.data.materials.new(name="sp_Material")
@@ -224,11 +239,13 @@ class Object(Placeable):
 
         obj = Object._initialize_bl_object(
             bl_object=bl_object,
+            name=name,
             scale=scale,
             mass=mass,
             collision_obj_path=collision_obj_path,
             add_semantics=add_semantics,
             friction=friction,
+            restitution=restitution,
         )
         return obj
 
@@ -263,10 +280,8 @@ class Object(Placeable):
         sp.logger.info("Exported mesh to " + str(out_path))
 
     @staticmethod
-    def _export_collision_mesh(
-        bl_object: "bpy.types.Object", filepath: Path, scale: float
-    ) -> Path:
-        """exports *currently selected* object"""
+    def _export_collision_mesh(bl_object: "bpy.types.Object", filepath: Path) -> Path:
+        """exports *currently selected* object in the same scale as the input"""
         import bpy
 
         collision_obj_path = (
@@ -311,6 +326,9 @@ class Object(Placeable):
         except KeyError:
             pass
         self._bl_object.hide_render = False
+
+    def get_diameter(self) -> float:
+        return max(self._bl_object.dimensions)
 
     def get_appearance(self, appearance: ObjectAppearance) -> float:
         if appearance.value in [
@@ -452,6 +470,7 @@ class Object(Placeable):
         coll_id = self._bl_object["coll_id"]
         mass = self._bl_object["mass"]
         friction = self._bl_object["friction"]
+        restitution = self._bl_object["restitution"]
 
         pb_id = p.createMultiBody(
             baseMass=mass,
@@ -461,10 +480,7 @@ class Object(Placeable):
         assert isinstance(pb_id, int), "Could not create pybullet object"
 
         p.changeDynamics(
-            pb_id,
-            -1,
-            lateralFriction=friction,
-            spinningFriction=friction,
+            pb_id, -1, lateralFriction=friction, spinningFriction=friction, restitution=restitution
         )
         self._bl_object["pb_id"] = pb_id
         self._set_pybullet_pose(self.location, self.rotation)
@@ -482,13 +498,17 @@ class Object(Placeable):
     @staticmethod
     def _initialize_bl_object(
         bl_object: "bpy.types.Object",
+        name: str,
         collision_obj_path: Path,
         add_semantics: bool,
         scale: float,
         mass: float | None,
         friction: float,
+        restitution: float,
     ) -> "Object":
         import bpy, pybullet as p
+
+        bl_object.name = name
 
         # scale object
         bl_object.scale = (scale, scale, scale)
@@ -586,6 +606,7 @@ class Object(Placeable):
             obj._bl_object["coll_id"] = coll_id
             obj._bl_object["mass"] = mass
             obj._bl_object["friction"] = friction
+            obj._bl_object["restitution"] = restitution
             obj._bl_object["COM"] = offset.tolist()
             obj._add_pybullet_object()
         return obj

@@ -92,6 +92,11 @@ class Camera(Placeable):
     def data(self) -> "bpy.types.Camera":
         return self.left_camera.data  # type: ignore
 
+    @property
+    def hfov(self) -> float:
+        self.data.lens_unit = "FOV"
+        return float(self.data.angle)
+
     def is_stereo_camera(self) -> bool:
         return self.name + "_R" in [x.name for x in self._bl_object.children]
 

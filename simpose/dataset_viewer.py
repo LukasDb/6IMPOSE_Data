@@ -134,14 +134,24 @@ def main(data_dir: Path) -> None:
 
     c1, c2 = st.columns(2)
     with c1:
-        st.image(rgb, caption=f"RGB {rgb.shape}, {rgb.dtype}")
+        st.image(rgb, caption=f"RGB {rgb.shape}, {rgb.dtype}", use_column_width=True)
         if rgb_R is not None:
-            st.image(rgb_R, caption=f"RGB_R {rgb_R.shape}, {rgb_R.dtype}")
-        st.image(colored_depth, caption=f"Depth {depth.shape}, {depth.dtype}")
+            st.image(rgb_R, caption=f"RGB_R {rgb_R.shape}, {rgb_R.dtype}", use_column_width=True)
+        st.image(
+            colored_depth, caption=f"Depth {depth.shape}, {depth.dtype}", use_column_width=True
+        )
 
     with c2:
-        st.image(colored_mask_rgb, caption=f"Instance Mask {mask.shape}, {mask.dtype}")
-        st.image(colored_semantic_mask_rgb, caption=f"Semantic Mask {mask.shape}, {mask.dtype}")
+        st.image(
+            colored_mask_rgb,
+            caption=f"Instance Mask {mask.shape}, {mask.dtype}",
+            use_column_width=True,
+        )
+        st.image(
+            colored_semantic_mask_rgb,
+            caption=f"Semantic Mask {mask.shape}, {mask.dtype}",
+            use_column_width=True,
+        )
 
 
 def create_visualization(
@@ -168,7 +178,7 @@ def create_visualization(
         cv2.COLORMAP_TURBO,
     )
     colored_depth = cv2.applyColorMap(
-        cv2.convertScaleAbs(depth, alpha=255 / 2.0), cv2.COLORMAP_JET  # type: ignore
+        cv2.convertScaleAbs(depth, alpha=255 / np.max(depth)), cv2.COLORMAP_JET  # type: ignore
     )
 
     colored_semantic_mask_bgr = np.zeros((*mask.shape[:2], 3)).astype(np.uint8)
@@ -188,6 +198,18 @@ def create_visualization(
                 (bbox[2], bbox[3]),
                 color=cls_colors[cls],
                 thickness=2,
+            )
+            # write class name
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            bgr = cv2.putText(
+                bgr,
+                str(cls),
+                (bbox[0], bbox[1]),
+                font,
+                1,
+                cls_colors[cls],
+                2,
+                cv2.LINE_AA,
             )
 
         if use_pose:
