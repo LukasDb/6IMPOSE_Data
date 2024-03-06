@@ -120,7 +120,7 @@ class TFRecordWriter(Writer):
             data["depth_R"] = rp.depth_R.astype(np.float32)
 
         if rp.mask is not None:
-            data["mask"] = rp.mask.astype(np.uint8)
+            data["mask"] = rp.mask.astype(np.int32)
 
         with tf.device("/cpu:0"):  # type: ignore
             serialized_data = self._serialize_data(**data)

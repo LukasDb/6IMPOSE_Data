@@ -177,7 +177,7 @@ class Dropjects(Generator):
 
         # -- SCENE --
         scene = sp.Scene(img_h=p.img_h, img_w=p.img_w)
-        plane = scene.create_plane(size=5.0)
+        plane = scene.create_plane(size=2.0)
 
         # -- CAMERA --
         if p.use_stereo:

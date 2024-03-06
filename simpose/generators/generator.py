@@ -84,6 +84,7 @@ class Generator(ABC):
         n_datapoints: int,
     ) -> None:
         num_rendered_accumulator: mp.Queue[int] = mp.Queue()
+        success_accumulator: mp.Queue[int] = mp.Queue()
         job_queue: queue.Queue[
             tuple[
                 np.ndarray,
@@ -97,11 +98,9 @@ class Generator(ABC):
         current_jobs: dict[mp.Process, np.ndarray] = {}
         active_gpus = it.cycle(params.gpus or [0])
         semaphores = {
-            gpu: sp.RemoteSemaphore(value=params.n_parallel_on_gpu, comm=mp.Queue(), timeout=100.0)
+            gpu: sp.MainSemaphore(value=params.n_parallel_on_gpu, timeout=100.0)
             for gpu in params.gpus or [0]
         }
-        for s in semaphores.values():
-            s.start()
 
         def schedule_job(index_list: np.ndarray) -> None:
             active_gpu = next(active_gpus)
@@ -120,7 +119,8 @@ class Generator(ABC):
                     self.Writer,
                     self.generator_params,
                     self.randomizer_configs,
-                    semaphores[active_gpu]._comm,
+                    semaphores[active_gpu].get_comm(),
+                    success_accumulator,
                 )
             )
 
@@ -129,7 +129,7 @@ class Generator(ABC):
                 new_job = job_queue.get(block=False)
             except queue.Empty:
                 return False
-            proc = mp.Process(target=self.process, args=new_job, daemon=False)  # HACK was True
+            proc = mp.Process(target=self.process, args=new_job, daemon=True)
             proc.start()
             current_jobs[proc] = new_job[0]
             sp.logger.info(f"Launched new worker: {proc.name}")
@@ -148,25 +148,49 @@ class Generator(ABC):
         time.sleep(1.0)
 
         finished = False
-        bar = tqdm(total=n_datapoints, disable=False)
+        successful_workers = []
+        # average rate, no smoothing
+        bar = tqdm(total=n_datapoints, disable=False, smoothing=0, dynamic_ncols=True)
         while not finished:
             # operate semaphores, reschedule job on timeout
             time.sleep(0.2)
             for s in semaphores.values():
                 s.run()
 
+            while True:
+                try:
+                    successful_workers.append(success_accumulator.get(block=False))
+                except queue.Empty:
+                    break
+
+            # check alive workers
+            for proc in list([x for x in current_jobs.keys() if x.is_alive()]):
+                if proc.pid in successful_workers:
+                    # worker was successful but did not exit
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+
             # check dead workers
             for proc in list([x for x in current_jobs.keys() if not x.is_alive()]):
-                for s in [x for x in semaphores.values() if x.is_acquired(proc.name)]:
+                # for s in [x for x in semaphores.values() if x.is_acquired(proc.name)]:
+                if proc.pid not in successful_workers:
                     # release semaphore
                     sp.logger.error(f"{proc.name} died. Releasing {s} and rescheduling.")
                     try:
                         proc.kill()
                     except Exception:
                         pass
-                    s.release(proc.name)
+
+                    try:
+                        s.release_for(proc.name)
+                    except Exception:
+                        pass
                     # reschedule job (since worker did not release -> likely crashed)
                     schedule_job(current_jobs[proc])
+                else:
+                    successful_workers.remove(proc.pid)
 
                 # remove from current jobs
                 current_jobs.pop(proc)
@@ -209,6 +233,7 @@ class Generator(ABC):
         generator_config: GeneratorParams,
         randomizer_configs: dict[str, dict[str, str | dict]],
         comm: mp.Queue,
+        success_accumulator: mp.Queue,
     ) -> None:
         import silence_tensorflow.auto
         import os
@@ -232,9 +257,7 @@ class Generator(ABC):
             )
             sp.logger.error(f"generate data finished {mp.current_process().name}")
         sp.logger.error(f"exited writer, now exiting proc {mp.current_process().name}")
-
-        comm.put({"type": "finished", "sender": mp.current_process().name, "receiver": "main"})
-        raise SystemExit
+        success_accumulator.put(mp.current_process().pid)
         exit(0)
 
     @staticmethod

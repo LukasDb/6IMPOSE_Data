@@ -36,7 +36,7 @@ class _TFRecordDatasetV2(Dataset):
         Dataset.RGB_R: tf.uint8,
         Dataset.DEPTH: tf.float32,
         Dataset.DEPTH_R: tf.float32,
-        Dataset.MASK: tf.uint8,
+        Dataset.MASK: tf.int32,
         Dataset.CAM_MATRIX: tf.float32,
         Dataset.CAM_LOCATION: tf.float32,
         Dataset.CAM_ROTATION: tf.float32,
@@ -62,10 +62,6 @@ class _TFRecordDatasetV2(Dataset):
     ) -> tf.data.Dataset:
 
         @tf.function
-        def read_tfrecord(record_file: tf.Tensor) -> tf.data.Dataset:
-            return tf.data.TFRecordDataset(record_file, compression_type="ZLIB")
-
-        @tf.function
         def parse(example_proto: Any) -> Any:
             proto = {
                 k: tf.io.FixedLenFeature([], tf.string)
@@ -79,18 +75,11 @@ class _TFRecordDatasetV2(Dataset):
 
         num_parallel_files = max(1, num_parallel_files)
 
-        return (
-            tf.data.Dataset.from_tensor_slices(
-                tf.io.match_filenames_once(str(root_dir / "data" / pattern))  # type: ignore
-            )
-            .interleave(
-                read_tfrecord,
-                num_parallel_calls=tf.data.AUTOTUNE,
-                deterministic=True,
-                cycle_length=num_parallel_files,
-            )
-            .map(parse, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
-        )
+        return tf.data.TFRecordDataset(
+            tf.io.match_filenames_once(str(root_dir / "data" / pattern)),
+            compression_type="ZLIB",
+            num_parallel_reads=num_parallel_files,
+        ).map(parse, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
 
 
 class _TFRecordDatasetV1(Dataset):
