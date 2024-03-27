@@ -45,6 +45,8 @@ class Camera(Placeable):
         bl_cam.rotation_quaternion = blender_quat
         bl_cam.location = mathutils.Vector([0, 0, 0])
         bl_cam.parent = frame
+        # set clipping distance
+        bl_cam.data.clip_start = 0.005
 
         # set scene's active camera to the left one
         bpy.context.scene.camera = bl_cam
@@ -58,6 +60,8 @@ class Camera(Placeable):
             bl_cam_right.rotation_mode = "QUATERNION"
             bl_cam_right.rotation_quaternion = blender_quat
             bl_cam_right.parent = frame
+
+            bl_cam_right.data.clip_start = 0.005
 
             frame["sp_baseline"] = baseline
         return Camera(frame)

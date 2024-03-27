@@ -350,7 +350,7 @@ class Scene(sp.observers.Observable):
         import bpy
 
         plane = sp.entities.Plane.create(size, with_physics)
-        #bpy.data.collections["Objects"].objects.link(plane._bl_object)
+        # bpy.data.collections["Objects"].objects.link(plane._bl_object)
         return plane
 
     def get_cameras(self) -> list[sp.entities.Camera]:

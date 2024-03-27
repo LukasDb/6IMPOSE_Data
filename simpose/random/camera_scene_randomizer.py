@@ -12,6 +12,7 @@ class CameraSceneRandomizerConfig(RandomizerConfig):
     roll_jitter: float = 20.0
     pitch_jitter: float = 5.0
     yaw_jitter: float = 5.0
+    min_cam2obj_distance: float = 0.1
 
     @staticmethod
     def get_description() -> dict[str, str]:
@@ -41,7 +42,10 @@ class CameraSceneRandomizer(Randomizer):
 
         bpy.context.view_layer.update()
 
-        max_object_diameter = max([obj.get_diameter() for obj in scene.get_active_objects()])
+        obj_locations = list([obj.location for obj in scene.get_active_objects()])
+        obj_diameters = list([obj.get_diameter() for obj in scene.get_active_objects()])
+
+        max_object_diameter = max(obj_diameters)
 
         # find distance to closest object
 
@@ -65,7 +69,7 @@ class CameraSceneRandomizer(Randomizer):
 
         assert (p.pitch_range[1] - p.pitch_range[0]) >= 5, "Pitch range is too small"
 
-        # rejection sample until found valid angle
+        # rejection sample until found valid angle and far away enough from other objects
         loc = None
         for _ in range(10000):
             rot = R.random()
@@ -73,7 +77,15 @@ class CameraSceneRandomizer(Randomizer):
             d = np.linalg.norm(loc[:2])
             pitch = np.arctan2(loc[2], d) * 180 / np.pi
             if p.pitch_range[0] < pitch < p.pitch_range[1]:
-                break
+                dists2objects = [
+                    np.linalg.norm(np.array(loc) - np.array(obj_loc)) - obj_dia / 2
+                    for obj_loc, obj_dia in zip(obj_locations, obj_diameters)
+                ]
+
+                if all(np.array(dists2objects) > p.min_cam2obj_distance):
+                    break
+                else:
+                    loc = None
 
         if loc is None:
             raise RuntimeError("Could not find a valid camera location.")
