@@ -279,7 +279,7 @@ def load_data(
                 or len(list((img_dir / "data").glob("*.tfrecord"))) > 0
             ):
                 print("LOADING TFRECORD")
-                tfds = sp.data.TFRecordDataset.get(img_dir, get_keys=keys)
+                tfds = sp.data.TFRecordDataset.get(img_dir, get_keys=keys, num_parallel_files=1)
             else:
                 print("LOADING SIMPOSE")
                 tfds = sp.data.SimposeDataset.get(img_dir, get_keys=keys)
@@ -287,7 +287,7 @@ def load_data(
             st.session_state["tfds"] = tfds.prefetch(tf.data.AUTOTUNE)
 
         tfds = st.session_state["tfds"]
-        data = tfds.skip(idx).take(1).get_single_element()  # seems to be slow
+        data = tfds.skip(idx).take(1).get_single_element()
 
         if data is None:
             raise RuntimeError("Could not find data point.")

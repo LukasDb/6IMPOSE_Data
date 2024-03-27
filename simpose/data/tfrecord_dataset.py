@@ -11,7 +11,7 @@ class TFRecordDataset(Dataset):
         root_dir: Path,
         get_keys: None | list[str] = None,
         pattern: str = "*.tfrecord",
-        num_parallel_files: int = 1024,
+        num_parallel_files: int = 16,
     ) -> tf.data.Dataset:
         if root_dir.joinpath("metadata.json").exists():
             with open(root_dir / "metadata.json", "r") as f:
