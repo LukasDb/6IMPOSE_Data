@@ -61,16 +61,32 @@ class _TFRecordDatasetV2(Dataset):
         num_parallel_files: int = 1024,
     ) -> tf.data.Dataset:
 
+        if get_keys is None:
+            get_keys = list(_TFRecordDatasetV2._key_mapping.keys())
+
+        # check keys if in dataset
+        record = (
+            tf.data.TFRecordDataset(
+                tf.io.match_filenames_once(str(root_dir / "data" / pattern)),
+                compression_type="ZLIB",
+            )
+            .take(1)
+            .get_single_element()
+        )
+        for key in get_keys:
+            try:
+                proto = {key: tf.io.FixedLenFeature([], tf.string)}
+                serialized = tf.io.parse_single_example(record, proto)
+            except Exception:
+                get_keys.remove(key)
+
         @tf.function
         def parse(example_proto: Any) -> Any:
-            proto = {
-                k: tf.io.FixedLenFeature([], tf.string)
-                for k in _TFRecordDatasetV2._key_mapping.keys()
-            }
+            proto = {k: tf.io.FixedLenFeature([], tf.string) for k in get_keys}
             serialized = tf.io.parse_single_example(example_proto, proto)
             return {
-                key: tf.io.parse_tensor(serialized[key], dtype)
-                for key, dtype in _TFRecordDatasetV2._key_mapping.items()
+                key: tf.io.parse_tensor(serialized[key], _TFRecordDatasetV2._key_mapping[key])
+                for key in get_keys
             }
 
         num_parallel_files = max(1, num_parallel_files)

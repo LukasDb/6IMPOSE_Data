@@ -136,20 +136,20 @@ class Camera(Placeable):
         """Set camera intrinsics from horizontal field of view"""
         if degrees:
             hfov = np.deg2rad(hfov)
-        self._set_from_hfov(self.data, hfov, img_w, img_h)
-        if self.is_stereo_camera():
-            self._set_from_hfov(self.right_camera.data, hfov, img_w, img_h)  # type: ignore
+        self._set_from_hfov(hfov, img_w, img_h)
+        # if self.is_stereo_camera():
+        #    self._set_from_hfov(self.right_camera.data, hfov, img_w, img_h)  # type: ignore
 
-    @staticmethod
-    def _set_from_hfov(cam_data: "bpy.types.Camera", hfov: float, img_w: int, img_h: int) -> None:
+    def _set_from_hfov(self, hfov: float, img_w: int, img_h: int) -> None:
         """Set camera intrinsics from horizontal field of view"""
-        cam_data.sensor_fit = (
+
+        self.data.sensor_fit = (
             "HORIZONTAL"  # sensor width is fixed, height is variable, depending on aspect ratio
         )
-        cam_data.lens_unit = "FOV"
-        cam_data.angle = hfov
-        cam_data.shift_x = 0.0
-        cam_data.shift_y = 0.0
+        self.data.lens_unit = "FOV"
+        self.data.angle = hfov
+        self.data.shift_x = 0.0
+        self.data.shift_y = 0.0
 
     def set_from_intrinsics(self, intrinsic_matrix: np.ndarray, img_w: int, img_h: int) -> None:
         if np.abs(intrinsic_matrix[1][1] - intrinsic_matrix[0][0]) > 0.001:

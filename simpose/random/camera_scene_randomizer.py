@@ -2,7 +2,7 @@ import simpose as sp
 import numpy as np
 from typing import Tuple
 from scipy.spatial.transform import Rotation as R
-from .randomizer import Randomizer, RandomizerConfig, register_operator
+from .randomizer import Randomizer, RandomizerConfig
 
 
 class CameraSceneRandomizerConfig(RandomizerConfig):

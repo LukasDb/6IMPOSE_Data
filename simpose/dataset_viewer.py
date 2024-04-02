@@ -299,7 +299,7 @@ def load_data(
         }
 
         bgr = cv2.cvtColor(data["rgb"].numpy(), cv2.COLOR_RGB2BGR)
-        bgr_R = cv2.cvtColor(data["rgb_R"].numpy(), cv2.COLOR_RGB2BGR)
+        bgr_R = cv2.cvtColor(data["rgb_R"].numpy(), cv2.COLOR_RGB2BGR) if "rgb_R" in data else None
         depth = data["depth"].numpy()
         mask = data["mask"].numpy()
 

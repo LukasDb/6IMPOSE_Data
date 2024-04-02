@@ -31,20 +31,23 @@ class WriterConfig(base_config.BaseConfig):
 
 
 class Writer(ABC):
-    def __init__(self, params: WriterConfig, comm: Any) -> None:
+    def __init__(self, params: WriterConfig, comm: Any | None = None) -> None:
         # self.scene = scene
         self.output_dir = params.output_dir.expanduser()
         self.overwrite = params.overwrite
         self.start_index = params.start_index
         self.end_index = params.end_index
-        self.gpu_semaphore: sp.RemoteSemaphore = sp.RemoteSemaphore(comm)
+        self.gpu_semaphore: sp.RemoteSemaphore | None = (
+            sp.RemoteSemaphore(comm) if comm is not None else None
+        )
         self.q_rendered: mp.Queue | None = params._q_rendered
 
     def __enter__(self) -> "Writer":
         return self
 
     def __exit__(self, type: None, value: None, traceback: None) -> None:
-        self.gpu_semaphore.close()
+        if self.gpu_semaphore is not None:
+            self.gpu_semaphore.close()
 
     def dump_config(self, config: dict) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)

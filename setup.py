@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 package_list = [
     "silence_tensorflow",
     "tqdm",
-    "bpy==4.0",
+    "bpy",
     "scipy",
     "click",
     "pybullet",
