@@ -16,6 +16,20 @@ import tensorflow as tf
 
 @st.cache_data()
 def get_idx(img_dir: Path) -> np.ndarray | list[int]:
+
+    # ---- composite subsets dataset
+    if img_dir.joinpath("subsets").exists():
+        num = 0
+        for subset in img_dir.joinpath("subsets").iterdir():
+            end_indices = [
+                int(x.stem.split(".")[0].split("_")[-1])
+                for x in subset.joinpath("data").glob("*.tfrecord")
+            ]
+            end_index = max(end_indices)
+            num += end_index + 1
+        return np.arange(num)
+
+    # ---- single tfrecord dataset
     tfrecord_dir = (
         img_dir.joinpath("data") if img_dir.joinpath("data").exists() else img_dir.joinpath("rgb")
     )
@@ -27,17 +41,7 @@ def get_idx(img_dir: Path) -> np.ndarray | list[int]:
         ]
         end_index = max(end_indices)
         return np.arange(end_index + 1)
-
-    # simpose dataset
-    indices = list(
-        set(
-            int(x.stem.split("_")[1])
-            for x in Path(img_dir / "rgb").glob("*.png")  # will be problematic with stereo
-        )
-    )
-    assert len(indices) > 0, "No images found! Is it the correct directory?"
-    indices.sort()
-    return indices
+    raise ValueError("No tfrecord found.")
 
 
 @click.command()
@@ -245,164 +249,51 @@ def create_visualization(
         "colored_depth": colored_depth,
     }
 
-
+@st.cache_data()
 def load_data(
     img_dir: Path, idx: np.int64, use_bbox: bool = False, use_pose: bool = False
 ) -> dict[str, np.ndarray]:
-    if st.session_state["last_idx"] != idx or "loaded_data" not in st.session_state:
-        st.session_state["last_idx"] = idx
 
-        if "tfds" not in st.session_state:
-            # instantiate tf.data.Dataset
-            keys = [
-                sp.data.Dataset.RGB,
-                sp.data.Dataset.RGB_R,
-                sp.data.Dataset.CAM_MATRIX,
-                sp.data.Dataset.CAM_ROTATION,
-                sp.data.Dataset.CAM_LOCATION,
-                sp.data.Dataset.DEPTH,
-                sp.data.Dataset.MASK,
-                sp.data.Dataset.OBJ_CLASSES,
-                sp.data.Dataset.OBJ_IDS,
-                sp.data.Dataset.OBJ_POS,
-                sp.data.Dataset.OBJ_ROT,
-                sp.data.Dataset.OBJ_BBOX_VISIB,
-                sp.data.Dataset.OBJ_VISIB_FRACT,
-            ]
+    tfds = sp.data.TFRecordDataset.get(img_dir, num_parallel_files=1)
+    data = tfds.skip(idx).take(1).get_single_element()
 
-            if (Path(img_dir) / "data.h5").exists():
-                print("LOADING H5")
-                raise NotImplementedError("H5 loading not implemented yet")
-                # loaded_data = load_data_h5(img_dir, idx)
-            elif (
-                len(list((img_dir / "rgb").glob("*.tfrecord"))) > 0
-                or len(list((img_dir / "data").glob("*.tfrecord"))) > 0
-            ):
-                print("LOADING TFRECORD")
-                tfds = sp.data.TFRecordDataset.get(img_dir, get_keys=keys, num_parallel_files=1)
-            else:
-                print("LOADING SIMPOSE")
-                tfds = sp.data.SimposeDataset.get(img_dir, get_keys=keys)
+    if data is None:
+        raise RuntimeError("Could not find data point.")
 
-            st.session_state["tfds"] = tfds.prefetch(tf.data.AUTOTUNE)
+    cam_data = {
+        "cam_matrix": data["cam_matrix"].numpy(),
+        "cam_rot": data["cam_rotation"].numpy(),
+        "cam_pos": data["cam_location"].numpy(),
+    }
 
-        tfds = st.session_state["tfds"]
-        data = tfds.skip(idx).take(1).get_single_element()
+    bgr = cv2.cvtColor(data["rgb"].numpy(), cv2.COLOR_RGB2BGR)
+    bgr_R = cv2.cvtColor(data["rgb_R"].numpy(), cv2.COLOR_RGB2BGR) if "rgb_R" in data else None
+    depth = data["depth"].numpy()
+    mask = data["mask"].numpy()
 
-        if data is None:
-            raise RuntimeError("Could not find data point.")
-
-        cam_data = {
-            "cam_matrix": data["cam_matrix"].numpy(),
-            "cam_rot": data["cam_rotation"].numpy(),
-            "cam_pos": data["cam_location"].numpy(),
+    objs_data = [
+        {
+            "class": cls,
+            "obj_id": obj_id,
+            "pos": pos,
+            "rotation": rot,
+            "bbox_visib": bbox_visib,
+            "visib_fract": visib_fract,
         }
-
-        bgr = cv2.cvtColor(data["rgb"].numpy(), cv2.COLOR_RGB2BGR)
-        bgr_R = cv2.cvtColor(data["rgb_R"].numpy(), cv2.COLOR_RGB2BGR) if "rgb_R" in data else None
-        depth = data["depth"].numpy()
-        mask = data["mask"].numpy()
-
-        objs_data = [
-            {
-                "class": cls,
-                "obj_id": obj_id,
-                "pos": pos,
-                "rotation": rot,
-                "bbox_visib": bbox_visib,
-                "visib_fract": visib_fract,
-            }
-            for cls, obj_id, pos, rot, bbox_visib, visib_fract in zip(
-                data["obj_classes"].numpy(),
-                data["obj_ids"].numpy(),
-                data["obj_pos"].numpy(),
-                data["obj_rot"].numpy(),
-                data["obj_bbox_visib"].numpy(),
-                data["obj_visib_fract"].numpy(),
-            )
-        ]
-
-        loaded_data = (bgr, bgr_R, depth, mask, cam_data, objs_data)
-        st.session_state["loaded_data"] = loaded_data
-
-    loaded_data = st.session_state["loaded_data"]
-    return create_visualization(*loaded_data, use_bbox=use_bbox, use_pose=use_pose)
+        for cls, obj_id, pos, rot, bbox_visib, visib_fract in zip(
+            data["obj_classes"].numpy(),
+            data["obj_ids"].numpy(),
+            data["obj_pos"].numpy(),
+            data["obj_rot"].numpy(),
+            data["obj_bbox_visib"].numpy(),
+            data["obj_visib_fract"].numpy(),
+        )
+    ]
 
 
-# def load_data_h5(img_dir, idx):
-#     F = None
-#     with st.spinner("Waiting for free h5 file..."):
-#         while F is None:
-#             try:
-#                 F = h5py.File(img_dir / "data.h5", "r")
-#             except BlockingIOError:
-#                 time.sleep(0.01)
-
-#     cam_matrix_ds = F["cam_matrix"]
-#     cam_pos_ds = F["cam_pos"]
-#     cam_rot_ds = F["cam_rot"]
-#     assert isinstance(cam_matrix_ds, h5py.Dataset)
-#     assert isinstance(cam_pos_ds, h5py.Dataset)
-#     assert isinstance(cam_rot_ds, h5py.Dataset)
-
-#     cam_data = {
-#         "cam_matrix": cam_matrix_ds[idx],
-#         "cam_rot": cam_rot_ds[idx],
-#         "cam_pos": cam_pos_ds[idx],
-#     }
-
-#     rgb_ds = F["rgb"]
-#     assert isinstance(rgb_ds, h5py.Dataset)
-#     bgr = cv2.cvtColor(rgb_ds[idx], cv2.COLOR_RGB2BGR)
-#     if "rgb_R" in F.keys():
-#         rgb_R_ds = F["rgb_R"]
-#         assert isinstance(rgb_R_ds, h5py.Dataset)
-#         bgr_R = cv2.cvtColor(rgb_R_ds[idx], cv2.COLOR_RGB2BGR)
-#     else:
-#         bgr_R = None
-
-#     mask_ds = F["mask"]
-#     assert isinstance(mask_ds, h5py.Dataset)
-#     mask = mask_ds[idx].astype(np.float32)
-
-#     depth_ds = F["depth"]
-#     assert isinstance(depth_ds, h5py.Dataset)
-#     depth = depth_ds[idx]
-
-#     objs_group = F["objs"]
-#     assert isinstance(objs_group, h5py.Group)
-#     objs = objs_group[f"{idx:06}"]
-#     assert isinstance(objs, h5py.Group)
-
-#     cls_ds = objs["class"]
-#     id_ds = objs["obj_id"]
-#     pos_ds = objs["pos"]
-#     rot_ds = objs["rotation"]
-#     bbox_ds = objs["bbox_visib"]
-#     visib_ds = objs["visib_fract"]
-
-#     assert isinstance(cls_ds, h5py.Dataset)
-#     assert isinstance(id_ds, h5py.Dataset)
-#     assert isinstance(pos_ds, h5py.Dataset)
-#     assert isinstance(rot_ds, h5py.Dataset)
-#     assert isinstance(bbox_ds, h5py.Dataset)
-#     assert isinstance(visib_ds, h5py.Dataset)
-
-#     objs_data = [
-#         {
-#             "class": cls_ds[i],
-#             "obj_id": id_ds[i],
-#             "pos": pos_ds[i],
-#             "rotation": rot_ds[i],
-#             "bbox_visib": bbox_ds[i],
-#             "visib_fract": visib_ds[i],
-#         }
-#         for i in range(len(cls_ds))
-#     ]
-
-#     F.close()
-
-#     return bgr, bgr_R, depth, mask, cam_data, objs_data
+    return create_visualization(
+        bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox=use_bbox, use_pose=use_pose
+    )
 
 
 if __name__ == "__main__":

@@ -156,3 +156,21 @@ simpose.data.Dataset.OBJ_PX_COUNT_VALID
 simpose.data.Dataset.OBJ_PX_COUNT_ALL
 simpose.data.Dataset.OBJ_BBOX_OBJ
 ```
+
+
+## Included Dataset Loaders
+For easier access to existing datasets, 6IMPOSE_Data includes a high-performance Tensorflow dataloader.
+Usage is the same as you would use the TFRecordDataset:
+```
+datasets = sp.data.LineMod.get(root_dir) # tf.data.Dataset
+duck_dataset = sp.data.LineMod.get(root_dir.joinpath("subsets/000009")) # only a subset
+duck_id = sp.data.LineMod.CLASSES['duck'] # 9
+```
+Use the same keys as above, but the available data depends on the original dataset. The datasets for the BOP Challenge are organized in subsets, usually for a single scene. These can be found separately in root_dir/subsets, each of which is a regular sp.data.TFRecordDataset. Accessing the root_dir, joins all subsets together. The models of the objects can also be found in the root_dir, according to the BOP format. The YCB-V dataset is the slightly modified version from the [BOP challenge](https://bop.felk.cvut.cz/datasets/) The following dataset are intended for local benchmarking, thus only the 'test' or 'validation' datasets are included, that contain full GT labels.:
+- [sp.data.LineMod](http://campar.in.tum.de/Main/StefanHinterstoisser)
+- [sp.data.LineModOccluded](https://heidata.uni-heidelberg.de/dataset.xhtml?persistentId=doi:10.11588/data/V4MUMX)
+- [sp.data.TLess](http://cmp.felk.cvut.cz/t-less/)
+- [sp.data.HomebrewedDB](http://campar.in.tum.de/personal/ilic/homebreweddb/index.html)
+- [sp.data.YCBV](https://rse-lab.cs.washington.edu/projects/posecnn/)
+- [sp.data.HOPE](https://github.com/swtyree/hope-dataset)
+- WIP: COCO, ADE20k, TOD (transparent objects dataset)

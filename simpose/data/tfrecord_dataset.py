@@ -13,6 +13,17 @@ class TFRecordDataset(Dataset):
         pattern: str = "*.tfrecord",
         num_parallel_files: int = 16,
     ) -> tf.data.Dataset:
+
+        if root_dir.joinpath("subsets").exists():
+            subsets = [
+                TFRecordDataset.get(s, get_keys=get_keys, num_parallel_files=num_parallel_files)
+                for s in root_dir.joinpath("subsets").iterdir()
+            ]
+
+            return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
+
+            return subsets
+
         if root_dir.joinpath("metadata.json").exists():
             with open(root_dir / "metadata.json", "r") as f:
                 metadata = json.load(f)
@@ -58,7 +69,7 @@ class _TFRecordDatasetV2(Dataset):
         root_dir: Path,
         get_keys: None | list[str] = None,
         pattern: str = "*.tfrecord",
-        num_parallel_files: int = 1024,
+        num_parallel_files: int = 16,
     ) -> tf.data.Dataset:
 
         if get_keys is None:
@@ -150,7 +161,7 @@ class _TFRecordDatasetV1(Dataset):
         root_dir: Path,
         get_keys: None | list[str] = None,
         pattern: str = "*.tfrecord",
-        num_parallel_files: int = 1024,
+        num_parallel_files: int = 16,
     ) -> tf.data.Dataset:
         @tf.function
         def read_tfrecord(record_file: tf.Tensor) -> tf.data.Dataset:
