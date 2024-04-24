@@ -3,6 +3,7 @@ from typing import Any
 import tensorflow as tf
 from pathlib import Path
 from .dataset import Dataset
+import logging
 
 
 class TFRecordDataset(Dataset):
@@ -89,6 +90,7 @@ class _TFRecordDatasetV2(Dataset):
                 proto = {key: tf.io.FixedLenFeature([], tf.string)}
                 serialized = tf.io.parse_single_example(record, proto)
             except Exception:
+                logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
                 get_keys.remove(key)
 
         @tf.function
@@ -102,11 +104,18 @@ class _TFRecordDatasetV2(Dataset):
 
         num_parallel_files = max(1, num_parallel_files)
 
-        return tf.data.TFRecordDataset(
+        dataset = tf.data.TFRecordDataset(
             tf.io.match_filenames_once(str(root_dir / "data" / pattern)),
             compression_type="ZLIB",
             num_parallel_reads=num_parallel_files,
         ).map(parse, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
+
+        # file_names = root_dir.joinpath("data").glob(pattern)
+        # cardinality = max(int(x.stem.split("_")[-1]) for x in file_names)
+
+        # dataset = dataset.apply(tf.data.experimental.assert_cardinality(cardinality))
+
+        return dataset
 
 
 class _TFRecordDatasetV1(Dataset):
@@ -163,6 +172,29 @@ class _TFRecordDatasetV1(Dataset):
         pattern: str = "*.tfrecord",
         num_parallel_files: int = 16,
     ) -> tf.data.Dataset:
+
+        if get_keys is None:
+            get_keys = list(_TFRecordDatasetV1._key_mapping.keys())
+
+        # check keys if in dataset
+        for key in get_keys:
+            file_type = [k for k, v in _TFRecordDatasetV1.all_file_keys.items() if key in v][0]
+            record = (
+                tf.data.TFRecordDataset(
+                    tf.io.match_filenames_once(str(root_dir / file_type / pattern)),
+                    compression_type="ZLIB",
+                )
+                .take(1)
+                .get_single_element()
+            )
+
+            try:
+                proto = {key: tf.io.FixedLenFeature([], tf.string)}
+                serialized = tf.io.parse_single_example(record, proto)
+            except Exception:
+                logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
+                get_keys.remove(key)
+
         @tf.function
         def read_tfrecord(record_file: tf.Tensor) -> tf.data.Dataset:
             return tf.data.TFRecordDataset(record_file, compression_type="ZLIB")
@@ -179,16 +211,14 @@ class _TFRecordDatasetV1(Dataset):
 
             return parse
 
-        chosen_keys = get_keys if get_keys is not None else _TFRecordDatasetV1._key_mapping.keys()
         file_types = [
             x
             for x in _TFRecordDatasetV1.all_file_keys.keys()
-            if any(k in chosen_keys for k in _TFRecordDatasetV1.all_file_keys[x])
+            if any(k in get_keys for k in _TFRecordDatasetV1.all_file_keys[x])
         ]
         # file_types = ["rgb", "gt", "depth"]
         keys_per_file_type = [
-            [x for x in chosen_keys if x in _TFRecordDatasetV1.all_file_keys[t]]
-            for t in file_types
+            [x for x in get_keys if x in _TFRecordDatasetV1.all_file_keys[t]] for t in file_types
         ]  # [[rgb, rgb_R], [cam_matrix, obj_classes, etc], [depth]] for example
 
         parsers = {t: get_parser(keys) for t, keys in zip(file_types, keys_per_file_type)}
