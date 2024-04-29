@@ -146,25 +146,26 @@ def main(data_dir: Path) -> None:
         )
 
     with c2:
-        st.image(
-            colored_mask_rgb,
-            caption=f"Instance Mask {mask.shape}, {mask.dtype}",
-            use_column_width=True,
-        )
-        st.image(
-            colored_semantic_mask_rgb,
-            caption=f"Semantic Mask {mask.shape}, {mask.dtype}",
-            use_column_width=True,
-        )
+        if mask is not None:
+            st.image(
+                colored_mask_rgb,
+                caption=f"Instance Mask {mask.shape}, {mask.dtype}",
+                use_column_width=True,
+            )
+            st.image(
+                colored_semantic_mask_rgb,
+                caption=f"Semantic Mask {mask.shape}, {mask.dtype}",
+                use_column_width=True,
+            )
 
 
 def create_visualization(
     bgr: np.ndarray,
     bgr_R: np.ndarray,
     depth: np.ndarray,
-    mask: np.ndarray,
+    mask: np.ndarray | None,
     cam_data: dict[str, np.ndarray],
-    objs_data: list[dict],
+    objs_data: list[dict] | None,
     use_bbox: bool,
     use_pose: bool,
 ) -> dict[str, np.ndarray]:
@@ -176,16 +177,20 @@ def create_visualization(
         st.session_state["cls_colors"] = {}
     cls_colors = st.session_state["cls_colors"]
 
-    mask_scaled = cv2.convertScaleAbs(mask, alpha=255.0 / np.max(mask))
-    colored_mask_bgr = cv2.applyColorMap(
-        mask_scaled,
-        cv2.COLORMAP_TURBO,
-    )
+    if mask is not None:
+        mask_scaled = cv2.convertScaleAbs(mask, alpha=255.0 / np.max(mask))
+        colored_mask_bgr = cv2.applyColorMap(
+            mask_scaled,
+            cv2.COLORMAP_TURBO,
+        )
+
     colored_depth = cv2.applyColorMap(
         cv2.convertScaleAbs(depth, alpha=255 / np.max(depth)), cv2.COLORMAP_JET  # type: ignore
     )
 
-    colored_semantic_mask_bgr = np.zeros((*mask.shape[:2], 3)).astype(np.uint8)
+    colored_semantic_mask_bgr = np.zeros((*bgr.shape[:2], 3)).astype(np.uint8)
+
+    objs_data = [] if objs_data is None else objs_data
 
     for obj_data in objs_data:
         # semantic
@@ -236,8 +241,12 @@ def create_visualization(
 
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
     rgb_R = cv2.cvtColor(bgr_R, cv2.COLOR_BGR2RGB) if bgr_R is not None else None
-    colored_mask_rgb = cv2.cvtColor(colored_mask_bgr, cv2.COLOR_BGR2RGB)
-    colored_semantic_mask_rgb = cv2.cvtColor(colored_semantic_mask_bgr, cv2.COLOR_BGR2RGB)
+    if mask is not None:
+        colored_mask_rgb = cv2.cvtColor(colored_mask_bgr, cv2.COLOR_BGR2RGB)
+        colored_semantic_mask_rgb = cv2.cvtColor(colored_semantic_mask_bgr, cv2.COLOR_BGR2RGB)
+    else:
+        colored_mask_rgb = None
+        colored_semantic_mask_rgb = None
 
     return {
         "rgb": rgb,
@@ -248,6 +257,7 @@ def create_visualization(
         "depth": depth,
         "colored_depth": colored_depth,
     }
+
 
 @st.cache_data()
 def load_data(
@@ -269,27 +279,36 @@ def load_data(
     bgr = cv2.cvtColor(data["rgb"].numpy(), cv2.COLOR_RGB2BGR)
     bgr_R = cv2.cvtColor(data["rgb_R"].numpy(), cv2.COLOR_RGB2BGR) if "rgb_R" in data else None
     depth = data["depth"].numpy()
-    mask = data["mask"].numpy()
+    mask = None if "mask" not in data else data["mask"].numpy()
 
-    objs_data = [
-        {
-            "class": cls,
-            "obj_id": obj_id,
-            "pos": pos,
-            "rotation": rot,
-            "bbox_visib": bbox_visib,
-            "visib_fract": visib_fract,
-        }
-        for cls, obj_id, pos, rot, bbox_visib, visib_fract in zip(
-            data["obj_classes"].numpy(),
-            data["obj_ids"].numpy(),
-            data["obj_pos"].numpy(),
-            data["obj_rot"].numpy(),
-            data["obj_bbox_visib"].numpy(),
-            data["obj_visib_fract"].numpy(),
-        )
-    ]
-
+    if (
+        "obj_classes" in data
+        and "obj_ids" in data
+        and "obj_pos" in data
+        and "obj_rot" in data
+        and "obj_bbox_visib" in data
+        and "obj_visib_fract" in data
+    ):
+        objs_data = [
+            {
+                "class": cls,
+                "obj_id": obj_id,
+                "pos": pos,
+                "rotation": rot,
+                "bbox_visib": bbox_visib,
+                "visib_fract": visib_fract,
+            }
+            for cls, obj_id, pos, rot, bbox_visib, visib_fract in zip(
+                data["obj_classes"].numpy(),
+                data["obj_ids"].numpy(),
+                data["obj_pos"].numpy(),
+                data["obj_rot"].numpy(),
+                data["obj_bbox_visib"].numpy(),
+                data["obj_visib_fract"].numpy(),
+            )
+        ]
+    else:
+        objs_data = []
 
     return create_visualization(
         bgr, bgr_R, depth, mask, cam_data, objs_data, use_bbox=use_bbox, use_pose=use_pose

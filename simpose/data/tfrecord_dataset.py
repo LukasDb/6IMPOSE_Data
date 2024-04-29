@@ -85,13 +85,16 @@ class _TFRecordDatasetV2(Dataset):
             .take(1)
             .get_single_element()
         )
+        to_be_removed = []
         for key in get_keys:
             try:
                 proto = {key: tf.io.FixedLenFeature([], tf.string)}
                 serialized = tf.io.parse_single_example(record, proto)
+                print(f"found {key} in Dataset")
             except Exception:
                 logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
-                get_keys.remove(key)
+                to_be_removed.append(key)
+        get_keys = [x for x in get_keys if x not in to_be_removed]
 
         @tf.function
         def parse(example_proto: Any) -> Any:
@@ -177,6 +180,7 @@ class _TFRecordDatasetV1(Dataset):
             get_keys = list(_TFRecordDatasetV1._key_mapping.keys())
 
         # check keys if in dataset
+        to_be_removed = []
         for key in get_keys:
             file_type = [k for k, v in _TFRecordDatasetV1.all_file_keys.items() if key in v][0]
             record = (
@@ -193,7 +197,8 @@ class _TFRecordDatasetV1(Dataset):
                 serialized = tf.io.parse_single_example(record, proto)
             except Exception:
                 logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
-                get_keys.remove(key)
+                to_be_removed.append(key)
+        get_keys = [x for x in get_keys if x not in to_be_removed]
 
         @tf.function
         def read_tfrecord(record_file: tf.Tensor) -> tf.data.Dataset:
