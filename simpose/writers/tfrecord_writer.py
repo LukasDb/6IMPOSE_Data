@@ -68,59 +68,66 @@ class TFRecordWriter(Writer):
 
         rp = render_product
 
+        sp_keys = sp.data.Dataset
+
         data: dict[str, np.ndarray] = {}
         if rp.intrinsics is not None:
-            data["cam_matrix"] = rp.intrinsics.astype(np.float32)
+            data[sp_keys.CAM_MATRIX] = rp.intrinsics.astype(np.float32)
         if rp.cam_position is not None:
-            data["cam_location"] = np.array(rp.cam_position).astype(np.float32)
+            data[sp_keys.CAM_LOCATION] = np.array(rp.cam_position).astype(np.float32)
         if rp.cam_quat_xyzw is not None:
-            data["cam_rotation"] = rp.cam_quat_xyzw.astype(np.float32)
+            data[sp_keys.CAM_ROTATION] = rp.cam_quat_xyzw.astype(np.float32)
         if rp.stereo_baseline is not None:
-            data["stereo_baseline"] = np.array(rp.stereo_baseline).astype(np.float32)
+            data[sp_keys.STEREO_BASELINE] = np.array(rp.stereo_baseline).astype(np.float32)
         if rp.objs is not None:
             if rp.objs[0].cls is not None:
-                data["obj_classes"] = np.array([obj.cls for obj in rp.objs])
+                data[sp_keys.OBJ_CLASSES] = np.array([obj.cls for obj in rp.objs])
             if rp.objs[0].object_id is not None:
-                data["obj_ids"] = np.array([obj.object_id for obj in rp.objs]).astype(np.int32)
+                data[sp_keys.OBJ_IDS] = np.array([obj.object_id for obj in rp.objs]).astype(np.int32)
             if rp.objs[0].position is not None:
-                data["obj_pos"] = np.array([obj.position for obj in rp.objs]).astype(np.float32)
+                data[sp_keys.OBJ_POS] = np.array([obj.position for obj in rp.objs]).astype(np.float32)
             if rp.objs[0].quat_xyzw is not None:
-                data["obj_rot"] = np.array([obj.quat_xyzw for obj in rp.objs]).astype(np.float32)
+                data[sp_keys.OBJ_ROT] = np.array([obj.quat_xyzw for obj in rp.objs]).astype(np.float32)
             if rp.objs[0].bbox_visib is not None:
-                data["obj_bbox_visib"] = np.array([obj.bbox_visib for obj in rp.objs]).astype(
+                data[sp_keys.OBJ_BBOX_VISIB] = np.array([obj.bbox_visib for obj in rp.objs]).astype(
                     np.int32
                 )
             if rp.objs[0].bbox_obj is not None:
-                data["obj_bbox_obj"] = np.array([obj.bbox_obj for obj in rp.objs]).astype(np.int32)
+                data[sp_keys.OBJ_BBOX_OBJ] = np.array([obj.bbox_obj for obj in rp.objs]).astype(np.int32)
             if rp.objs[0].px_count_visib is not None:
-                data["obj_px_count_visib"] = np.array(
+                data[sp_keys.OBJ_PX_COUNT_VISIB] = np.array(
                     [obj.px_count_visib for obj in rp.objs]
                 ).astype(np.int32)
             if rp.objs[0].px_count_valid is not None:
-                data["obj_px_count_valid"] = np.array(
+                data[sp_keys.OBJ_PX_COUNT_VALID] = np.array(
                     [obj.px_count_valid for obj in rp.objs]
                 ).astype(np.int32)
             if rp.objs[0].px_count_all is not None:
-                data["obj_px_count_all"] = np.array([obj.px_count_all for obj in rp.objs]).astype(
+                data[sp_keys.OBJ_PX_COUNT_ALL] = np.array([obj.px_count_all for obj in rp.objs]).astype(
                     np.int32
                 )
             if rp.objs[0].visib_fract is not None:
-                data["obj_visib_fract"] = np.array([obj.visib_fract for obj in rp.objs]).astype(
+                data[sp_keys.OBJ_VISIB_FRACT] = np.array([obj.visib_fract for obj in rp.objs]).astype(
                     np.float32
                 )
 
         if rp.rgb is not None:
-            data["rgb"] = rp.rgb.astype(np.uint8)
+            data[sp_keys.RGB] = rp.rgb.astype(np.uint8)
         if rp.rgb_R is not None:
-            data["rgb_R"] = rp.rgb_R.astype(np.uint8)
+            data[sp_keys.RGB_R] = rp.rgb_R.astype(np.uint8)
 
         if rp.depth is not None:
-            data["depth"] = rp.depth.astype(np.float32)
+            data[sp_keys.DEPTH] = rp.depth.astype(np.float32)
         if rp.depth_R is not None:
-            data["depth_R"] = rp.depth_R.astype(np.float32)
+            data[sp_keys.DEPTH_R] = rp.depth_R.astype(np.float32)
+        if rp.depth_GT is not None:
+            data[sp_keys.DEPTH_GT] = rp.depth_GT.astype(np.float32)
+        if rp.depth_GT_R is not None:
+            data[sp_keys.DEPTH_GT_R] = rp.depth_GT_R.astype(np.float32)
+
 
         if rp.mask is not None:
-            data["mask"] = rp.mask.astype(np.int32)
+            data[sp_keys.MASK] = rp.mask.astype(np.int32)
 
         with tf.device("/cpu:0"):  # type: ignore
             serialized_data = self._serialize_data(**data)

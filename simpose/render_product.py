@@ -22,6 +22,8 @@ class RenderProduct:
     rgb_R: None | np.ndarray = None
     depth: None | np.ndarray = None
     depth_R: None | np.ndarray = None
+    depth_GT: None | np.ndarray = None
+    depth_GT_R: None | np.ndarray = None
     mask: None | np.ndarray = None
     objs: list[ObjectAnnotation] | None = None
     intrinsics: None | np.ndarray = None

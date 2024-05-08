@@ -156,7 +156,11 @@ simpose.data.Dataset.OBJ_PX_COUNT_VALID
 simpose.data.Dataset.OBJ_PX_COUNT_ALL
 simpose.data.Dataset.OBJ_BBOX_OBJ
 ```
-
+Optionally available are the following keys:
+```
+simpose.data.Dataset.DEPTH_GT # obtained by any technique that can not be used at regular inference (such as multiple frames, etc...)
+simpose.data.Dataset.DEPTH_GT_R # same as above
+```
 
 ## Included Dataset Loaders
 For easier access to existing datasets, 6IMPOSE_Data includes a high-performance Tensorflow dataloader.

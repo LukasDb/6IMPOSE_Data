@@ -9,6 +9,8 @@ class Dataset(ABC):
     RGB_R = "rgb_R"
     DEPTH = "depth"
     DEPTH_R = "depth_R"
+    DEPTH_GT = "depth_gt"
+    DEPTH_GT_R = "depth_gt_R"
     MASK = "mask"
     GT = "gt"
     CAM_MATRIX = "cam_matrix"

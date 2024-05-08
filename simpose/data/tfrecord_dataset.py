@@ -48,6 +48,8 @@ class _TFRecordDatasetV2(Dataset):
         Dataset.RGB_R: tf.uint8,
         Dataset.DEPTH: tf.float32,
         Dataset.DEPTH_R: tf.float32,
+        Dataset.DEPTH_GT: tf.float32,
+        Dataset.DEPTH_GT_R: tf.float32,
         Dataset.MASK: tf.int32,
         Dataset.CAM_MATRIX: tf.float32,
         Dataset.CAM_LOCATION: tf.float32,
