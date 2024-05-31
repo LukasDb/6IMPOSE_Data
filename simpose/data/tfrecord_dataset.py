@@ -15,6 +15,7 @@ class TFRecordDataset(Dataset):
         num_parallel_files: int = 16,
     ) -> tf.data.Dataset:
 
+        # if subsets exists, directly load them without checking anything else
         if root_dir.joinpath("subsets").exists():
             subsets = [
                 TFRecordDataset.get(s, get_keys=get_keys, num_parallel_files=num_parallel_files)
@@ -23,8 +24,27 @@ class TFRecordDataset(Dataset):
 
             return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
 
-            return subsets
+        if not root_dir.joinpath("data").exists():
+            # not a tfrecord dataset -> check subfolders
+            def get_data_folders(root_dir: Path) -> list[Path]:
+                data_folders = []
+                for p in [x for x in root_dir.iterdir() if x.is_dir()]:
+                    if p.joinpath("data").exists():
+                        data_folders.append(p)
+                    else:
+                        data_folders.extend(get_data_folders(p))
+                return data_folders
 
+            folders = get_data_folders(root_dir)
+            print(f"Found subsets: {[x.name for x in folders]}")
+            subsets = [
+                TFRecordDataset.get(s, get_keys=get_keys, num_parallel_files=num_parallel_files)
+                for s in folders
+            ]
+            return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
+
+        # data exists -> tfrecord dataset
+        # try to load meta info
         if root_dir.joinpath("metadata.json").exists():
             with open(root_dir / "metadata.json", "r") as f:
                 metadata = json.load(f)
@@ -92,7 +112,6 @@ class _TFRecordDatasetV2(Dataset):
             try:
                 proto = {key: tf.io.FixedLenFeature([], tf.string)}
                 serialized = tf.io.parse_single_example(record, proto)
-                print(f"found {key} in Dataset")
             except Exception:
                 logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
                 to_be_removed.append(key)
