@@ -21,38 +21,31 @@ import tensorflow as tf
 def main(data_dir: Path) -> None:
     st.set_page_config(layout="wide", page_title="Dataset Viewer")
 
-    if "last_idx" not in st.session_state:
-        st.session_state["last_idx"] = 0
+    with st.sidebar:
+        img_dir = st.text_input(
+            "Image directory",
+            str(data_dir.resolve()),
+            label_visibility="collapsed",
+            placeholder="Dataset directory",
+        )
+        c1, c2, c3 = st.columns(3)
+        if c1.button("Prev"):
+            st.session_state["index"] -= 1
+        if c2.button("Next"):
+            st.session_state["index"] += 1
 
-    c1, c2, c3 = st.columns(3)
+        if c3.button("↻"):
+            st.cache_data.clear()
+            st.session_state["index"] = 0
 
-    # c1
-    img_dir = c1.text_input(
-        "Image directory",
-        str(data_dir.resolve()),
-        label_visibility="collapsed",
-        placeholder="Dataset directory",
-    )
-    indices = get_idx(Path(img_dir))
-
-    if len(indices) == 1:
-        indices += [indices[0]]
-    idx = c1.select_slider("Select image", indices, value=indices[0], key="idx")
-
-    # c2
-    if c2.button("↻"):
-        st.cache_data.clear()
-
-    # c3
-    with c3:
         use_bbox = st.toggle("BBox", value=False)
         use_pose = st.toggle("Pose", value=False)
+        shuffle = st.toggle("Shuffle", value=False)
 
-    st.header(f"Datapoint: #{idx:05} (of total {len(indices)} images)")
+    idx = st.session_state["index"]
+    st.header(f"Datapoint: #{idx:05}")
 
-    assert isinstance(idx, np.int64), f"Got {type(idx)} instead"
-
-    data = get_data(Path(img_dir), idx, use_bbox=use_bbox, use_pose=use_pose)
+    data = get_data(Path(img_dir), idx, use_bbox=use_bbox, use_pose=use_pose, shuffle=shuffle)
 
     chose_col1, chose_col2, _ = st.columns(3)
     chosen_left = chose_col1.selectbox(
@@ -85,7 +78,7 @@ def main(data_dir: Path) -> None:
             in_memory=True,
         )
     with c2:
-        raw_data = load_data(Path(img_dir), idx)
+        raw_data = load_data(Path(img_dir), idx, shuffle=shuffle)
         st.markdown("Available keys in the dataset")
         st.table({k: f"{str(d.dtype)};{d.shape}" for k, d in raw_data.items()})
 
@@ -125,18 +118,32 @@ def get_idx(img_dir: Path) -> np.ndarray | list[int]:
     raise ValueError("No tfrecord found.")
 
 
-@st.cache_data()
-def load_data(img_dir: Path, idx: np.int64) -> dict[str, np.ndarray]:
-    tfds = sp.data.TFRecordDataset.get(img_dir, num_parallel_files=1)
+@st.cache_resource
+def get_ds(img_dir: Path, shuffle: bool) -> tf.data.Dataset:
+    st.session_state.index = 0  # reset index
+    tfds = sp.data.TFRecordDataset.get(img_dir, num_parallel_files=4)
+    if shuffle:
+        tfds = tfds.shuffle(1000)
+    return iter(tfds)
+
+
+@st.cache_data
+def load_data(img_dir: Path, idx: np.int64, shuffle: bool) -> dict[str, np.ndarray]:
+    tfds = get_ds(img_dir, shuffle)
+    return next(tfds)
     data = tfds.skip(idx).take(1).get_single_element()
     return data
 
 
 def get_data(
-    img_dir: Path, idx: np.int64, use_bbox: bool = False, use_pose: bool = False
+    img_dir: Path,
+    idx: np.int64,
+    use_bbox: bool = False,
+    use_pose: bool = False,
+    shuffle: bool = False,
 ) -> dict[str, np.ndarray]:
 
-    data = load_data(img_dir, idx)
+    data = load_data(img_dir, idx, shuffle=shuffle)
 
     if data is None:
         raise RuntimeError("Could not find data point.")
@@ -150,28 +157,30 @@ def get_data(
     if sp_keys.RGB_R in data:
         output["RGB_R"] = data[sp_keys.RGB_R].numpy()
 
+    max_depth = 1.5
+
     if sp_keys.DEPTH in data:
         depth = data["depth"].numpy()
         output["Depth"] = cv2.applyColorMap(
-            cv2.convertScaleAbs(depth, alpha=255 / np.max(depth)), cv2.COLORMAP_JET  # type: ignore
+            cv2.convertScaleAbs(depth, alpha=255 / max_depth), cv2.COLORMAP_JET  # type: ignore
         )
 
     if sp_keys.DEPTH_R in data:
         depth_R = data["depth_R"].numpy()
         output["Depth_R"] = cv2.applyColorMap(
-            cv2.convertScaleAbs(depth_R, alpha=255 / np.max(depth_R)), cv2.COLORMAP_JET  # type: ignore
+            cv2.convertScaleAbs(depth_R, alpha=255 / max_depth), cv2.COLORMAP_JET  # type: ignore
         )
 
     if sp_keys.DEPTH_GT in data:
         depth_gt = data["depth_gt"].numpy()
         output["Depth GT"] = cv2.applyColorMap(
-            cv2.convertScaleAbs(depth_gt, alpha=255 / np.max(depth_gt)), cv2.COLORMAP_JET  # type: ignore
+            cv2.convertScaleAbs(depth_gt, alpha=255 / max_depth), cv2.COLORMAP_JET  # type: ignore
         )
 
     if sp_keys.DEPTH_GT_R in data:
         depth_gt_R = data["depth_gt_R"].numpy()
         output["Depth GT_R"] = cv2.applyColorMap(
-            cv2.convertScaleAbs(depth_gt_R, alpha=255 / np.max(depth_gt_R)), cv2.COLORMAP_JET  # type: ignore
+            cv2.convertScaleAbs(depth_gt_R, alpha=255 / max_depth), cv2.COLORMAP_JET  # type: ignore
         )
 
     mask = None
@@ -288,4 +297,6 @@ def draw_bboxes(img, boxes, classes) -> np.ndarray:
 if __name__ == "__main__":
     if "cls_colors" not in st.session_state:
         st.session_state["cls_colors"] = {}
+    if "index" not in st.session_state:
+        st.session_state["index"] = 0
     main()
