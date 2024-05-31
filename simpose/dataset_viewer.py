@@ -35,12 +35,17 @@ def main(data_dir: Path) -> None:
             st.session_state["index"] += 1
 
         if c3.button("↻"):
+            st.cache_resource.clear()
             st.cache_data.clear()
             st.session_state["index"] = 0
 
         use_bbox = st.toggle("BBox", value=False)
         use_pose = st.toggle("Pose", value=False)
         shuffle = st.toggle("Shuffle", value=False)
+        if shuffle:
+            st.cache_resource.clear()
+            st.cache_data.clear()
+            st.session_state["index"] = 0
 
     idx = st.session_state["index"]
     st.header(f"Datapoint: #{idx:05}")
@@ -120,7 +125,7 @@ def get_idx(img_dir: Path) -> np.ndarray | list[int]:
 
 @st.cache_resource
 def get_ds(img_dir: Path, shuffle: bool) -> tf.data.Dataset:
-    st.session_state.index = 0  # reset index
+    st.session_state["index"] = 0  # reset index
     tfds = sp.data.TFRecordDataset.get(img_dir, num_parallel_files=4)
     if shuffle:
         tfds = tfds.shuffle(1000)
