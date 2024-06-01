@@ -29,7 +29,7 @@ class _BOPBase(TFRecordDataset):
         root_dir: Path,
         get_keys: None | list[str] = None,
         num_parallel_files: int = 16,
-    ) -> dict[str, "tf.data.Dataset"]:  # download and extract if tfrecord not found
+    ) -> "tf.data.Dataset":  # download and extract if tfrecord not found
 
         root_dir.mkdir(exist_ok=True)
 

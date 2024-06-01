@@ -1,3 +1,4 @@
+import json
 import simpose as sp
 from .randomizer import Randomizer, RandomizerConfig, JoinableRandomizer
 from pathlib import Path
@@ -15,6 +16,7 @@ class ModelSource(Enum):
     GENERIC_PLY = "ply"
     GENERIC_GLTF = "gltf"
     GENERIC_FBX = "fbx"
+    FILE = "file"
 
 
 class ModelLoaderConfig(RandomizerConfig):
@@ -94,6 +96,12 @@ class ModelLoader(JoinableRandomizer):
                     and not x.name in params.exclude
                 ]
             )
+        elif model_source == ModelSource.FILE:
+            with self._root.joinpath("objects.json") as f:
+                name_to_path = json.load(f)
+                # list[str, str] where first is name and second is path
+            path_and_name = [(self._root.joinpath(Path(path)), name) for path, name in name_to_path.items()]
+
         else:
             raise NotImplementedError(f"ModelSource {model_source} not implemented.")
         self._model_paths = path_and_name
@@ -112,7 +120,9 @@ class ModelLoader(JoinableRandomizer):
         restitution: float,
     ) -> list[sp.entities.Object]:
         """renews the list of objects and returns it"""
-        return [self.get_object(scene, mass, friction, hide, restitution) for _ in range(num_objects)]
+        return [
+            self.get_object(scene, mass, friction, hide, restitution) for _ in range(num_objects)
+        ]
 
     def get_object(
         self, scene: sp.Scene, mass: float, friction: float, hide: bool, restitution: float
