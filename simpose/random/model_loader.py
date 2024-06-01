@@ -104,7 +104,7 @@ class ModelLoader(JoinableRandomizer):
                 raise AssertionError("Expected objects.json file in root directory.")
                 # list[str, str] where first is name and second is path
             path_and_name = [
-                (self._root.joinpath(Path(path)), name) for path, name in name_to_path.items()
+                (self._root.joinpath(Path(path)), name) for name, path in name_to_path.items()
             ]
 
         else:
