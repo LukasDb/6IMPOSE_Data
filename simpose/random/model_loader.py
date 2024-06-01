@@ -97,10 +97,15 @@ class ModelLoader(JoinableRandomizer):
                 ]
             )
         elif model_source == ModelSource.FILE:
-            with self._root.joinpath("objects.json") as f:
-                name_to_path = json.load(f)
+            try:
+                with self._root.joinpath("objects.json").open("r") as f:
+                    name_to_path = json.load(f)
+            except Exception:
+                raise AssertionError("Expected objects.json file in root directory.")
                 # list[str, str] where first is name and second is path
-            path_and_name = [(self._root.joinpath(Path(path)), name) for path, name in name_to_path.items()]
+            path_and_name = [
+                (self._root.joinpath(Path(path)), name) for path, name in name_to_path.items()
+            ]
 
         else:
             raise NotImplementedError(f"ModelSource {model_source} not implemented.")
