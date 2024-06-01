@@ -63,15 +63,14 @@ class CameraSceneRandomizer(Randomizer):
             max_object_diameter / np.tan(p.fill_range[1] * fov * 2),
         )
 
-        radius = np.random.uniform(
-            distance_range[1], distance_range[0]
-        )  # small fill range -> large distance
-
         assert (p.pitch_range[1] - p.pitch_range[0]) >= 5, "Pitch range is too small"
 
         # rejection sample until found valid angle and far away enough from other objects
         loc = None
         for _ in range(10000):
+            radius = np.random.uniform(
+                distance_range[1], distance_range[0]
+            )  # small fill range -> large distance
             rot = R.random()
             loc = rot.apply(cam_view) * radius + np.array(p.origin)
             d = np.linalg.norm(loc[:2])
