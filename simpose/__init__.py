@@ -32,3 +32,4 @@ import simpose.writers as writers
 import simpose.generators as generators
 import simpose.downloaders as downloaders
 import simpose.data as data
+import simpose.analyze as analyze
