@@ -128,8 +128,8 @@ def get_ds(img_dir: Path, shuffle: bool) -> tf.data.Dataset:
     st.session_state["index"] = 0  # reset index
     tfds = sp.data.TFRecordDataset.get(img_dir, num_parallel_files=4)
     if shuffle:
-        tfds = tfds.shuffle(1000)
-    return iter(tfds)
+        tfds = tfds.shuffle(100)
+    return iter(tfds.prefetch(tf.data.AUTOTUNE))
 
 
 @st.cache_data

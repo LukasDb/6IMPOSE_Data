@@ -1,5 +1,20 @@
 # 6IMPOSE Data generation (v2)
-Streamlined package of the 6IMPOSE data generation pipeline. Easier to install, use and to extend.
+Streamlined package of the 6IMPOSE data generation pipeline. Easier to install, use and to extend and also used to create the *Dropjects* datasets (link to the datasets will follow). If you want to use 6IMPOSE_Data in your academic work, please cite the following 2 papers:
+```
+@ARTICLE{cao2023simpose,
+    AUTHOR={Cao, Hongpeng and Dirnberger, Lukas and Bernardini, Daniele and Piazza, Cristina and Caccamo, Marco},   
+    TITLE={6IMPOSE: bridging the reality gap in 6D pose estimation for robotic grasping},      
+    JOURNAL={Frontiers in Robotics and AI},      
+    VOLUME={10},
+    YEAR={2023},
+    URL={https://www.frontiersin.org/articles/10.3389/frobt.2023.1176492},       
+    DOI={10.3389/frobt.2023.1176492},      
+    ISSN={2296-9144},
+}
+
+TBA
+
+```
 
 ## Setup
 If you encouter problems with OpenEXR try: `conda install -c conda-forge openexr-python` 
@@ -8,7 +23,7 @@ install this package with
 
 ## Usage
 ### Preview
-After you generated your dataset, using the included `SimposeWriter` you can inspect the rendered data and labels with the Dataset Viewer:
+After you generated or downloaded a dataset, you can inspect the rendered data and labels with the Dataset Viewer. This works also with concatenating all datasets found in that directory.
 ```
 simpose view <dataset_directory>
 ```
@@ -20,7 +35,7 @@ simpose generate <config.yaml>
 ,where the config file specifies the parameters and the generator for dataset generation. You can generate a config file with `simpose generate -i <config.yaml>`, where you will be prompted to choose a Generator (e.g. DroppedObjects). The config file will be generated with default parameters. You can then edit the config file and run `simpose generate <config.yaml>` to generate the dataset. Make sure to specify all necessary file paths and check if the defaults are suitable for your use case!
 
 ### Custom Usage
-If you want to write your own dataset generation script, a typical script would follow this approach. Take a look at the examples!
+If you want to write your own dataset generation script, a typical script would follow this approach. Take a look at the included generators!
 - create a simpose Scene
 - attach a Writer
 - create a simpose Camera
@@ -43,48 +58,21 @@ If you want to write your own dataset generation script, a typical script would 
 - Check out the examples!
 
 ## Models and Meshes 
-- You can use the simpose.random.ModelLoader to retrieve random objects with .get_objects from the ShapeNet dataset. Please request and download the dataset from ShapeNet on your own and specify the path to the dataset in the ShapenetLoader.
-- A script to download and extract Models from the YCB dataset is provided. The models can then be used in a similar fashion with the simpose.random.ModelLoader.
-- The objects from [SynthDet](https://github.com/Unity-Technologies/SynthDet) can also be used as distractor objects. The published objects are however not directly compatible and need pre-processing.
+You can use the simpose.random.ModelLoader to load procedurally load random models. You can specify to load all .obj, .ply or .fbx files from the specified folder. You can also specify an `objects.json` with  a list of objects by their canonical name and path to the mesh file: `<name>: <path>`.
 
 ## Notes
-- GT labels are only written for objects with `add_semantics=True`
 - multiprocessing works, if you import simpose in the worker processes. Check memory usage!
 - Currently implemented randomizers, specify the execution with `sp.CallbackType`:
     - BackgroundRandomizer: randomizes the background image
     - CameraFrustumRandomizer: randomizes object's pose in the camera view
+    - CameraSceneRandomizer: randomizes camera pose around the origin with some constraints
     - LightRandomizer: Random number of point lights with random positions, colors and energy
-    - ShapenetLoader: Loads random objects from the shapenet dataset. Should be used manually and not as a Callback. Download the [ShapeNet](https://shapenet.org) Core dataset and specify the path.
+    - ModelLoader: Loads random models from a specified folder
 - If you want to use physics, add mass and friction to objects. The physics engine is PyBullet. The scene always has a collision plane at z=0 and gravity in negative z-direction. To progress the physics simulation use `scene.step_physics` with a timestep in seconds.
 
 
 ## Included Dataset Writer
-*TODO update this section*
-The included dataset writer generates a dataset with instance annotations. If `render_object_masks=True`, the writer will render masks for each object with semantics without occlusions and calculate the visible fraction of pixels, as well as the bounding box without occlusions. This will slow down rendering, but includes additional information in the dataset. The writer will create a folder structure like this:
-
-```
-├── <output_path>/
-|	├── depth/
-|	|	├── depth_0000.exr 			-> depth from camera in meters
-|	|	├── depth_0001.exr
-|	|	├── ...
-|	├── gt/
-|	|	├── gt_0000.json 			-> explained below
-|	|	├── gt_0001.json
-|	|	├── ...
-|	├── mask/
-|	|	├── mask_0000.exr 	        -> instance IDs of visible objects
-|	|	├── mask_<id>_0000.exr      -> if render_object_masks=True
-|	|	├── mask_0001.exr
-|	|	├── mask_<id>_0001.exr
-|	|	├── ...
-|	├── rgb/
-|	|	├── rgb_0000.png 			-> RGB Image
-|	|	├── rgb_0001.png
-|	|	├── ...
-```
-
-For each datapoint, `gt_<datapoint_index>.json` contains the following information:
+The dataset generation will create sharded TFrecord files, compressed with ZLIB. The dataset will be written to the specified directory. Each datapoint, contains the following information:
 
 - `"cam_rotation"`: quaternion for the camera rotation as [x,y,z,w]
 - `"cam_location"`: camera position as [x,y,z]
@@ -100,15 +88,13 @@ For each datapoint, `gt_<datapoint_index>.json` contains the following informati
     - `"px_count_valid"`: count of visible pixels with valid depth for this object
     - `"px_count_all"`: count of pixels without occlusions for this object
     - `"visib_fract"`: px_count_visib / px_count_all (or 0.)
-
-If `render_object_masks = False`:
-There will be no rendered masks without occlusions `masks/mask_<obj_id>_<datapoint_index>.exr` and `"px_count_all"` and `"visib_fract"` will be `0.0`, and `"bbox_obj"` will be `[0, 0, 0, 0]` for all objects.
+If an object is not visible the bounding box will be [0,0,00].
 
 
 ## Included Dataset Reader
 > Note: `num_parallel_files` can have a huge impact on RAM and CPU usage. Recommended are much lower values or even start with `num_parallel_files=1`.
 
-For easier use of the generated Dataset (if the TFRecordWriter was used), 6IMPOSE_Data includes a high-performance Tensorflow dataloader. To initalize it use:
+For easier use of the generated Dataset, 6IMPOSE_Data includes a high-performance Tensorflow dataloader. TFRecordDataset will search the root folder for a dataset. If multiple datasets are found, then the datasets will be concatenated. Usage:
 ```
 import simpose as sp
 
@@ -163,14 +149,14 @@ simpose.data.Dataset.DEPTH_GT_R # same as above
 ```
 
 ## Included Dataset Loaders
-For easier access to existing datasets, 6IMPOSE_Data includes a high-performance Tensorflow dataloader.
-Usage is the same as you would use the TFRecordDataset:
+For easier access to existing datasets, 6IMPOSE_Data includes a high-performance Tensorflow dataloader. Usage is the same as you would use the TFRecordDataset, if no dataset is found in that directory, the loader will automatically start downloading and preprocessing the data. This might take a while and can potentially use a lot of disk space. Usage:
 ```
 datasets = sp.data.LineMod.get(root_dir) # tf.data.Dataset
+lm_dataset = sp.data.LineMod.get(root_dir) # full concatenated dataset
 duck_dataset = sp.data.LineMod.get(root_dir.joinpath("subsets/000009")) # only a subset
 duck_id = sp.data.LineMod.CLASSES['duck'] # 9
 ```
-Use the same keys as above, but the available data depends on the original dataset. The datasets for the BOP Challenge are organized in subsets, usually for a single scene. These can be found separately in root_dir/subsets, each of which is a regular sp.data.TFRecordDataset. Accessing the root_dir, joins all subsets together. The models of the objects can also be found in the root_dir, according to the BOP format. The YCB-V dataset is the slightly modified version from the [BOP challenge](https://bop.felk.cvut.cz/datasets/) The following dataset are intended for local benchmarking, thus only the 'test' or 'validation' datasets are included, that contain full GT labels.:
+Use the same keys as above, but the available data depends on the original dataset. The datasets for the BOP Challenge are organized in subsets, usually for a single scene. These can be found separately in root_dir/subsets, each of which is a regular sp.data.TFRecordDataset. The models of the objects can also be found in the root_dir, according to the BOP format. The YCB-V dataset is the slightly modified version from the [BOP challenge](https://bop.felk.cvut.cz/datasets/) The following dataset are intended for local benchmarking, thus only the 'test' or 'validation' datasets are included, that contain full GT labels.:
 - [sp.data.LineMod](http://campar.in.tum.de/Main/StefanHinterstoisser)
 - [sp.data.LineModOccluded](https://heidata.uni-heidelberg.de/dataset.xhtml?persistentId=doi:10.11588/data/V4MUMX)
 - [sp.data.TLess](http://cmp.felk.cvut.cz/t-less/)

@@ -51,15 +51,20 @@ def download(output_dir: Path, type: str) -> None:
 
 @run.command()
 @click.argument("dataset_dir", type=click.Path(exists=True, path_type=Path))
+@click.option("--fraction", type=float, default=1.0, help="Fraction of dataset to use")
 @click.option("-o", "--output", type=click.Path(path_type=Path), help="Output file")
-def analyze(dataset_dir: Path, output: Path | None = None) -> None:
+def analyze(dataset_dir: Path, output: Path | None = None, fraction: float = 1.0) -> None:
+    mp.set_start_method("spawn")
+    mp.get_logger().setLevel("WARN")
+
     # maybe output as html or something
-    analyzer = sp.analyze.Analyzer(dataset_dir)
+    analyzer = sp.analyze.Analyzer(dataset_dir, fraction=fraction)
     analyzer.print()
 
     if output is not None:
         if output.suffix == ".pdf":
             analyzer.save_pdf(output)
+            
 
 
 @run.command()

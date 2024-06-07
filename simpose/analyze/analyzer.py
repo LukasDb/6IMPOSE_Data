@@ -9,6 +9,7 @@ from scipy.spatial.transform import Rotation as R
 import simpose as sp
 import time
 import tensorflow as tf
+from tqdm import tqdm
 
 
 class Analyzer:
@@ -20,31 +21,16 @@ class Analyzer:
         sp.data.Dataset.OBJ_POS,
     ]
 
-    def __init__(self, dataset_root: Path) -> None:
+    def __init__(self, dataset_root: Path, fraction: float = 1.0) -> None:
         self.dataset_root = dataset_root
-        self._statistics_file = dataset_root.joinpath("statistics.json")
-
-        # self.ds = sp.data.TFRecordDataset.get(dataset_root, num_parallel_files=1, get_keys=self.keys)
-        # .take(1000)
+        self._fraction = fraction
         self._statistics: None | dict = None
 
     def _collect_statistics(self) -> None:
         """is called if statistics are not in cache there"""
-        if not self._statistics_file.exists():
-            t = time.perf_counter()
-            self._compute_statistics()
-            print(f"Statistics computed in {time.perf_counter() - t:.2f}s")
-            self._save_statistics()
-        else:
-            self._load_statistics()
-
-    def _load_statistics(self) -> None:
-        """loads statistics from disk"""
-        pass
-
-    def _save_statistics(self) -> None:
-        """saves statistics to disk"""
-        pass
+        # t = time.perf_counter()
+        self._compute_statistics()
+        # print(f"Statistics computed in {time.perf_counter() - t:.2f}s")
 
     @staticmethod
     @tf.function
@@ -84,40 +70,49 @@ class Analyzer:
         if self._statistics is None:
             self._collect_statistics()
 
-        fig, axs = plt.subplots(2, 2, figsize=(10, 8))
+        fig, axs = plt.subplots(1, 2, figsize=(10, 8))
 
         # Plot 1
-        ns_objects = self._statistics["ns_objects"]
-        axs[0, 0].hist(ns_objects, bins=np.arange(0, np.max(ns_objects) + 1))
-        axs[0, 0].set_title("Number of Images with n Objects")
-        axs[0, 0].set_xlabel("Number of Objects")
-        axs[0, 0].set_ylabel("Number of Images")
+        # just not that interesting
+        # ns_objects = self._statistics["ns_objects"]
+        # axs[0, 0].hist(ns_objects, bins=np.arange(0, np.max(ns_objects) + 1))
+        # axs[0, 0].set_title("Number of Images with n Objects")
+        # axs[0, 0].set_xlabel("Number of Objects")
+        # axs[0, 0].set_ylabel("Number of Images")
 
-        # Plot 2
-        ns_classes = self._statistics["ns_classes"]
-        axs[0, 1].hist(ns_classes, bins=np.arange(0, np.max(ns_classes) + 1))
-        axs[0, 1].set_title("Number of Images with n Classes")
-        axs[0, 1].set_xlabel("Number of Classes")
-        axs[0, 1].set_ylabel("Number of Images")
+        # # Plot 2
+        # ns_classes = self._statistics["ns_classes"]
+        # axs[0, 1].hist(ns_classes, bins=np.arange(0, np.max(ns_classes) + 1))
+        # axs[0, 1].set_title("Number of Images with n Classes")
+        # axs[0, 1].set_xlabel("Number of Classes")
+        # axs[0, 1].set_ylabel("Number of Images")
 
         # Plot 3
+        row = 0
         mean_dist = self._statistics["mean_dist_to_camera"]
-        axs[1, 0].hist(self._statistics["distances_to_camera"], bins=np.linspace(0, 1.5, 10))
-        axs[1, 0].set_title("Distances to Camera")
-        axs[1, 0].set_xlabel("Distance to Camera [m]")
-        axs[1, 0].set_ylabel("Number of Objects")
-        axs[1, 0].axvline(mean_dist, color="r", linestyle="--", label=f"mean: {mean_dist:.2f}")
+        axs[0].hist(self._statistics["distances_to_camera"], bins=np.linspace(0, 1.5, 20))
+        axs[0].set_title("Distances to Camera")
+        axs[0].set_xlabel("Distance to Camera [m]")
+        axs[0].set_ylabel("Number of Objects")
+        axs[0].axvline(mean_dist, color="r", linestyle="--", label=f"mean: {mean_dist:.2f}")
 
         # Plot 4
         mean_side = self._statistics["mean_longest_side"]
-        axs[1, 1].hist(self._statistics["longest_sides"], bins=np.linspace(0, 1.0, 10))
-        axs[1, 1].set_title("Longest Sides")
-        axs[1, 1].set_xlabel("Longest Side [%]")
-        axs[1, 1].set_ylabel("Number of Objects")
-        axs[1, 1].axvline(mean_side, color="r", linestyle="--", label=f"mean: {mean_side:.2f}")
+        axs[1].hist(self._statistics["longest_sides"], bins=np.linspace(0, 1.0, 20))
+        axs[1].set_title("Longest Sides")
+        axs[1].set_xlabel("Longest Side [%]")
+        axs[1].set_ylabel("Number of Objects")
+        axs[1].axvline(mean_side, color="r", linestyle="--", label=f"mean: {mean_side:.2f}")
 
         # add title to figure
-        fig.suptitle(f"Statistics for {self.dataset_root.name}")
+        # fig.suptitle(f"Statistics for {self.dataset_root.name}")
+
+        # set figure size to square
+        fig.set_size_inches(5.5, 2)
+
+        # add grid
+        for ax in axs:
+            ax.grid(True)
 
         plt.tight_layout()
         plt.savefig(path)
@@ -130,17 +125,24 @@ class Analyzer:
             self._collect_statistics()
         stats = self._statistics
 
+        print(f"mean distance to camera: {stats['mean_dist_to_camera']}")
+        print(f"std of object distance: {np.std(stats['distances_to_camera'])}")
+        print(f"mean number of classes: {stats['mean_n_classes']}")
+        print(f"mean number of objects: {stats['mean_n_objects']}")
+        print(f"mean object side in %: {stats['mean_longest_side']}")
+        print(f"std of object side: {np.std(stats['longest_sides'])}")
+        print(f"total images: {stats['total_images']}")
+        print(f"total objects: {stats['total_objects']}")
+
+    def print_full(self) -> None:
+        if self._statistics is None:
+            self._collect_statistics()
+        stats = self._statistics
         self._plot_histogram_to_cli(stats["ns_objects"], "num_images_with_n_objects")
         self._plot_histogram_to_cli(stats["ns_classes"], "num_images_with_n_classes")
         self._plot_histogram_to_cli(stats["distances_to_camera"], "distances_to_camera")
         self._plot_histogram_to_cli(stats["longest_sides"], "longest_sides")
-
-        print(f"mean distance to camera: {stats['mean_dist_to_camera']}")
-        print(f"mean number of classes: {stats['mean_n_classes']}")
-        print(f"mean number of objects: {stats['mean_n_objects']}")
-        print(f"mean object side in %: {stats['mean_longest_side']}")
-        print(f"total images: {stats['total_images']}")
-        print(f"total objects: {stats['total_objects']}")
+        self.print()
 
     def _plot_histogram_to_cli(self, values: np.ndarray, name: str) -> None:
         # find out current terminal width
@@ -163,14 +165,16 @@ class Analyzer:
     def _compute_statistics(self) -> None:
         # parallely process the tfrecord files (only take first n samples of each file)
         tfrecords = list(self.dataset_root.glob("**/*.tfrecord"))
-        print(tfrecords)
-        print(f"Found {len(tfrecords)} tfrecords.")
+        # print(tfrecords)
+        # print(f"Found {len(tfrecords)} tfrecords.")
 
         # self.process_tfrecord(tfrecords[0])
         # return
 
-        with mp.Pool() as pool:
+        with mp.Pool(mp.cpu_count()) as pool:
             results = pool.map(self.process_tfrecord, tfrecords)
+
+        # results = [self.process_tfrecord(tfrecord) for tfrecord in tqdm(tfrecords)]
 
         distances_to_camera = [x["distances_to_camera"] for x in results]
         ns_objects = [x["ns_objects"] for x in results]
@@ -235,16 +239,18 @@ class Analyzer:
             "n_visible_classes": n_visible_classes,
             "longest_side": longest_side,
             "dists": dists,
+            "classes": visible_classes,
         }
 
     def process_tfrecord(self, tfrecord: Path):
+        mp.get_logger().setLevel("WARN")
         stats_folder = tfrecord.parent.parent.joinpath("statistics")
         stats_folder.mkdir(exist_ok=True)
         stats_path = stats_folder.joinpath(tfrecord.stem).with_suffix(".json")
 
-        # if stats_path.exists():
-        #     with stats_path.open("r") as f:
-        #         return json.load(f)
+        if stats_path.exists():
+            with stats_path.open("r") as f:
+                return json.load(f)
 
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
         n_total_objects = 0
@@ -254,8 +260,10 @@ class Analyzer:
         distances_to_camera = []
         longest_sides = []
 
-        n_images = int(tfrecord.stem.split("_")[-1])
-        img_limit = int(0.2 * n_images)
+        start, stop = tfrecord.stem.split("_")
+        n_images = int(stop) - int(start)
+        img_limit = max(1, int(self._fraction * n_images))
+        print(f"[{mp.current_process()}] Processing {tfrecord.stem} [{img_limit}/{n_images}]")
 
         # # debug
         # data = (
@@ -272,32 +280,36 @@ class Analyzer:
         # exit()
         # # /debug
 
-        ds = (
-            sp.data.TFRecordDataset.get(
-                tfrecord.parent.parent,  # folder of record -> parent of folder
-                pattern=tfrecord.name,
-                num_parallel_files=1,
-                get_keys=self.keys,
+        try:
+            ds = (
+                sp.data.TFRecordDataset.get(
+                    tfrecord.parent.parent,  # folder of record -> parent of folder
+                    pattern=tfrecord.name,
+                    num_parallel_files=1,
+                    get_keys=self.keys,
+                )
+                .take(img_limit)
+                .map(self._extract_statistics, num_parallel_calls=4, deterministic=False)
             )
-            # .take(img_limit)
-            .map(self._extract_statistics, num_parallel_calls=4, deterministic=False)
-        )
+            # print(f"[{mp.current_process()}] DS initialized.")
+            for result in ds:
+                n_objects = result["n_visible_objects"].numpy()
+                ns_objects.append(n_objects)
 
-        for result in ds:
-            n_objects = result["n_visible_objects"].numpy()
-            ns_objects.append(n_objects)
+                n_total_objects += n_objects
+                n_total_images += 1
 
-            n_total_objects += n_objects
-            n_total_images += 1
+                n_classes = result["n_visible_classes"].numpy()
+                ns_classes.append(n_classes)
 
-            n_classes = result["n_visible_classes"].numpy()
-            ns_classes.append(n_classes)
+                dists_img = result["dists"].numpy()
+                distances_to_camera += dists_img.tolist()
 
-            dists_img = result["dists"].numpy()
-            distances_to_camera += dists_img.tolist()
-
-            longest_sides_img = result["longest_side"].numpy()
-            longest_sides += longest_sides_img.tolist()
+                longest_sides_img = result["longest_side"].numpy()
+                longest_sides += longest_sides_img.tolist()
+                # print(f"[{mp.current_process()}] {n_total_images} processed.")
+        except KeyError:
+            print(f"KeyError in {tfrecord.parent.parent}")
 
         output = {
             "n_total_images": n_total_images,

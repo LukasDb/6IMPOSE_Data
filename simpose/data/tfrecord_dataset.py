@@ -36,7 +36,7 @@ class TFRecordDataset(Dataset):
                 return data_folders
 
             folders = get_data_folders(root_dir)
-            print(f"Found subsets: {[x.name for x in folders]}")
+            #print(f"Found subsets: {[x.name for x in folders]}")
             subsets = [
                 TFRecordDataset.get(s, get_keys=get_keys, num_parallel_files=num_parallel_files)
                 for s in folders
@@ -113,7 +113,7 @@ class _TFRecordDatasetV2(Dataset):
                 proto = {key: tf.io.FixedLenFeature([], tf.string)}
                 serialized = tf.io.parse_single_example(record, proto)
             except Exception:
-                logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
+                # logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
                 to_be_removed.append(key)
         get_keys = [x for x in get_keys if x not in to_be_removed]
 
@@ -217,7 +217,7 @@ class _TFRecordDatasetV1(Dataset):
                 proto = {key: tf.io.FixedLenFeature([], tf.string)}
                 serialized = tf.io.parse_single_example(record, proto)
             except Exception:
-                logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
+                # logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
                 to_be_removed.append(key)
         get_keys = [x for x in get_keys if x not in to_be_removed]
 
