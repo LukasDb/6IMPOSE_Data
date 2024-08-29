@@ -33,9 +33,14 @@ class TFRecordDataset(Dataset):
             )
 
             if pre_shuffle:
-                random.shuffle(subsects)
+                random.shuffle(subsets)
 
-            return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
+            output = subsets[0]
+            for ds in subsets[1:]:
+                output = output.concatenate(ds)
+            return output
+
+            #return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
 
         if not root_dir.joinpath("data").exists():
             # not a tfrecord dataset -> check subfolders
@@ -63,7 +68,13 @@ class TFRecordDataset(Dataset):
             )
             if pre_shuffle:
                 random.shuffle(subsets)
-            return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
+
+            output = subsets[0]
+            for ds in subsets[1:]:
+                output = output.concatenate(ds)
+            return output
+            #return tf.data.Dataset.from_tensor_slices(subsets).interleave(lambda x:x, cycle_length=1, num_parallel_calls=tf.data.AUTOTUNE)
+            #return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
 
         # data exists -> tfrecord dataset
         # try to load meta info
