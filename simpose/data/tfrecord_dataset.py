@@ -4,6 +4,7 @@ import tensorflow as tf
 from pathlib import Path
 from .dataset import Dataset
 import logging
+import random
 
 
 class TFRecordDataset(Dataset):
@@ -13,14 +14,26 @@ class TFRecordDataset(Dataset):
         get_keys: None | list[str] = None,
         pattern: str = "*.tfrecord",
         num_parallel_files: int = 16,
+        pre_shuffle: bool = True,
     ) -> tf.data.Dataset:
+        """pre shuffle shuffles the files and subsects, not the data"""
 
         # if subsets exists, directly load them without checking anything else
         if root_dir.joinpath("subsets").exists():
-            subsets = [
-                TFRecordDataset.get(s, get_keys=get_keys, num_parallel_files=num_parallel_files)
-                for s in root_dir.joinpath("subsets").iterdir()
-            ]
+            subsets = list(
+                [
+                    TFRecordDataset.get(
+                        s,
+                        get_keys=get_keys,
+                        num_parallel_files=num_parallel_files,
+                        pre_shuffle=pre_shuffle,
+                    )
+                    for s in root_dir.joinpath("subsets").iterdir()
+                ]
+            )
+
+            if pre_shuffle:
+                random.shuffle(subsects)
 
             return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
 
@@ -36,11 +49,20 @@ class TFRecordDataset(Dataset):
                 return data_folders
 
             folders = get_data_folders(root_dir)
-            #print(f"Found subsets: {[x.name for x in folders]}")
-            subsets = [
-                TFRecordDataset.get(s, get_keys=get_keys, num_parallel_files=num_parallel_files)
-                for s in folders
-            ]
+            # print(f"Found subsets: {[x.name for x in folders]}")
+            subsets = list(
+                [
+                    TFRecordDataset.get(
+                        s,
+                        get_keys=get_keys,
+                        num_parallel_files=num_parallel_files,
+                        pre_shuffle=pre_shuffle,
+                    )
+                    for s in folders
+                ]
+            )
+            if pre_shuffle:
+                random.shuffle(subsets)
             return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
 
         # data exists -> tfrecord dataset
@@ -57,7 +79,11 @@ class TFRecordDataset(Dataset):
             )
         elif metadata["version"] < 3:
             return _TFRecordDatasetV2.get(
-                root_dir, get_keys=get_keys, pattern=pattern, num_parallel_files=num_parallel_files
+                root_dir,
+                get_keys=get_keys,
+                pattern=pattern,
+                num_parallel_files=num_parallel_files,
+                shuffle_files=pre_shuffle,
             )
 
 
@@ -93,15 +119,21 @@ class _TFRecordDatasetV2(Dataset):
         get_keys: None | list[str] = None,
         pattern: str = "*.tfrecord",
         num_parallel_files: int = 16,
+        shuffle_files: bool = True,
     ) -> tf.data.Dataset:
 
         if get_keys is None:
             get_keys = list(_TFRecordDatasetV2._key_mapping.keys())
 
         # check keys if in dataset
+
+        file_names = tf.io.match_filenames_once(str(root_dir / "data" / pattern))
+        if shuffle_files:
+            file_names = tf.random.shuffle(file_names)
+
         record = (
             tf.data.TFRecordDataset(
-                tf.io.match_filenames_once(str(root_dir / "data" / pattern)),
+                file_names,
                 compression_type="ZLIB",
             )
             .take(1)
@@ -129,15 +161,10 @@ class _TFRecordDatasetV2(Dataset):
         num_parallel_files = max(1, num_parallel_files)
 
         dataset = tf.data.TFRecordDataset(
-            tf.io.match_filenames_once(str(root_dir / "data" / pattern)),
+            file_names,
             compression_type="ZLIB",
             num_parallel_reads=num_parallel_files,
-        ).map(parse, num_parallel_calls=tf.data.AUTOTUNE, deterministic=True)
-
-        # file_names = root_dir.joinpath("data").glob(pattern)
-        # cardinality = max(int(x.stem.split("_")[-1]) for x in file_names)
-
-        # dataset = dataset.apply(tf.data.experimental.assert_cardinality(cardinality))
+        ).map(parse, num_parallel_calls=tf.data.AUTOTUNE, deterministic=not shuffle_files)
 
         return dataset
 
