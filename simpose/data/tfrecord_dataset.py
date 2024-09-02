@@ -8,21 +8,21 @@ import random
 
 
 class TFRecordDataset(Dataset):
-    @staticmethod
-    def get(
+
+    def __new__(
+        cls,
         root_dir: Path,
         get_keys: None | list[str] = None,
         pattern: str = "*.tfrecord",
         num_parallel_files: int = 16,
         pre_shuffle: bool = True,
-    ) -> tf.data.Dataset:
-        """pre shuffle shuffles the files and subsects, not the data"""
+    ):
 
         # if subsets exists, directly load them without checking anything else
         if root_dir.joinpath("subsets").exists():
             subsets = list(
                 [
-                    TFRecordDataset.get(
+                    TFRecordDataset(
                         s,
                         get_keys=get_keys,
                         num_parallel_files=num_parallel_files,
@@ -40,7 +40,7 @@ class TFRecordDataset(Dataset):
                 output = output.concatenate(ds)
             return output
 
-            #return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
+            # return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
 
         if not root_dir.joinpath("data").exists():
             # not a tfrecord dataset -> check subfolders
@@ -57,7 +57,7 @@ class TFRecordDataset(Dataset):
             # print(f"Found subsets: {[x.name for x in folders]}")
             subsets = list(
                 [
-                    TFRecordDataset.get(
+                    TFRecordDataset(
                         s,
                         get_keys=get_keys,
                         num_parallel_files=num_parallel_files,
@@ -73,8 +73,6 @@ class TFRecordDataset(Dataset):
             for ds in subsets[1:]:
                 output = output.concatenate(ds)
             return output
-            #return tf.data.Dataset.from_tensor_slices(subsets).interleave(lambda x:x, cycle_length=1, num_parallel_calls=tf.data.AUTOTUNE)
-            #return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
 
         # data exists -> tfrecord dataset
         # try to load meta info
@@ -85,17 +83,28 @@ class TFRecordDataset(Dataset):
             metadata = {"version": 1.0}
 
         if metadata["version"] < 2:
-            return _TFRecordDatasetV1.get(
+            return _TFRecordDatasetV1(
                 root_dir, get_keys=get_keys, pattern=pattern, num_parallel_files=num_parallel_files
             )
         elif metadata["version"] < 3:
-            return _TFRecordDatasetV2.get(
+            return _TFRecordDatasetV2(
                 root_dir,
                 get_keys=get_keys,
                 pattern=pattern,
                 num_parallel_files=num_parallel_files,
                 shuffle_files=pre_shuffle,
             )
+
+    @staticmethod
+    def get(
+        root_dir: Path,
+        get_keys: None | list[str] = None,
+        pattern: str = "*.tfrecord",
+        num_parallel_files: int = 16,
+        pre_shuffle: bool = True,
+    ) -> tf.data.Dataset:
+        """legacy function"""
+        return TFRecordDataset(root_dir, get_keys, pattern, num_parallel_files, pre_shuffle)
 
 
 class _TFRecordDatasetV2(Dataset):
@@ -124,8 +133,8 @@ class _TFRecordDatasetV2(Dataset):
         Dataset.OBJ_BBOX_OBJ: tf.int32,
     }
 
-    @staticmethod
-    def get(
+    def __new__(
+        cls,
         root_dir: Path,
         get_keys: None | list[str] = None,
         pattern: str = "*.tfrecord",
@@ -179,6 +188,22 @@ class _TFRecordDatasetV2(Dataset):
 
         return dataset
 
+    @staticmethod
+    def get(
+        root_dir: Path,
+        get_keys: None | list[str] = None,
+        pattern: str = "*.tfrecord",
+        num_parallel_files: int = 16,
+        shuffle_files: bool = True,
+    ) -> tf.data.Dataset:
+        return _TFRecordDatasetV2(
+            root_dir,
+            get_keys=get_keys,
+            pattern=pattern,
+            num_parallel_files=num_parallel_files,
+            shuffle_files=shuffle_files,
+        )
+
 
 class _TFRecordDatasetV1(Dataset):
     # dtypes of data by key
@@ -227,8 +252,8 @@ class _TFRecordDatasetV1(Dataset):
         ],
     }
 
-    @staticmethod
-    def get(
+    def __new__(
+        cls,
         root_dir: Path,
         get_keys: None | list[str] = None,
         pattern: str = "*.tfrecord",
@@ -308,3 +333,12 @@ class _TFRecordDatasetV1(Dataset):
             num_parallel_calls=tf.data.AUTOTUNE,
             deterministic=True,
         )
+
+    @staticmethod
+    def get(
+        root_dir: Path,
+        get_keys: None | list[str] = None,
+        pattern: str = "*.tfrecord",
+        num_parallel_files: int = 16,
+    ) -> tf.data.Dataset:
+        return _TFRecordDatasetV1(root_dir, get_keys, pattern, num_parallel_files)

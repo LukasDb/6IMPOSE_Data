@@ -23,12 +23,12 @@ class _BOPBase(TFRecordDataset):
     _estimated_size: str = ""
     CLASSES: dict[str, int] = {}
 
-    @classmethod
-    def get(
+    def __new__(
         cls,
         root_dir: Path,
         get_keys: None | list[str] = None,
         num_parallel_files: int = 16,
+        pre_shuffle: bool = True,
     ) -> "tf.data.Dataset":  # download and extract if tfrecord not found
 
         root_dir.mkdir(exist_ok=True)
@@ -55,9 +55,22 @@ class _BOPBase(TFRecordDataset):
             shutil.rmtree(root_dir.joinpath(cls._img_dir))
 
         # return dict of datasets
-        return TFRecordDataset.get(
-            root_dir, get_keys=get_keys, num_parallel_files=num_parallel_files
+        return TFRecordDataset(
+            root_dir,
+            get_keys=get_keys,
+            num_parallel_files=num_parallel_files,
+            pre_shuffle=pre_shuffle,
         )
+
+    @classmethod
+    def get(
+        cls,
+        root_dir: Path,
+        get_keys: None | list[str] = None,
+        num_parallel_files: int = 16,
+        pre_shuffle: bool = True,
+    ) -> "tf.data.Dataset":
+        return cls.__new__(cls, root_dir, get_keys, num_parallel_files, pre_shuffle=pre_shuffle)
 
     @classmethod
     def process_parallel(cls, root_dir, subsets) -> bool:
