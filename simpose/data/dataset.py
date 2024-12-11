@@ -12,7 +12,6 @@ class Dataset(ABC):
     DEPTH_GT = "depth_gt"
     DEPTH_GT_R = "depth_gt_R"
     MASK = "mask"
-    GT = "gt"
     CAM_MATRIX = "cam_matrix"
     CAM_LOCATION = "cam_location"
     CAM_ROTATION = "cam_rotation"

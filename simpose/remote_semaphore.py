@@ -51,6 +51,8 @@ class MainSemaphore:
         sp.logger.debug(f"ACQUIRED for {process_name} now: {self._value}")
 
     def grant_release(self, process_name: str) -> None:
+        if process_name not in self._timers:
+            return
         self._timers.pop(process_name)
         if self._value < self._start_value:
             self._value += 1
@@ -70,10 +72,6 @@ class MainSemaphore:
             except queue.Empty:
                 continue
 
-            # if signal == SignalType.REQUEST_ACQUIRE and self._value == 0:
-            #     # ignore request for now, but remember
-            #     sp.logger.debug(f"Ignoring request from {process_name} for now")
-
             if signal == SignalType.REQUEST_ACQUIRE and self._value > 0:
                 self.grant_acquire(comm, process_name)
 
@@ -87,15 +85,18 @@ class MainSemaphore:
                 # just put back
                 comm.put((process_name, signal))
 
-        for c in to_be_removed:
-            self._comms.remove(c)
+        self._comms = [c for c in self._comms if c not in to_be_removed]
 
         # 3) check if timed out and kill process
-        terminated: list[str] = []
+        to_be_terminated = []
         for name, t_started in dict(self._timers).items():
             if self._timeout is None or (time.time() - t_started) < self._timeout:
                 continue
+            # timeout occured
+            to_be_terminated.append(name)
 
+        terminated: list[str] = []
+        for name in to_be_terminated:
             # semaphore timed out -> allow new acquire
             proc = [p for p in mp.active_children() if p.name == name]
             sp.logger.error(f"Semaphore timed out for {name}. Terminating process.")

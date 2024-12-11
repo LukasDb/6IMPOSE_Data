@@ -171,6 +171,8 @@ class Generator(ABC):
                         proc.kill()
                     except Exception:
                         pass
+                    
+            time.sleep(0.2)
 
             # check dead workers
             for proc in list([x for x in current_jobs.keys() if not x.is_alive()]):

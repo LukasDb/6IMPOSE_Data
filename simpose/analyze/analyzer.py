@@ -120,19 +120,18 @@ class Analyzer:
 
     def print(self) -> None:
         """prints statistics in human-readable format to the CLI"""
-        print(f"Statistics for {self.dataset_root}")
+        print(f"\nStatistics for {self.dataset_root}")
         if self._statistics is None:
             self._collect_statistics()
         stats = self._statistics
-
-        print(f"mean distance to camera: {stats['mean_dist_to_camera']}")
-        print(f"std of object distance: {np.std(stats['distances_to_camera'])}")
-        print(f"mean number of classes: {stats['mean_n_classes']}")
-        print(f"mean number of objects: {stats['mean_n_objects']}")
-        print(f"mean object side in %: {stats['mean_longest_side']}")
-        print(f"std of object side: {np.std(stats['longest_sides'])}")
-        print(f"total images: {stats['total_images']}")
-        print(f"total objects: {stats['total_objects']}")
+        print(f"mean distance to camera:...{stats['mean_dist_to_camera']:6.3f} m")
+        print(f"std of object distance:....{np.std(stats['distances_to_camera']):6.3f} m")
+        print(f"mean object side in %:.....{stats['mean_longest_side']*100:4.1f} % ")
+        print(f"std of object side:........{np.std(stats['longest_sides'])*100:4.1f} % ")
+        print(f"mean number of classes:....{stats['mean_n_classes']:4.1f}")
+        print(f"mean number of objects:....{stats['mean_n_objects']:4.1f}")
+        print(f"total images:..............{stats['total_images']:6d}")
+        print(f"total objects:.............{stats['total_objects']:6d}")
 
     def print_full(self) -> None:
         if self._statistics is None:
@@ -165,16 +164,11 @@ class Analyzer:
     def _compute_statistics(self) -> None:
         # parallely process the tfrecord files (only take first n samples of each file)
         tfrecords = list(self.dataset_root.glob("**/*.tfrecord"))
-        # print(tfrecords)
-        # print(f"Found {len(tfrecords)} tfrecords.")
-
-        # self.process_tfrecord(tfrecords[0])
-        # return
 
         with mp.Pool(mp.cpu_count()) as pool:
-            results = pool.map(self.process_tfrecord, tfrecords)
-
-        # results = [self.process_tfrecord(tfrecord) for tfrecord in tqdm(tfrecords)]
+            results = pool.imap_unordered(
+                self.process_tfrecord, tqdm(tfrecords, desc="Processing tfrecords"), chunksize=1
+            )
 
         distances_to_camera = [x["distances_to_camera"] for x in results]
         ns_objects = [x["ns_objects"] for x in results]
@@ -263,7 +257,7 @@ class Analyzer:
         start, stop = tfrecord.stem.split("_")
         n_images = int(stop) - int(start)
         img_limit = max(1, int(self._fraction * n_images))
-        print(f"[{mp.current_process()}] Processing {tfrecord.stem} [{img_limit}/{n_images}]")
+        # print(f"[{mp.current_process()}] Processing {tfrecord.stem} [{img_limit}/{n_images}]")
 
         # # debug
         # data = (
@@ -319,8 +313,6 @@ class Analyzer:
             "distances_to_camera": distances_to_camera,
             "longest_sides": longest_sides,
         }
-
-        print(f"Processed {tfrecord.stem}")
 
         with stats_path.open("w") as f:
             json.dump(output, f, default=lambda x: x.tolist())

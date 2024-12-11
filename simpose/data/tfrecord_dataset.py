@@ -13,74 +13,18 @@ class TFRecordDataset(Dataset):
         cls,
         root_dir: Path,
         get_keys: None | list[str] = None,
-        pattern: str = "*.tfrecord",
+        pattern: str = "**/*.tfrecord",
         num_parallel_files: int = 16,
         pre_shuffle: bool = True,
     ):
 
-        # if subsets exists, directly load them without checking anything else
-        if root_dir.joinpath("subsets").exists():
-            subsets = list(
-                [
-                    TFRecordDataset(
-                        s,
-                        get_keys=get_keys,
-                        num_parallel_files=num_parallel_files,
-                        pre_shuffle=pre_shuffle,
-                    )
-                    for s in root_dir.joinpath("subsets").iterdir()
-                ]
-            )
 
-            if pre_shuffle:
-                random.shuffle(subsets)
-
-            output = subsets[0]
-            for ds in subsets[1:]:
-                output = output.concatenate(ds)
-            return output
-
-            # return tf.data.Dataset.from_tensor_slices(subsets).flat_map(lambda x: x)
-
-        if not root_dir.joinpath("data").exists():
-            # not a tfrecord dataset -> check subfolders
-            def get_data_folders(root_dir: Path) -> list[Path]:
-                data_folders = []
-                for p in [x for x in root_dir.iterdir() if x.is_dir()]:
-                    if p.joinpath("data").exists():
-                        data_folders.append(p)
-                    else:
-                        data_folders.extend(get_data_folders(p))
-                return data_folders
-
-            folders = get_data_folders(root_dir)
-            # print(f"Found subsets: {[x.name for x in folders]}")
-            subsets = list(
-                [
-                    TFRecordDataset(
-                        s,
-                        get_keys=get_keys,
-                        num_parallel_files=num_parallel_files,
-                        pre_shuffle=pre_shuffle,
-                    )
-                    for s in folders
-                ]
-            )
-            if pre_shuffle:
-                random.shuffle(subsets)
-
-            output = subsets[0]
-            for ds in subsets[1:]:
-                output = output.concatenate(ds)
-            return output
-
-        # data exists -> tfrecord dataset
         # try to load meta info
         if root_dir.joinpath("metadata.json").exists():
             with open(root_dir / "metadata.json", "r") as f:
                 metadata = json.load(f)
         else:
-            metadata = {"version": 1.0}
+            metadata = {"version": 2.0}
 
         if metadata["version"] < 2:
             return _TFRecordDatasetV1(
@@ -99,7 +43,7 @@ class TFRecordDataset(Dataset):
     def get(
         root_dir: Path,
         get_keys: None | list[str] = None,
-        pattern: str = "*.tfrecord",
+        pattern: str = "**/*.tfrecord",
         num_parallel_files: int = 16,
         pre_shuffle: bool = True,
     ) -> tf.data.Dataset:
@@ -137,7 +81,7 @@ class _TFRecordDatasetV2(Dataset):
         cls,
         root_dir: Path,
         get_keys: None | list[str] = None,
-        pattern: str = "*.tfrecord",
+        pattern: str = "**/*.tfrecord",
         num_parallel_files: int = 16,
         shuffle_files: bool = True,
     ) -> tf.data.Dataset:
@@ -147,13 +91,15 @@ class _TFRecordDatasetV2(Dataset):
 
         # check keys if in dataset
 
-        file_names = tf.io.match_filenames_once(str(root_dir / "data" / pattern))
+        # file_names = tf.io.match_filenames_once(str(root_dir / "data" / pattern))
+        file_names = list(str(x) for x in root_dir.glob(pattern))
+
         if shuffle_files:
             file_names = tf.random.shuffle(file_names)
 
         record = (
             tf.data.TFRecordDataset(
-                file_names,
+                file_names[0],
                 compression_type="ZLIB",
             )
             .take(1)
@@ -165,7 +111,6 @@ class _TFRecordDatasetV2(Dataset):
                 proto = {key: tf.io.FixedLenFeature([], tf.string)}
                 serialized = tf.io.parse_single_example(record, proto)
             except Exception:
-                # logging.getLogger(__name__).warning(f"Key {key} not found in dataset")
                 to_be_removed.append(key)
         get_keys = [x for x in get_keys if x not in to_be_removed]
 
@@ -184,7 +129,7 @@ class _TFRecordDatasetV2(Dataset):
             file_names,
             compression_type="ZLIB",
             num_parallel_reads=num_parallel_files,
-        ).map(parse, num_parallel_calls=tf.data.AUTOTUNE, deterministic=not shuffle_files)
+        ).map(parse, num_parallel_calls=num_parallel_files, deterministic=not shuffle_files)
 
         return dataset
 

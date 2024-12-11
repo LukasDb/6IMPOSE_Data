@@ -1,8 +1,15 @@
 from .generator import Generator, GeneratorParams
-from .dropped_objects import DroppedObjects, DroppedObjectsConfig
 from .dropjects import Dropjects, DropjectsConfig
+from .simple_gen import SimpleGen, SimpleGenConfig
 
 
-__generators__ = ["DroppedObjects", "Dropjects"]
+__generators__ = ["Dropjects", "SimpleGen"]
 
-__all__ = ["Generator", "GeneratorParams", "DroppedObjectsConfig", "DroppedObjects", "DropjectsConfig", "Dropjects"]
+__all__ = [
+    "Generator",
+    "GeneratorParams",
+    "DropjectsConfig",
+    "Dropjects",
+    "SimpleGenConfig",
+    "SimpleGen",
+]

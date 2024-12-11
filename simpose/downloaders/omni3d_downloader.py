@@ -3,7 +3,6 @@ from tqdm import tqdm
 import os
 import multiprocessing as mp
 from pathlib import Path
-from openxlab.dataset import download
 
 from .downloader import Downloader
 
@@ -77,6 +76,8 @@ class Omni3DDownloader(Downloader):
         super().__init__(output_dir)
 
     def run(self) -> None:
+        from openxlab.dataset import download
+
         if (
             input(
                 "The extracted Omni3D objects dataset will take around 980 GB. Do you want to continue? (y/n)"

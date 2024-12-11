@@ -5,7 +5,6 @@ import yaml
 import multiprocessing as mp
 
 import simpose as sp
-import silence_tensorflow.auto  # type: ignore
 
 
 @click.group()
