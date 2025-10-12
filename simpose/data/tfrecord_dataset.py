@@ -16,8 +16,8 @@ class TFRecordDataset(Dataset):
         pattern: str = "**/*.tfrecord",
         num_parallel_files: int = 16,
         pre_shuffle: bool = True,
+        safe: bool = True,
     ):
-
 
         # try to load meta info
         if root_dir.joinpath("metadata.json").exists():
@@ -37,6 +37,7 @@ class TFRecordDataset(Dataset):
                 pattern=pattern,
                 num_parallel_files=num_parallel_files,
                 shuffle_files=pre_shuffle,
+                safe=safe,
             )
 
     @staticmethod
@@ -46,9 +47,12 @@ class TFRecordDataset(Dataset):
         pattern: str = "**/*.tfrecord",
         num_parallel_files: int = 16,
         pre_shuffle: bool = True,
+        safe: bool = True,
     ) -> tf.data.Dataset:
         """legacy function"""
-        return TFRecordDataset(root_dir, get_keys, pattern, num_parallel_files, pre_shuffle)
+        return TFRecordDataset(
+            root_dir, get_keys, pattern, num_parallel_files, pre_shuffle, safe=safe
+        )
 
 
 class _TFRecordDatasetV2(Dataset):
@@ -84,6 +88,7 @@ class _TFRecordDatasetV2(Dataset):
         pattern: str = "**/*.tfrecord",
         num_parallel_files: int = 16,
         shuffle_files: bool = True,
+        safe: bool = True,
     ) -> tf.data.Dataset:
 
         if get_keys is None:
@@ -97,22 +102,23 @@ class _TFRecordDatasetV2(Dataset):
         if shuffle_files:
             file_names = tf.random.shuffle(file_names)
 
-        record = (
-            tf.data.TFRecordDataset(
-                file_names[0],
-                compression_type="ZLIB",
+        if safe:
+            record = (
+                tf.data.TFRecordDataset(
+                    file_names[0],
+                    compression_type="ZLIB",
+                )
+                .take(1)
+                .get_single_element()
             )
-            .take(1)
-            .get_single_element()
-        )
-        to_be_removed = []
-        for key in get_keys:
-            try:
-                proto = {key: tf.io.FixedLenFeature([], tf.string)}
-                serialized = tf.io.parse_single_example(record, proto)
-            except Exception:
-                to_be_removed.append(key)
-        get_keys = [x for x in get_keys if x not in to_be_removed]
+            to_be_removed = []
+            for key in get_keys:
+                try:
+                    proto = {key: tf.io.FixedLenFeature([], tf.string)}
+                    serialized = tf.io.parse_single_example(record, proto)
+                except Exception:
+                    to_be_removed.append(key)
+            get_keys = [x for x in get_keys if x not in to_be_removed]
 
         @tf.function
         def parse(example_proto: Any) -> Any:
@@ -129,7 +135,13 @@ class _TFRecordDatasetV2(Dataset):
             file_names,
             compression_type="ZLIB",
             num_parallel_reads=num_parallel_files,
-        ).map(parse, num_parallel_calls=num_parallel_files, deterministic=not shuffle_files)
+        ).map(
+            parse,
+            num_parallel_calls=num_parallel_files,
+            deterministic=not shuffle_files,
+            synchronous=False,
+            use_unbounded_threadpool=True,
+        )
 
         return dataset
 
