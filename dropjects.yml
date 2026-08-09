@@ -4,10 +4,8 @@ Generator:
     n_workers: 4  # Number of worker processes
     n_parallel_on_gpu: 1  # Number of parallel processes per GPU
     gpus: [0]  # List of GPUs to use
-    worker_shards: 50  # Number of shards to split the work into
     n_objects_per_scene: 50
     n_images_per_scene: 50
-    drop_height: 1.0  # Height from which objects are dropped
     drop_spread: 0.4  # Spread of objects when dropped (distance from origin in XY)
     friction: 0.9  # Friction of objects
     restitution: 0.1 # Restitution of objects
@@ -31,19 +29,19 @@ Randomizers:
     type: AppearanceRandomizer
     params:
       trigger: BEFORE_RENDER
-      metallic_range: 0.25  # standard deviation of the metallic value
-      roughness_range: 0.25  # standard deviation of the roughness value
-      hue_range: 0.01  # standard deviation of the hue value
-      saturation_range: 0.1  # standard deviation of the saturation value
-      value_range: 0.1  # standard deviation of the value value
+      metallic_range: 0.25  # uniform half-range around the default metallic value
+      roughness_range: 0.25  # uniform half-range around the default roughness value
+      hue_range: 0.01  # uniform half-range around the default hue value
+      saturation_range: 0.1  # uniform half-range around the default saturation value
+      value_range: 0.1  # uniform half-range around the default value value
       
   light:
     type: LightRandomizer
     params:
       trigger: BEFORE_RENDER
-      no_of_lights_range:  # Range of number of lights
+      no_of_lights_range:  # Range of number of lights (inclusive)
       - 1
-      - 4
+      - 3
       energy_range:  # Range of energy of lights
       - 300.0
       - 800.0
@@ -52,7 +50,7 @@ Randomizers:
       - 1.0
       distance_range:  # Range of distance of lights to the origin
       - 3.0
-      - 10.0
+      - 6.0
       size_range:  # Range of size of the area lights
       - 0.8
       - 2.0
@@ -74,7 +72,7 @@ Randomizers:
       pitch_range:  # Elevation of the camera to the origin (Z+ is up == 90°)
       - 10.0
       - 90.0
-      fill_range:  # Distance of the camera from the objects
+      fill_range:  # Fraction of the image the largest object should fill
       - 0.05
       - 0.5
       roll_jitter: 90.0  # Maximum jitter applied to camera roll angle when looking at the origin

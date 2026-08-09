@@ -113,6 +113,11 @@ class ModelLoader(JoinableRandomizer):
 
         self.num_models = len(self._model_paths)
 
+        if self.num_models == 0:
+            raise ValueError(
+                f"ModelLoader found no models under {self._root} (source: {model_source})."
+            )
+
         sp.logger.debug(f"Found {len(self._model_paths)} models ({model_source}).")
 
     def get_objects(
@@ -123,27 +128,36 @@ class ModelLoader(JoinableRandomizer):
         friction: float,
         hide: bool,
         restitution: float,
+        add_semantics: bool = False,
     ) -> list[sp.entities.Object]:
         """renews the list of objects and returns it"""
         return [
-            self.get_object(scene, mass, friction, hide, restitution) for _ in range(num_objects)
+            self.get_object(scene, mass, friction, hide, restitution, add_semantics)
+            for _ in range(num_objects)
         ]
 
     def get_object(
-        self, scene: sp.Scene, mass: float, friction: float, hide: bool, restitution: float
+        self,
+        scene: sp.Scene,
+        mass: float,
+        friction: float,
+        hide: bool,
+        restitution: float,
+        add_semantics: bool = False,
     ) -> sp.entities.Object:
-        if len(self._additional_loaders) > 1:
-            # i = np.random.randint(0, len(self._additional_loaders))
-            # loader = self._additional_loaders[i]
-            loader = random.choices(
-                self._additional_loaders, weights=[x.num_models for x in self._additional_loaders]
-            )[0]
-        else:
-            loader = self
-        return loader._get_object(scene, mass, friction, hide, restitution)
+        # joined loaders: choose among self and all others, weighted by model count
+        loaders = [self] + self._additional_loaders
+        loader = random.choices(loaders, weights=[x.num_models for x in loaders])[0]
+        return loader._get_object(scene, mass, friction, hide, restitution, add_semantics)
 
     def _get_object(
-        self, scene: sp.Scene, mass: float, friction: float, hide: bool, restitution: float
+        self,
+        scene: sp.Scene,
+        mass: float,
+        friction: float,
+        hide: bool,
+        restitution: float,
+        add_semantics: bool = False,
     ) -> sp.entities.Object:
         i = np.random.randint(0, len(self._model_paths))
         model_path, obj_name = self._model_paths[i]
@@ -155,7 +169,7 @@ class ModelLoader(JoinableRandomizer):
         obj = scene.create_object(
             model_path,
             obj_name=obj_name,
-            add_semantics=False,
+            add_semantics=add_semantics,
             scale=scale,
             mass=mass,
             friction=friction,

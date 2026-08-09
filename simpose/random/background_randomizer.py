@@ -23,7 +23,17 @@ class BackgroundRandomizer(Randomizer):
     ) -> None:
         super().__init__(params)
         self._backgrounds_dir: Path = params.backgrounds_dir.expanduser()
-        self._backgrounds: list[Path] = list(self._backgrounds_dir.glob("*.jpg"))
+        extensions = (".jpg", ".jpeg", ".png", ".exr", ".hdr", ".tif", ".tiff")
+        self._backgrounds: list[Path] = [
+            x
+            for x in sorted(self._backgrounds_dir.glob("*"))
+            if x.suffix.lower() in extensions
+        ]
+        if len(self._backgrounds) == 0:
+            raise ValueError(
+                f"BackgroundRandomizer found no images ({'|'.join(extensions)}) "
+                f"in {self._backgrounds_dir}"
+            )
         sp.logger.debug(
             f"Loaded {len(self._backgrounds)} backgrounds from {self._backgrounds_dir}"
         )

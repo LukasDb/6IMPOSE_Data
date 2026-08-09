@@ -6,7 +6,8 @@ from .randomizer import Randomizer, RandomizerConfig, register_operator
 
 
 class AppearanceRandomizerConfig(RandomizerConfig):
-    metallic_range: float = 0.25  # standard deviation 68% <, 95% <<, 99.7% <<<
+    # each value is sampled uniformly from [default - range, default + range]
+    metallic_range: float = 0.25
     roughness_range: float = 0.25
     hue_range: float = 0.01
     saturation_range: float = 0.1
@@ -15,11 +16,11 @@ class AppearanceRandomizerConfig(RandomizerConfig):
     @staticmethod
     def get_description() -> dict[str, str]:
         return {
-            "metallic_range": "standard deviation of the metallic value",
-            "roughness_range": "standard deviation of the roughness value",
-            "hue_range": "standard deviation of the hue value",
-            "saturation_range": "standard deviation of the saturation value",
-            "value_range": "standard deviation of the value value",
+            "metallic_range": "uniform half-range around the default metallic value",
+            "roughness_range": "uniform half-range around the default roughness value",
+            "hue_range": "uniform half-range around the default hue value",
+            "saturation_range": "uniform half-range around the default saturation value",
+            "value_range": "uniform half-range around the default value value",
         }
 
 
@@ -45,10 +46,10 @@ class AppearanceRandomizer(Randomizer):
         objects = scene.get_active_objects()
         for obj in objects:
             for appearance in sp.entities.ObjectAppearance:
+                r = self._ranges[appearance]
                 try:
                     default = obj.get_default_appearance(appearance)
+                    random_value = np.random.uniform(default - r, default + r)
+                    obj.set_appearance(appearance, random_value, set_default=False)
                 except ReferenceError:
-                    break
-                r = self._ranges[appearance]
-                random_value = np.random.uniform(default - r, default + r)
-                obj.set_appearance(appearance, random_value, set_default=False)
+                    break  # stale blender object: skip it, keep randomizing the others

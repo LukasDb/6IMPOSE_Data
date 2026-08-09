@@ -127,8 +127,10 @@ class Camera(Placeable):
         # Parameters of intrinsic calibration matrix K
         alpha_u = f_in_mm * scale_x
         alpha_v = f_in_mm * scale_y
-        u_0 = img_w * (0.5 - cam_data.shift_x)
-        v_0 = img_h * (0.5 + cam_data.shift_y)  # because flipped blender camera
+        # with sensor_fit="HORIZONTAL", shift_x AND shift_y are in sensor-width units;
+        # y sign is positive because of the flipped (OpenCV-convention) blender camera
+        u_0 = img_w * 0.5 - cam_data.shift_x * img_w
+        v_0 = img_h * 0.5 + cam_data.shift_y * img_w
 
         return np.array([[alpha_u, 0.0, u_0], [0, alpha_v, v_0], [0, 0, 1]])
 
@@ -179,12 +181,16 @@ class Camera(Placeable):
         c_x, c_y = intrinsic_matrix[0][2], intrinsic_matrix[1][2]
         scale_x = img_w / sensor_width_in_mm
 
-        shift_x = c_x / img_w - 0.5
-        shift_y = 0.5 - c_y / img_h  # inverse because in blender y is flipped
+        # with sensor_fit="HORIZONTAL", shift_x AND shift_y are in sensor-width units;
+        # y sign is positive because of the flipped (OpenCV-convention) blender camera
+        shift_x = 0.5 - c_x / img_w
+        shift_y = (c_y - 0.5 * img_h) / img_w
 
         cam_data.shift_x = shift_x
         cam_data.shift_y = shift_y
         cam_data.lens = f_x / scale_x  # f_in_mm
-        # np.testing.assert_almost_equal(
-        #     intrinsic_matrix, Camera._calculate_intrinsics(cam_data, img_w, img_h), decimal=2
-        # )
+        np.testing.assert_almost_equal(
+            intrinsic_matrix[:2, 2],
+            Camera._calculate_intrinsics(cam_data, img_w, img_h)[:2, 2],
+            decimal=2,
+        )

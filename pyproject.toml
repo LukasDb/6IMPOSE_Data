@@ -20,6 +20,7 @@ dependencies = [
     "coloredlogs",
     "streamlit",
     "streamlit-image-comparison",
+    "moderngl",  # headless EGL rasterizer for the label channels
     "pydantic",
     "pyyaml",
     "tensorflow",

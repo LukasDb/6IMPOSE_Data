@@ -8,7 +8,6 @@ from pathlib import Path
 import streamlit as st
 import click
 from PIL import Image
-import time
 import itertools as it
 import simpose as sp
 
@@ -42,10 +41,14 @@ def main(data_dir: Path) -> None:
         use_bbox = st.toggle("BBox", value=False)
         use_pose = st.toggle("Pose", value=False)
         shuffle = st.toggle("Shuffle", value=False)
-        if shuffle:
-            st.cache_resource.clear()
-            st.cache_data.clear()
-            st.session_state["index"] = 0
+
+    # (img_dir, shuffle) identifies the dataset iterator; when it changes,
+    # get_ds hands out a fresh one, so restart the index here. Doing it in
+    # get_ds would be a side effect inside a cached function.
+    ds_key = (img_dir, shuffle)
+    if st.session_state.get("_ds_key") != ds_key:
+        st.session_state["_ds_key"] = ds_key
+        st.session_state["index"] = 0
 
     idx = st.session_state["index"]
     st.header(f"Datapoint: #{idx:05}")
@@ -90,56 +93,25 @@ def main(data_dir: Path) -> None:
     cols = it.cycle(st.columns(3))
     for key, img in data.items():
         with next(cols):
-            st.image(img, caption=f"{key} {img.shape}, {img.dtype}", use_column_width=True)
-
-
-@st.cache_data()
-def get_idx(img_dir: Path) -> np.ndarray | list[int]:
-
-    # ---- composite subsets dataset
-    if img_dir.joinpath("subsets").exists():
-        num = 0
-        for subset in img_dir.joinpath("subsets").iterdir():
-            end_indices = [
-                int(x.stem.split(".")[0].split("_")[-1])
-                for x in subset.joinpath("data").glob("*.tfrecord")
-            ]
-            end_index = max(end_indices)
-            num += end_index + 1
-        return np.arange(num)
-
-    # ---- single tfrecord dataset
-    tfrecord_dir = (
-        img_dir.joinpath("data") if img_dir.joinpath("data").exists() else img_dir.joinpath("rgb")
-    )
-
-    if len(list(tfrecord_dir.glob("*.tfrecord"))) > 0:
-        # tfrecord dataset
-        end_indices = [
-            int(x.stem.split(".")[0].split("_")[-1]) for x in tfrecord_dir.glob("*.tfrecord")
-        ]
-        end_index = max(end_indices)
-        return np.arange(end_index + 1)
-    raise ValueError("No tfrecord found.")
+            st.image(img, caption=f"{key} {img.shape}, {img.dtype}", use_container_width=True)
 
 
 @st.cache_resource
 def get_ds(img_dir: Path, shuffle: bool) -> tf.data.Dataset:
-    st.session_state["index"] = 0  # reset index
-    tfds = sp.data.TFRecordDataset.get(img_dir, num_parallel_files=4)
+    tfds = sp.data.TFRecordDataset.get(img_dir, num_parallel_files=16)
     if shuffle:
         tfds = tfds.shuffle(100)
     return iter(tfds.prefetch(tf.data.AUTOTUNE))
 
 
-@st.cache_data
+@st.cache_data(max_entries=20)
 def load_data(img_dir: Path, idx: np.int64, shuffle: bool) -> dict[str, np.ndarray]:
+    # idx only keys the cache; the dataset is consumed sequentially
     tfds = get_ds(img_dir, shuffle)
     return next(tfds)
-    data = tfds.skip(idx).take(1).get_single_element()
-    return data
 
 
+@st.cache_data(max_entries=20)
 def get_data(
     img_dir: Path,
     idx: np.int64,
@@ -164,29 +136,22 @@ def get_data(
 
     max_depth = 1.5
 
-    if sp_keys.DEPTH in data:
-        depth = data["depth"].numpy()
-        output["Depth"] = cv2.applyColorMap(
-            cv2.convertScaleAbs(depth, alpha=255 / max_depth), cv2.COLORMAP_JET  # type: ignore
+    def colorize_depth(arr: np.ndarray) -> np.ndarray:
+        # v4 stores depth as float16, and cv2.convertScaleAbs has no float16 kernel
+        # (it fails the "func != 0" assertion), so widen before handing it to OpenCV
+        return cv2.applyColorMap(
+            cv2.convertScaleAbs(arr.astype(np.float32), alpha=255 / max_depth),
+            cv2.COLORMAP_JET,  # type: ignore
         )
 
-    if sp_keys.DEPTH_R in data:
-        depth_R = data["depth_R"].numpy()
-        output["Depth_R"] = cv2.applyColorMap(
-            cv2.convertScaleAbs(depth_R, alpha=255 / max_depth), cv2.COLORMAP_JET  # type: ignore
-        )
-
-    if sp_keys.DEPTH_GT in data:
-        depth_gt = data["depth_gt"].numpy()
-        output["Depth GT"] = cv2.applyColorMap(
-            cv2.convertScaleAbs(depth_gt, alpha=255 / max_depth), cv2.COLORMAP_JET  # type: ignore
-        )
-
-    if sp_keys.DEPTH_GT_R in data:
-        depth_gt_R = data["depth_gt_R"].numpy()
-        output["Depth GT_R"] = cv2.applyColorMap(
-            cv2.convertScaleAbs(depth_gt_R, alpha=255 / max_depth), cv2.COLORMAP_JET  # type: ignore
-        )
+    for key, label in (
+        (sp_keys.DEPTH, "Depth"),
+        (sp_keys.DEPTH_R, "Depth_R"),
+        (sp_keys.DEPTH_GT, "Depth GT"),
+        (sp_keys.DEPTH_GT_R, "Depth GT_R"),
+    ):
+        if key in data:
+            output[label] = colorize_depth(data[key].numpy())
 
     mask = None
     if sp_keys.MASK in data:
@@ -234,21 +199,35 @@ def get_data(
             cam_matrix,
         )
 
-    return output
+    # downscale here, inside the cache, so selectbox-only reruns don't re-resize
+    return {k: resize_for_display(v) for k, v in output.items()}
+
+
+def resize_for_display(img: np.ndarray, max_width: int = 800) -> np.ndarray:
+    """Downscale before sending to the browser; encoding/transferring full-res
+    renders on every rerun is the main cost once the dataset pipeline is cached."""
+    height, width = img.shape[:2]
+    if width <= max_width:
+        return img
+    scale = max_width / width
+    return cv2.resize(img, (max_width, int(height * scale)), interpolation=cv2.INTER_AREA)
 
 
 def assemble_semantic_mask(mask, objs_data) -> np.ndarray:
-    colored_semantic_mask_bgr = np.zeros((*mask.shape[:2], 3)).astype(np.uint8)
-
     cls_colors = st.session_state["cls_colors"]
 
+    # one obj_id -> colour lookup table, applied in a single pass; the naive
+    # version did a full-frame `mask == obj_id` compare per object
+    max_id = int(mask.max())
+    lut = np.zeros((max_id + 1, 3), dtype=np.uint8)
     for obj_data in objs_data:
-        # semantic
         cls = obj_data["class"]
         cls_colors.setdefault(cls, np.random.randint(0, 256, size=3).astype(np.uint8).tolist())
-        colored_semantic_mask_bgr[mask == obj_data["obj_id"]] = cls_colors[cls]
+        obj_id = int(obj_data["obj_id"])
+        if 0 <= obj_id <= max_id:
+            lut[obj_id] = cls_colors[cls]
 
-    return colored_semantic_mask_bgr
+    return lut[np.squeeze(mask)]
 
 
 def draw_poses(img, positions, rotations, cam_pos, cam_rot, cam_matrix) -> np.ndarray:

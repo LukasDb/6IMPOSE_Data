@@ -4,6 +4,7 @@ from .generator import Generator, GeneratorParams
 import multiprocessing as mp
 from pathlib import Path
 import numpy as np
+from pydantic import Field, model_validator
 from scipy.spatial.transform import Rotation as R
 
 
@@ -19,9 +20,14 @@ class RandomImagePickerConfig(sp.random.RandomizerConfig):
 class RandomImagePicker(sp.random.Randomizer):
     def __init__(self, params: RandomImagePickerConfig) -> None:
         super().__init__(params)
+        extensions = (".jpg", ".jpeg", ".png", ".exr", ".hdr", ".tif", ".tiff")
         self._img_paths = [
-            x for x in params.img_dir.expanduser().iterdir() if "norm" not in x.name
+            x
+            for x in params.img_dir.expanduser().iterdir()
+            if "norm" not in x.name and x.suffix.lower() in extensions
         ]
+        if len(self._img_paths) == 0:
+            raise ValueError(f"RandomImagePicker found no images in {params.img_dir}")
 
     def randomize_plane(self, plane: sp.entities.Plane) -> None:
         self._plane = plane
@@ -34,10 +40,19 @@ class RandomImagePicker(sp.random.Randomizer):
 
 
 class DropjectsConfig(GeneratorParams):
+    # not user-configurable: always derived from n_images_per_scene below, so a shard
+    # can never span more than one scene. Needed both for object-id consistency and
+    # because Object.copy() shares its collision shape with the original, whose
+    # lifetime must not outlive their common scene.
+    worker_shards: int = Field(default=0, exclude=True)
     n_objects_per_scene: int = 50
     n_images_per_scene: int = 50
-    drop_height: float = 1.0
     drop_spread: float = 0.4
+
+    @model_validator(mode="after")
+    def _worker_shards_matches_scene(self) -> "DropjectsConfig":
+        self.worker_shards = self.n_images_per_scene
+        return self
     friction: float = 0.9
     restitution: float = 0.1
     use_stereo: bool = True
@@ -52,13 +67,11 @@ class DropjectsConfig(GeneratorParams):
         description = super().get_description()
         description.update(
             {
-                "drop_height": "Height from which objects are dropped",
                 "drop_spread": "Spread of objects when dropped (distance from origin in XY)",
                 "friction": "Friction of objects",
                 "use_stereo": "Use stereo camera",
                 "cam_hfov": "Camera horizontal field of view",
                 "cam_baseline": "Camera baseline",
-                "cam_dist_range": "Camera distance range to origin",
                 "img_w": "Image width",
                 "img_h": "Image height",
                 "floor_textures_dir": "Path to directory with textures for the floor",
@@ -156,24 +169,36 @@ class Dropjects(Generator):
         i = 0
         while True:
             scene = Dropjects.setup_new_scene(p, randomizers)
+            scene.set_output_path(writer.output_dir)
             scene.export_meshes(writer.output_dir / "meshes")
 
-            for _ in range(p.n_images_per_scene):
-                writer.write_data(indices[i], scene=scene)
+            # objects never move again after the drop, so the whole scene's Cycles
+            # renders (and separately its EEVEE mask renders) can be batched: this
+            # switches render engine twice per scene instead of twice per image.
+            # write (and tick progress) per-frame via the callback as each frame's
+            # product is ready, rather than waiting for the whole batch to finish
+            batch = indices[i : i + p.n_images_per_scene]
+            scene.render_batch(
+                batch,
+                writer.gpu_semaphore,
+                on_frame_rendered=lambda idx, rp: writer.write_data(idx, render_product=rp),
+            )
 
-                # scene.export_blend()
-                # return
-
-                i += 1
-                if i == len(indices):
-                    sp.logger.info(f"Finished generating data {mp.current_process().name}")
-                    return
+            i += len(batch)
+            if i == len(indices):
+                sp.logger.info(f"Finished generating data {mp.current_process().name}")
+                return
 
     @staticmethod
     def setup_new_scene(
         p: DropjectsConfig,
         randomizers: dict[str, sp.random.Randomizer],
     ) -> sp.Scene:
+        # free the previous scene's objects while their blender data is still alive:
+        # sp.Scene() resets blender to factory settings, which invalidates every
+        # reference the loaders still hold
+        model_loader: sp.random.ModelLoader = randomizers["distractors"]  # type: ignore
+        model_loader.reset()
 
         # -- SCENE --
         scene = sp.Scene(img_h=p.img_h, img_w=p.img_w)
@@ -197,15 +222,17 @@ class Dropjects(Generator):
         randimages.listen_to(scene)
         randimages.randomize_plane(plane)
 
-        model_loader: sp.random.ModelLoader = randomizers["distractors"]  # type: ignore
-        model_loader.reset()
-
         n_classes = np.random.randint(1, p.n_objects_per_scene + 1)
 
         class_indices = np.random.randint(0, n_classes, size=p.n_objects_per_scene - n_classes)
 
         kwargs = dict(
-            scene=scene, mass=0.2, friction=p.friction, hide=True, restitution=p.restitution
+            scene=scene,
+            mass=0.2,
+            friction=p.friction,
+            hide=True,
+            restitution=p.restitution,
+            add_semantics=True,
         )
 
         first_pick = model_loader.get_object(**kwargs)
@@ -235,8 +262,21 @@ class Dropjects(Generator):
 
         max_obj_diameter = max(np.max(o._bl_object.dimensions) for o in obj_classes)  # [8, 3]
 
+        import pybullet as pyb
+
+        def highest_point() -> float:
+            # hidden objects have no pybullet body and never move -> blender location
+            zs = []
+            for o in objs:
+                pb_id = o._bl_object.get("pb_id", None)
+                if pb_id is not None:
+                    zs.append(pyb.getBasePositionAndOrientation(pb_id)[0][2])
+                else:
+                    zs.append(o.location[2])
+            return max(zs)
+
         for obj in objs:
-            heighest_point = max([o.location[2] for o in objs])
+            heighest_point = highest_point()
 
             obj.show()
             obj.set_location(
@@ -247,7 +287,9 @@ class Dropjects(Generator):
                 )
             )
             obj.set_rotation(R.random())
-            # this takes forever! run with p.GUI and check simulation and scaling?
-            scene.step_physics(0.4)
+            # sync poses to blender only once after all drops: the per-drop sync of
+            # every object was the dominant cost of scene setup
+            scene.step_physics(0.4, apply=False)
+        scene._apply_simulation()
 
         return scene

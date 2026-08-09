@@ -7,6 +7,7 @@ import signal
 import contextlib
 from simpose import base_config
 import multiprocessing as mp
+import multiprocessing.queues  # noqa: F401  (mp.queues is not auto-imported)
 import yaml
 from typing import Callable
 
@@ -16,7 +17,6 @@ class WriterConfig(base_config.BaseConfig):
     overwrite: bool = False
     start_index: int = 0
     end_index: int = 9
-    _gpu_semaphore_comm: None | mp.queues.Queue = None
     _q_rendered: None | mp.queues.Queue = None
     _active_gpu: int = 0
 
@@ -30,8 +30,27 @@ class WriterConfig(base_config.BaseConfig):
         }
 
 
+class DelayedKeyboardInterrupt(contextlib.AbstractContextManager):
+    """defers SIGINT until the current datapoint is completely written, so an
+    interrupted run never leaves a truncated record in the shard file"""
+
+    def __enter__(self) -> "DelayedKeyboardInterrupt":
+        self._received: tuple | None = None
+        self._old_handler: Any = signal.signal(signal.SIGINT, self._handler)
+        return self
+
+    def _handler(self, sig: int, frame: Any) -> None:
+        self._received = (sig, frame)
+        sp.logger.warning("SIGINT received, finishing current datapoint first...")
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        signal.signal(signal.SIGINT, self._old_handler)
+        if self._received is not None and callable(self._old_handler):
+            self._old_handler(*self._received)
+
+
 class Writer(ABC):
-    def __init__(self, params: WriterConfig, comm: Any | None = None) -> None:
+    def __init__(self, params: WriterConfig, comm: "sp.Comm | None" = None) -> None:
         # self.scene = scene
         self.output_dir = params.output_dir.expanduser()
         self.overwrite = params.overwrite
@@ -70,17 +89,17 @@ class Writer(ABC):
         if scene is not None:
             scene.set_output_path(self.output_dir)
 
-        # with DelayedKeyboardInterrupt(dataset_index, on_term=lambda: self._cleanup(dataset_index)):
-        try:
-            self._write_data(dataset_index, scene=scene, render_product=render_product)
-            if self.q_rendered is not None:
-                self.q_rendered.put(1)
-        except Exception as e:
-            # clean up possibly corrupted data
-            sp.logger.critical(f"Error while generating data no. {dataset_index}")
-            sp.logger.critical(e)
-            self._cleanup(dataset_index)
-            raise e
+        with DelayedKeyboardInterrupt():
+            try:
+                self._write_data(dataset_index, scene=scene, render_product=render_product)
+                if self.q_rendered is not None:
+                    self.q_rendered.put(1)
+            except Exception as e:
+                # clean up possibly corrupted data
+                sp.logger.critical(f"Error while generating data no. {dataset_index}")
+                sp.logger.critical(e)
+                self._cleanup(dataset_index)
+                raise e
 
     def post_process(self) -> None:
         pass

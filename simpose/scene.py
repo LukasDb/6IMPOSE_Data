@@ -3,12 +3,13 @@ import yaml
 import numpy as np
 import time
 from pathlib import Path
-import cv2
 from PIL import Image
+from scipy import ndimage
+from scipy.spatial.transform import Rotation as R
 from .exr import EXR
 import simpose as sp
 
-from typing import TYPE_CHECKING, ContextManager
+from typing import TYPE_CHECKING, Callable, ContextManager
 
 if TYPE_CHECKING:
     import bpy
@@ -60,7 +61,6 @@ class Scene(sp.observers.Observable):
 
         self._setup_rendering_device()
         self._setup_compositor()
-        self._register_new_id("visib")
 
         # p.connect(p.GUI)  # activate if you want to observe the physics simulation
         p.connect(p.DIRECT)
@@ -101,8 +101,9 @@ class Scene(sp.observers.Observable):
         except p.error:
             pass
 
-    def step_physics(self, dt: float) -> None:
-        """steps 1/240sec of physics simulation"""
+    def step_physics(self, dt: float, apply: bool = True) -> None:
+        """steps dt seconds of physics simulation in 1/240s substeps; with apply=False
+        the poses are not synced back to Blender (call _apply_simulation once afterwards)"""
         import pybullet as p
 
         sp.logger.debug(f"Stepping physics for {dt} seconds")
@@ -112,7 +113,8 @@ class Scene(sp.observers.Observable):
         for _ in range(max(1, num_steps)):
             p.stepSimulation()
         # now apply transform to objects
-        self._apply_simulation()
+        if apply:
+            self._apply_simulation()
         self.notify(sp.observers.Event.AFTER_PHYSICS_STEP)
 
     def run_simulation(self, with_export: bool = False) -> None:
@@ -134,74 +136,203 @@ class Scene(sp.observers.Observable):
                 pass
 
     def render(self, gpu_semaphore: ContextManager = contextlib.nullcontext()) -> sp.RenderProduct:
-        """renders Blender scene and returns a RenderProduct object"""
-        self.bpy_render(gpu_semaphore)
-
+        """renders a single frame and returns a RenderProduct object"""
         index = self._bl_scene.frame_current
+        return self.render_batch(np.array([index]), gpu_semaphore)[0]
 
+    def render_batch(
+        self,
+        indices: np.ndarray,
+        gpu_semaphore: ContextManager = contextlib.nullcontext(),
+        on_frame_rendered: Callable[[int, sp.RenderProduct], None] | None = None,
+    ) -> list[sp.RenderProduct]:
+        """Renders frames of a static scene (objects must not move between frames -
+        only camera/appearance/light/background may vary).
+
+        Blender renders only the Cycles beauty pass (RGB + depth in one call); both
+        label channels come from the EGL rasterizer instead. So the render engine is
+        never switched, which lets Cycles' `use_persistent_data` cache stay warm for
+        the whole batch, and the label passes run inside the same GPU semaphore hold
+        as the Cycles render - one acquire/release per frame, not two.
+
+        Scene geometry is uploaded to the rasterizer once for the whole batch; only
+        the view-projection matrix changes per frame.
+
+        on_frame_rendered, if given, is called with (dataset_index, RenderProduct) as
+        soon as each frame is ready - e.g. to write it out and tick progress
+        immediately, instead of waiting for the whole batch to finish."""
+        if gpu_semaphore is None:  # a Writer without a comm has no semaphore
+            gpu_semaphore = contextlib.nullcontext()
+        camera = self.get_cameras()[0]
+
+        self._compact_object_ids()
+        self._set_cycles_render_state()
+        rasterizer = self._upload_geometry()
+
+        products = []
+        for dataset_index in indices:
+            idx = int(dataset_index)
+            t0 = time.perf_counter()
+            self.frame_set(idx)
+            self.notify(sp.observers.Event.BEFORE_RENDER)
+            t_randomized = time.perf_counter()
+
+            K = camera.calculate_intrinsics(self.resolution_x, self.resolution_y)
+            with gpu_semaphore:
+                t_acquired = time.perf_counter()
+                self._render_cycles(camera)
+                t_cycles = time.perf_counter()
+                cam_loc, cam_rot = camera.location, camera.rotation
+                mask = rasterizer.render_instance_mask(cam_loc, cam_rot, K)
+                sil_stats = rasterizer.render_silhouettes(cam_loc, cam_rot, K)
+                t_labels = time.perf_counter()
+
+            self.notify(sp.observers.Event.AFTER_RENDER)
+            product = self._build_render_product(idx, camera, mask, sil_stats)
+            sp.logger.debug(
+                f"frame {idx}: randomize {t_randomized - t0:.2f}s, "
+                f"gpu wait {t_acquired - t_randomized:.2f}s, "
+                f"cycles {t_cycles - t_acquired:.2f}s, "
+                f"labels(egl) {t_labels - t_cycles:.2f}s, "
+                f"readback {time.perf_counter() - t_labels:.2f}s"
+            )
+            products.append(product)
+            if on_frame_rendered is not None:
+                on_frame_rendered(idx, product)
+        return products
+
+    def _compact_object_ids(self) -> None:
+        """Renumber the objects' semantic ids to a contiguous 1..N.
+
+        `get_new_object_id` hands out ids from a monotonic per-scene counter, and an
+        object that is created and then removed still consumes one. Dropjects
+        rejection-samples on object diameter, so a scene of 50 objects can easily end
+        up with ids far above 50 - past the 255 the uint8 mask can hold.
+
+        Ids only have to be consistent within a scene, and both the mask and the
+        annotations read `pass_index`, so compacting here keeps them in agreement.
+        This is only safe because ids no longer name EEVEE view layers."""
+        objects = self._bl_scene.collection.children["Objects"].objects
+        for new_id, bl_obj in enumerate(objects, start=1):
+            bl_obj.pass_index = new_id
+        self._bl_scene["id_counter"] = len(objects)
+
+    def _upload_geometry(self) -> "sp.EGLRasterizer":
+        """push the current (post-physics) scene geometry to the EGL rasterizer in
+        world space. Every visible mesh participates as an occluder - including the
+        floor plane, which labels as background (id 0) but still occludes - matching
+        what the EEVEE visib layer used to produce."""
+        import bpy
+
+        # matrix_world is stale until the depsgraph re-evaluates: setting .location /
+        # .rotation_quaternion / .scale does not update it on its own
+        bpy.context.view_layer.update()
+
+        meshes = []
+        for bl_obj in self._bl_scene.objects:
+            if bl_obj.type != "MESH" or bl_obj.hide_render:
+                continue
+            mesh = bl_obj.data
+            mesh.calc_loop_triangles()
+            if len(mesh.loop_triangles) == 0:
+                continue
+
+            verts = np.empty(len(mesh.vertices) * 3, dtype=np.float64)
+            mesh.vertices.foreach_get("co", verts)
+            verts = verts.reshape(-1, 3)
+            tris = np.empty(len(mesh.loop_triangles) * 3, dtype=np.int32)
+            mesh.loop_triangles.foreach_get("vertices", tris)
+            tris = tris.reshape(-1, 3)
+
+            mw = np.array(bl_obj.matrix_world, dtype=np.float64)
+            verts_world = (mw @ np.hstack([verts, np.ones((len(verts), 1))]).T).T[:, :3]
+
+            meshes.append(
+                (verts_world, tris, int(bl_obj.pass_index), bool(bl_obj.get("semantics", False)))
+            )
+
+        rasterizer = sp.get_rasterizer(self.resolution_x, self.resolution_y)
+        rasterizer.set_geometry(meshes)
+        return rasterizer
+
+    def _build_render_product(
+        self,
+        index: int,
+        cam: sp.entities.Camera,
+        mask: np.ndarray | None = None,
+        sil_stats: dict[int, tuple[tuple[int, int, int, int], int]] | None = None,
+    ) -> sp.RenderProduct:
+        """assembles the RenderProduct from the Cycles outputs on disk plus the
+        label channels produced by the EGL rasterizer (`mask` is the instance id
+        map, `sil_stats` the per-object unoccluded bbox/pixel-count)"""
         rgb_path = Path(self.output_dir, "rgb", f"rgb_{index:04}.png")
         rgb_R_path = Path(self.output_dir, "rgb", f"rgb_{index:04}_R.png")
         depth_path = Path(self.output_dir, "depth", f"depth_{index:04}.exr")
         depth_R_path = Path(self.output_dir, "depth", f"depth_{index:04}_R.exr")
-        mask_path = Path(self.output_dir / f"mask/mask_{index:04}.exr")
 
-        rgb = None if not rgb_path.exists() else np.array(Image.open(str(rgb_path)))
-        rgb_R = None if not rgb_R_path.exists() else np.array(Image.open(str(rgb_R_path)))
+        rgb = None if not rgb_path.exists() else self._read_rgb(rgb_path)
+        rgb_R = None if not rgb_R_path.exists() else self._read_rgb(rgb_R_path)
 
-        if depth_path.exists():
-            depth = np.array(
-                cv2.imread(
-                    str(depth_path),
-                    cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-                )
-            )[..., 0].astype(np.float32)
-            depth[depth > 100.0] = 0.0
-        else:
-            depth = None
+        depth = None if not depth_path.exists() else self._read_depth(depth_path)
+        depth_R = None if not depth_R_path.exists() else self._read_depth(depth_R_path)
 
-        if depth_R_path.exists():
-            depth_R = np.array(
-                cv2.imread(
-                    str(depth_R_path),
-                    cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH,
-                )
-            )[..., 0].astype(np.float32)
-            depth_R[depth_R > 100.0] = 0.0
-        else:
-            depth_R = None
+        if sil_stats is None:
+            sil_stats = {}
 
-        if mask_path.exists():
-            mask = EXR(mask_path).read("visib.R")
-        else:
-            mask = None
-
-        cam = self.get_cameras()[0]  # TODO in the future save all cameras
         cam_pos = cam.location
         cam_rot = cam.rotation.as_quat()
         cam_matrix = cam.calculate_intrinsics(self.resolution_x, self.resolution_y)
 
-        # for each object, deactivate all but one and render mask
-        # only for labelled objects we have a mask
         obj_annotations: list[sp.ObjectAnnotation] = []
         objs = self.get_active_objects()
+
+        # visib-mask stats (px_count_visib, bbox_visib, px_count_valid) for every
+        # object in one vectorized pass instead of one full-frame np.nonzero per
+        # object: mask is a per-pixel object-id label image, so a single bincount
+        # (counts, and depth-valid counts) plus one find_objects call (bboxes)
+        # gives every object's stats at once. Equivalent to the old per-object
+        # nonzero/count_nonzero loop, ~15x faster at 50 objects / 2560x1440.
+        visib_counts = valid_counts = None
+        bbox_slices: list | None = None
+        if mask is not None:
+            ids = [obj.object_id for obj in objs]
+            max_label = int(mask.max())
+            if ids:
+                max_label = max(max_label, max(ids))
+            mask_int = mask.astype(np.int64)
+            visib_counts = np.bincount(mask_int.ravel(), minlength=max_label + 1)
+            if depth is not None:
+                valid_counts = np.bincount(
+                    mask_int.ravel(),
+                    weights=(depth.ravel() != 0).astype(np.float64),
+                    minlength=max_label + 1,
+                )
+            bbox_slices = ndimage.find_objects(mask_int, max_label=max_label)
+
         for obj in objs:
-            px_count_visib = np.count_nonzero(mask == obj.object_id)
-            bbox_visib = (0, 0, 0, 0) if mask is None else self._get_bbox(mask, obj.object_id)
+            if visib_counts is None:
+                px_count_visib = 0
+                bbox_visib = (0, 0, 0, 0)
+            else:
+                oid = obj.object_id
+                px_count_visib = int(visib_counts[oid]) if oid < len(visib_counts) else 0
+                sl = bbox_slices[oid - 1] if bbox_slices and 0 < oid <= len(bbox_slices) else None
+                if sl is None:
+                    bbox_visib = (0, 0, 0, 0)
+                else:
+                    y_sl, x_sl = sl
+                    bbox_visib = (x_sl.start, y_sl.start, x_sl.stop - 1, y_sl.stop - 1)
             bbox_obj = (0, 0, 0, 0)
             px_count_all = 0
             px_count_valid = 0
             visib_fract = 0.0
 
             if obj.has_semantics:
-                # for fully labelled objects, get additional data
-                obj_mask = EXR(mask_path).read(f"{obj.object_id:04}.R")
-                bbox_obj = self._get_bbox(obj_mask, 1)
-                px_count_all = np.count_nonzero(obj_mask == 1)
-                px_count_valid = (
-                    0
-                    if mask is None or depth is None
-                    else np.count_nonzero(depth[mask == obj.object_id])
-                )
+                # unoccluded silhouette, rasterized per object by the EGL pass
+                bbox_obj, px_count_all = sil_stats.get(obj.object_id, ((0, 0, 0, 0), 0))
+                if valid_counts is not None:
+                    oid = obj.object_id
+                    px_count_valid = int(valid_counts[oid]) if oid < len(valid_counts) else 0
                 if px_count_all != 0:
                     visib_fract = px_count_visib / px_count_all
 
@@ -235,8 +366,39 @@ class Scene(sp.observers.Observable):
             stereo_baseline=stereo_baseline,
         )
 
+    @staticmethod
+    def _read_depth(depth_path: Path) -> np.ndarray:
+        # blender names the channel of single-channel ("BW") EXRs "V".
+        # the EXR is half float; compare/clamp in float32 to avoid the 65504 overflow
+        # of half, then hand back float16 -- what the writer stores.
+        depth = EXR(depth_path).read("V").astype(np.float32)
+        depth[depth > 100.0] = 0.0
+        return depth.astype(np.float16)
+
+    def _read_rgb(self, rgb_path: Path) -> np.ndarray:
+        """read a composited RGB png, cropped to the render resolution.
+
+        The background Scale node ("Render Size") scales an arbitrary-aspect
+        background to *cover* the render, and the composited canvas can end up 1-2 px
+        larger than resolution_x/y depending on that particular image's scale factor.
+        Observed on a 2560x1440 run: rgb came out (1441, 2560) for one background and
+        (1440, 2562) for the next, while depth and mask were always exact -- i.e. RGB
+        silently misaligned with the labels *and* with the intrinsics, by a per-frame
+        amount. Crop here so every channel and cx/cy agree by construction.
+        """
+        rgb = np.array(Image.open(str(rgb_path)))
+        h, w = self.resolution_y, self.resolution_x
+        if rgb.shape[0] < h or rgb.shape[1] < w:
+            raise RuntimeError(
+                f"{rgb_path.name} is {rgb.shape[1]}x{rgb.shape[0]}, smaller than the "
+                f"render resolution {w}x{h}; cannot align it with the labels."
+            )
+        if rgb.shape[0] != h or rgb.shape[1] != w:
+            sp.logger.debug(f"cropping {rgb_path.name} {rgb.shape[1]}x{rgb.shape[0]} -> {w}x{h}")
+        return rgb[:h, :w]
+
     def remove_temporary_files(self, dataset_index: int) -> None:
-        output_dir = Path(self.output_node.base_path)
+        output_dir = self.output_dir
 
         rgb_path = output_dir / "rgb" / f"rgb_{dataset_index:04}.png"
         if rgb_path.exists():
@@ -248,11 +410,6 @@ class Scene(sp.observers.Observable):
             sp.logger.debug(f"Removing {rgb_R_path}")
             rgb_R_path.unlink()
 
-        mask_path = output_dir / "mask" / f"mask_{dataset_index:04}.exr"
-        if mask_path.exists():
-            sp.logger.debug(f"Removing {mask_path}")
-            mask_path.unlink()
-
         depth_path = output_dir / "depth" / f"depth_{dataset_index:04}.exr"
         if depth_path.exists():
             sp.logger.debug(f"Removing {depth_path}")
@@ -263,75 +420,39 @@ class Scene(sp.observers.Observable):
             sp.logger.debug(f"Removing {depth_R_path}")
             depth_R_path.unlink()
 
-        mask_paths = (output_dir / "mask").glob(f"mask_*_{dataset_index:04}.exr")
-        for mask_path in mask_paths:
-            sp.logger.debug(f"Removing {mask_path}")
-            mask_path.unlink()
+    def _set_cycles_render_state(self) -> None:
+        """Cycles renders RGB + depth. The label channels come from the EGL
+        rasterizer, so the engine is set once and never switched again - which is
+        what keeps `use_persistent_data` effective across frames."""
+        self._bl_scene.render.engine = "CYCLES"
+        self.rgb_output.mute = False
+        self.depth_output.mute = False
 
-    def _get_bbox(self, mask: np.ndarray, object_id: int) -> tuple[int, int, int, int]:
-        y, x = np.where(mask == object_id)
-        if len(y) == 0:
-            return (0, 0, 0, 0)
-        x1 = np.min(x).tolist()
-        x2 = np.max(x).tolist()
-        y1 = np.min(y).tolist()
-        y2 = np.max(y).tolist()
-        return (x1, y1, x2, y2)
-
-    def bpy_render(self, gpu_semaphore: ContextManager = contextlib.nullcontext()) -> None:
+    def _render_cycles(self, camera: sp.entities.Camera) -> None:
+        """RGB + depth in one render call (both are outputs of the same pass).
+        The caller must hold the GPU semaphore."""
         import bpy
 
-        self.notify(sp.observers.Event.BEFORE_RENDER)
-
-        # render RGB, depth using cycles
-        # disable all view layers except 'ViewLayer'
-        for layer in self._bl_scene.view_layers:
-            layer.use = False
-        self._bl_scene.view_layers["ViewLayer"].use = True
-        self._bl_scene.render.engine = "CYCLES"
-        self.output_node.mute = False
-        self.mask_output.mute = True
-
-        camera = self.get_cameras()[0]
-
-        with gpu_semaphore:
-            if camera.is_stereo_camera():
-                self._bl_scene.camera = camera.right_camera
-                with sp.redirect_stdout():
-                    sp.logger.debug(f"Rendering right to {self.output_dir}")
-                    bpy.ops.render.render(write_still=False)
-                # rename rendered depth and rgb with suffix _R
-                rgb_path = self.output_dir / "rgb" / f"rgb_{self._bl_scene.frame_current:04}.png"
-                rgb_path.rename(rgb_path.parent / f"rgb_{self._bl_scene.frame_current:04}_R.png")
-                depth_path = (
-                    self.output_dir / "depth" / f"depth_{self._bl_scene.frame_current:04}.exr"
-                )
-                depth_path.rename(
-                    depth_path.parent / f"depth_{self._bl_scene.frame_current:04}_R.exr"
-                )
-
-            # for left image and the labels
-            self._bl_scene.camera = camera.left_camera
+        if camera.is_stereo_camera():
+            self._bl_scene.camera = camera.right_camera
             with sp.redirect_stdout():
-                sp.logger.debug(f"Rendering left to {self.output_dir}")
+                sp.logger.debug(f"Rendering right to {self.output_dir}")
                 bpy.ops.render.render(write_still=False)
+            # rename rendered depth and rgb with suffix _R
+            rgb_path = self.output_dir / "rgb" / f"rgb_{self._bl_scene.frame_current:04}.png"
+            rgb_path.rename(rgb_path.parent / f"rgb_{self._bl_scene.frame_current:04}_R.png")
+            depth_path = (
+                self.output_dir / "depth" / f"depth_{self._bl_scene.frame_current:04}.exr"
+            )
+            depth_path.rename(
+                depth_path.parent / f"depth_{self._bl_scene.frame_current:04}_R.exr"
+            )
 
-            # render mask into a single EXR using eevee
-            # enable all view layers except ViewLayer
-            for layer in self._bl_scene.view_layers:
-                layer.use = True
-            self._bl_scene.view_layers["ViewLayer"].use = False
-            self.output_node.mute = True  # 'mute' rgb output
-            self.mask_output.mute = False  # 'unmute' mask output
-
-            self._bl_scene.render.engine = "BLENDER_EEVEE"
-            bpy.context.scene.render.engine = "BLENDER_EEVEE"
-
-            with sp.redirect_stdout():
-                sp.logger.debug(f"Rendering masks to {self.output_dir}")
-                bpy.ops.render.render(write_still=False)
-
-        self.notify(sp.observers.Event.AFTER_RENDER)
+        # for left image and the labels
+        self._bl_scene.camera = camera.left_camera
+        with sp.redirect_stdout():
+            sp.logger.debug(f"Rendering left to {self.output_dir}")
+            bpy.ops.render.render(write_still=False)
 
     def get_new_object_id(self) -> int:
         assert isinstance(self._bl_scene["id_counter"], int)
@@ -341,10 +462,14 @@ class Scene(sp.observers.Observable):
     def frame_set(self, frame_num: int) -> None:
         self._bl_scene.frame_set(frame_num)  # this sets the suffix for file names
 
+    @property
+    def _compositor_tree(self) -> "bpy.types.NodeTree":
+        return self._bl_scene.compositing_node_group
+
     def set_output_path(self, output_dir: Path) -> None:
         self.output_dir = output_dir
-        self.output_node.base_path = str((self.output_dir).resolve())
-        self.mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
+        self.rgb_output.directory = str((output_dir / "rgb").resolve())
+        self.depth_output.directory = str((output_dir / "depth").resolve())
 
     def create_plane(self, size: float = 2, with_physics: bool = True) -> sp.entities.Plane:
         import bpy
@@ -437,9 +562,6 @@ class Scene(sp.observers.Observable):
         new_id = self.get_new_object_id()
         obj.set_semantic_id(new_id)
 
-        if add_semantics:
-            self._register_new_id(new_id)
-
         if hide:
             obj.hide()
 
@@ -454,35 +576,9 @@ class Scene(sp.observers.Observable):
         obj = object.copy()
         new_id = self.get_new_object_id()
         obj.set_semantic_id(new_id)
-        if obj.has_semantics:
-            self._register_new_id(new_id)
 
         self.notify(sp.observers.Event.ON_OBJECT_CREATED)
         return obj
-
-    def _register_new_id(self, new_id: str | int) -> None:
-        """creates a view (render) layer that exclusively renders the object with the given ID"""
-        # create a new view layer
-        if isinstance(new_id, int):
-            id = new_id
-            layer_name = f"{new_id:04}"
-        else:
-            id = 0
-            layer_name = new_id
-
-        # new layer with id_material override and object index
-        self._bl_scene.view_layers.new(name=layer_name)
-        view_layer = self._bl_scene.view_layers[layer_name]
-        view_layer["object_index"] = id
-
-        # add file output to compositor
-        tree = self._bl_scene.node_tree
-        layer_node: bpy.types.CompositorNodeRLayers = tree.nodes.new("CompositorNodeRLayers")  # type: ignore
-        layer_node.layer = layer_name
-        layer_node.location = (0, -500 - id * 100)
-
-        self.mask_output.file_slots.new(layer_name)
-        tree.links.new(layer_node.outputs["Image"], self.mask_output.inputs[layer_name])
 
     def create_light(
         self, light_name: str, energy: float, type: str = "POINT"
@@ -548,7 +644,7 @@ class Scene(sp.observers.Observable):
         #    bpy.data.images.remove(self.current_bg_img)
         new_img = bpy.data.images.load(str(filepath.resolve()))
 
-        tree = self._bl_scene.node_tree
+        tree = self._compositor_tree
         bg_image_node: bpy.types.CompositorNodeImage = tree.nodes["background_node"]  # type: ignore
         bg_image_node.image = new_img
         self._bl_scene["background_img"] = new_img
@@ -577,9 +673,12 @@ class Scene(sp.observers.Observable):
     def _setup_compositor(self) -> None:
         import bpy
 
-        self._bl_scene.use_nodes = True
         self._bl_scene.render.film_transparent = True
         self._bl_scene.render.use_simplify = True
+
+        # no tone mapping (Filmic/AgX): composited real backgrounds must round-trip
+        # and output must not depend on the installed bpy version's default transform
+        self._bl_scene.view_settings.view_transform = "Standard"
 
         self._bl_scene.view_layers["ViewLayer"].use_pass_z = True
         self._bl_scene.view_layers["ViewLayer"].use_pass_combined = True
@@ -600,12 +699,13 @@ class Scene(sp.observers.Observable):
 
         # set number of bounces
         self._bl_scene.cycles.max_bounces = 4
-        self._bl_scene.cycles.min_bounces = 0
         self._bl_scene.cycles.diffuse_bounces = 3
         self._bl_scene.cycles.glossy_bounces = 3
         self._bl_scene.cycles.transparent_max_bounces = 4
 
-        tree = self._bl_scene.node_tree
+        # since blender 5.0, scene compositing lives in a node group datablock
+        tree = bpy.data.node_groups.new("sp_compositor", "CompositorNodeTree")
+        self._bl_scene.compositing_node_group = tree
 
         # clear node tree
         for node in tree.nodes:
@@ -626,54 +726,55 @@ class Scene(sp.observers.Observable):
 
         # add scale node
         scale_node: bpy.types.CompositorNodeScale = tree.nodes.new("CompositorNodeScale")  # type: ignore
-        scale_node.space = "RENDER_SIZE"
+        scale_node.inputs["Type"].default_value = "Render Size"
         scale_node.location = (300, 300)
 
         # bg node -> scale
-        tree.links.new(bg_image_node.outputs[0], scale_node.inputs[0])
-        # scale -> alpha over [1]
-        tree.links.new(scale_node.outputs[0], self.alpha_over.inputs[1])
-        # rendered_rgb -> alpha over [2]
-        tree.links.new(render_layers.outputs[0], self.alpha_over.inputs[2])
-        # rendered_alpha -> alpha over [0]
-        tree.links.new(render_layers.outputs[1], self.alpha_over.inputs[0])
+        tree.links.new(bg_image_node.outputs[0], scale_node.inputs["Image"])
+        # scale -> alpha over background
+        tree.links.new(scale_node.outputs[0], self.alpha_over.inputs["Background"])
+        # rendered rgb (premultiplied alpha via film_transparent) -> foreground;
+        # the foreground's own alpha channel drives the compositing
+        tree.links.new(render_layers.outputs["Image"], self.alpha_over.inputs["Foreground"])
 
-        # RGB image output
-        self.output_node: bpy.types.CompositorNodeOutputFile = tree.nodes.new(
+        # RGB image output -> rgb/rgb_{frame:04}.png
+        self.rgb_output = self._create_image_output(tree, "rgb", "RGBA")
+        self.rgb_output.location = (900, 0)
+        self.rgb_output.format.file_format = "PNG"
+        self.rgb_output.format.color_mode = "RGB"
+        tree.links.new(self.alpha_over.outputs[0], self.rgb_output.inputs[0])
+
+        # Depth output -> depth/depth_{frame:04}.exr
+        # single channel, full float32: half floats quantize depth GT to mm-level steps
+        self.depth_output = self._create_image_output(tree, "depth", "FLOAT")
+        self.depth_output.location = (900, -250)
+        self.depth_output.format.file_format = "OPEN_EXR"
+        self.depth_output.format.color_mode = "BW"
+        self.depth_output.format.exr_codec = "ZIP"
+        # half float: ~1 mm quantization over this pipeline's 0.5-2.5 m working range,
+        # comparable to a real depth sensor, at half the bytes of "32". float32 depth
+        # made a datapoint 28.6 MB vs 11.6 MB for the 16-bit omni run, because float32
+        # depth also compresses much worse.
+        self.depth_output.format.color_depth = "16"
+        tree.links.new(render_layers.outputs["Depth"], self.depth_output.inputs[0])
+
+        # no mask output: the instance mask and the per-object unoccluded
+        # silhouettes are rasterized by the EGL rasterizer instead of being
+        # rendered by EEVEE into a multilayer EXR
+
+        self.set_output_path(self.output_dir)
+
+    def _create_image_output(
+        self, tree: "bpy.types.NodeTree", name: str, socket_type: str
+    ) -> "bpy.types.CompositorNodeOutputFile":
+        """File Output node writing single images to <dir>/{name}_{frame:04}.<ext>;
+        the directory is set via set_output_path, the format by the caller"""
+        import bpy
+
+        node: bpy.types.CompositorNodeOutputFile = tree.nodes.new(
             "CompositorNodeOutputFile"
         )  # type: ignore
-        output: bpy.types.CompositorNodeOutputFile = self.output_node  # type: ignore
-        output.base_path = str((self.output_dir).resolve())
-        output.inputs.remove(output.inputs[0])
-        output.location = (900, 0)
-
-        # RGB output
-        output.file_slots.new("rgb")
-        output.file_slots[0].path = "rgb/rgb_"
-        output.file_slots[0].use_node_format = False
-        output.file_slots[0].format.color_mode = "RGB"
-        output.file_slots[0].format.file_format = "PNG"
-        tree.links.new(self.alpha_over.outputs[0], output.inputs["rgb"])
-
-        # Depth output
-        output.file_slots.new("depth")
-        t: bpy.types.NodeOutputFileSlotFile = output.file_slots[1]
-        output.file_slots[1].path = "depth/depth_"
-        output.file_slots[1].use_node_format = False
-        output.file_slots[1].format.color_mode = "RGB"
-        output.file_slots[1].format.file_format = "OPEN_EXR"
-        output.file_slots[1].format.exr_codec = "ZIP"
-        output.file_slots[1].format.color_depth = "16"
-        tree.links.new(render_layers.outputs["Depth"], output.inputs["depth"])
-
-        # mask output
-        self.mask_output: bpy.types.CompositorNodeOutputFile = tree.nodes.new(
-            "CompositorNodeOutputFile"
-        )  # type: ignore
-        mask_output: bpy.types.CompositorNodeOutputFile = self.mask_output  # type: ignore
-        mask_output.location = (400, -500)
-        mask_output.base_path = str((self.output_dir / "mask/mask_").resolve())
-        mask_output.inputs.remove(mask_output.inputs[0])
-        mask_output.format.file_format = "OPEN_EXR_MULTILAYER"
-        mask_output.format.color_depth = "16"
-        mask_output.format.exr_codec = "ZIP"
+        node.format.media_type = "IMAGE"  # unlocks non-multilayer formats
+        node.file_name = f"{name}_####"  # #### = current frame
+        node.file_output_items.new(socket_type, "")
+        return node

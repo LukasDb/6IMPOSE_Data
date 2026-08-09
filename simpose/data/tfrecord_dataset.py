@@ -19,18 +19,29 @@ class TFRecordDataset(Dataset):
         safe: bool = True,
     ):
 
-        # try to load meta info
-        if root_dir.joinpath("metadata.json").exists():
-            with open(root_dir / "metadata.json", "r") as f:
-                metadata = json.load(f)
+        # try to load meta info; for a concatenation root without its own
+        # metadata.json, use the first dataset's metadata found below it
+        metadata_paths = [root_dir / "metadata.json"] + sorted(
+            root_dir.glob("*/**/metadata.json")
+        )
+        for metadata_path in metadata_paths:
+            if metadata_path.exists():
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
+                break
         else:
             metadata = {"version": 2.0}
 
-        if metadata["version"] < 2:
+        version = metadata.get("version")
+        if version is None:
+            raise ValueError(f"metadata.json under {root_dir} has no 'version' key.")
+
+        if version < 2:
             return _TFRecordDatasetV1(
                 root_dir, get_keys=get_keys, pattern=pattern, num_parallel_files=num_parallel_files
             )
-        elif metadata["version"] < 3:
+        elif version < 5:
+            # v3 == v2 except the mask is uint8; v4 == v3 except depth is float16
             return _TFRecordDatasetV2(
                 root_dir,
                 get_keys=get_keys,
@@ -38,7 +49,10 @@ class TFRecordDataset(Dataset):
                 num_parallel_files=num_parallel_files,
                 shuffle_files=pre_shuffle,
                 safe=safe,
+                mask_dtype=tf.int32 if version < 3 else tf.uint8,
+                depth_dtype=tf.float32 if version < 4 else tf.float16,
             )
+        raise ValueError(f"Unsupported dataset version {version} under {root_dir}.")
 
     @staticmethod
     def get(
@@ -89,15 +103,28 @@ class _TFRecordDatasetV2(Dataset):
         num_parallel_files: int = 16,
         shuffle_files: bool = True,
         safe: bool = True,
+        mask_dtype: Any = None,
+        depth_dtype: Any = None,
     ) -> tf.data.Dataset:
 
+        key_mapping = dict(_TFRecordDatasetV2._key_mapping)
+        if mask_dtype is not None:
+            key_mapping[Dataset.MASK] = mask_dtype
+        if depth_dtype is not None:
+            for k in (Dataset.DEPTH, Dataset.DEPTH_R, Dataset.DEPTH_GT, Dataset.DEPTH_GT_R):
+                key_mapping[k] = depth_dtype
+
         if get_keys is None:
-            get_keys = list(_TFRecordDatasetV2._key_mapping.keys())
+            get_keys = list(key_mapping.keys())
 
         # check keys if in dataset
 
         # file_names = tf.io.match_filenames_once(str(root_dir / "data" / pattern))
         file_names = list(str(x) for x in root_dir.glob(pattern))
+        if len(file_names) == 0:
+            raise FileNotFoundError(
+                f"No tfrecord files found under {root_dir} with pattern '{pattern}'."
+            )
 
         if shuffle_files:
             file_names = tf.random.shuffle(file_names)
@@ -125,8 +152,7 @@ class _TFRecordDatasetV2(Dataset):
             proto = {k: tf.io.FixedLenFeature([], tf.string) for k in get_keys}
             serialized = tf.io.parse_single_example(example_proto, proto)
             return {
-                key: tf.io.parse_tensor(serialized[key], _TFRecordDatasetV2._key_mapping[key])
-                for key in get_keys
+                key: tf.io.parse_tensor(serialized[key], key_mapping[key]) for key in get_keys
             }
 
         num_parallel_files = max(1, num_parallel_files)
@@ -149,7 +175,7 @@ class _TFRecordDatasetV2(Dataset):
     def get(
         root_dir: Path,
         get_keys: None | list[str] = None,
-        pattern: str = "*.tfrecord",
+        pattern: str = "**/*.tfrecord",
         num_parallel_files: int = 16,
         shuffle_files: bool = True,
     ) -> tf.data.Dataset:

@@ -40,10 +40,9 @@ class Light(Placeable):
 
         try:
             light_data = self.light_data
+            bpy.data.objects.remove(self._bl_object)  # remove 'container'
         except ReferenceError:
             return
-        finally:
-            bpy.data.objects.remove(self._bl_object)  # remove 'container'
 
         if light_data.users == 0:
             # first, remove mesh data

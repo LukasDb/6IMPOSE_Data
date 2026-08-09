@@ -40,7 +40,7 @@ class Plane(Object):
 
         tree = material.node_tree
         rgb_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes["Material Output"]  # type: ignore
-        rgb_output.target = "CYCLES"
+        rgb_output.target = "ALL"
         bsdf = tree.nodes["Principled BSDF"]
         bsdf.inputs["Base Color"].default_value = (0.0, 0.0, 0.0, 1.0)  # type: ignore
         bsdf.inputs["Roughness"].default_value = 0.5  # type: ignore
@@ -60,8 +60,6 @@ class Plane(Object):
         image_node.name = "sp_image"
         image_node.location = (-600, 0)
         tree.links.new(image_node.outputs["Color"], hsv_node.inputs["Color"])
-
-        Plane.add_ID_to_material(material)
 
         # initialize object
         obj = Plane(bl_object)

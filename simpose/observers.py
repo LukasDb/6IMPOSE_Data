@@ -1,5 +1,8 @@
+import time
 from abc import ABC, abstractmethod
 from enum import Enum
+
+import simpose as sp
 
 
 class Event(Enum):
@@ -17,8 +20,12 @@ class Observable:
         self._observers: list[Observer] = []
 
     def notify(self, event: Event) -> None:
+        t_event_start = time.perf_counter()
         for o in [o for o in self._observers if o.event_trigger == event]:
+            t0 = time.perf_counter()
             o.call(self)
+            sp.logger.debug(f"{type(o).__name__}.call({event.value}) took {time.perf_counter() - t0:.2f}s")
+        sp.logger.debug(f"notify({event.value}) total: {time.perf_counter() - t_event_start:.2f}s")
 
 
 class Observer(ABC):

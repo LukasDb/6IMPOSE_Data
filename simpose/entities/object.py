@@ -444,6 +444,13 @@ class Object(Placeable):
         import bpy, pybullet as p
 
         try:
+            # custom properties are gone once the blender object is removed or the
+            # scene was reset, so read them first; a stale wrapper is a no-op
+            coll_id = self._bl_object.get("coll_id", None)
+        except ReferenceError:
+            return
+
+        try:
             self._remove_pybullet_object()
         except KeyError:
             pass
@@ -455,11 +462,11 @@ class Object(Placeable):
         if mesh.users == 0:
             # first, remove mesh data
             bpy.data.meshes.remove(mesh, do_unlink=True)
-            try:
-                coll_id = self._bl_object["coll_id"]
-                p.removeCollisionShape(coll_id)
-            except Exception:
-                pass
+            if coll_id is not None:
+                try:
+                    p.removeCollisionShape(coll_id)
+                except Exception:
+                    pass
         for material in materials:
             if material.users == 0:
                 bpy.data.materials.remove(material, do_unlink=True)
@@ -517,11 +524,10 @@ class Object(Placeable):
             tree: bpy.types.NodeTree = material.node_tree
             material.blend_method = "CLIP"
 
-            # set current material output to cycles only
+            # only Cycles renders now (the label channels are rasterized in EGL),
+            # so no second EEVEE-targeted output carrying the object-id network
             mat_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes["Material Output"]  # type: ignore
-            mat_output.target = "CYCLES"
-
-            Object.add_ID_to_material(material)
+            mat_output.target = "ALL"
 
             # insert hsv node in between current color and bsdf node
             hsv_node: bpy.types.bpy.types.ShaderNodeHueSaturation = tree.nodes.new("ShaderNodeHueSaturation")  # type: ignore
@@ -565,13 +571,21 @@ class Object(Placeable):
                 collision_obj_path.stem + "_vhacd.obj"
             )
             if not out_path.exists():
-                # hierarchical decomposition for dynamic collision of concave objects
+                # hierarchical decomposition for dynamic collision of concave objects;
+                # write to a per-process temp file + atomic rename, so a killed or
+                # concurrent worker can never leave a truncated cache file behind
+                import os
+
+                # keep the _vhacd.obj suffix so the ModelLoader glob skips leftovers
+                tmp_path = out_path.with_name(f"{out_path.stem}.tmp{os.getpid()}_vhacd.obj")
                 with sp.redirect_stdout():
                     p.vhacd(
                         str(collision_obj_path.resolve()),
-                        str(out_path),
+                        str(tmp_path),
                         str(collision_obj_path.parent.joinpath("log.txt").resolve()),
                     )
+                if tmp_path.exists():
+                    tmp_path.replace(out_path)
 
             # find the center of gravity
             bpy.ops.object.origin_set(type="ORIGIN_CENTER_OF_VOLUME")
@@ -611,64 +625,3 @@ class Object(Placeable):
             obj._add_pybullet_object()
         return obj
 
-    @staticmethod
-    def add_ID_to_material(mat: "bpy.types.Material") -> None:
-        tree = mat.node_tree
-
-        # create material output
-        mat_output: bpy.types.ShaderNodeOutputMaterial = tree.nodes.new("ShaderNodeOutputMaterial")  # type: ignore
-        mat_output.location = (1200, 0)
-        mat_output.target = "EEVEE"
-
-        # view layer object index: -1: rgb, 0: visib, 1: obj1, 2: obj2, ...
-        vl: bpy.types.ShaderNodeAttribute = tree.nodes.new("ShaderNodeAttribute")  # type: ignore
-        vl.attribute_type = "VIEW_LAYER"
-        vl.attribute_name = "object_index"
-        vl.location = (300, 100)
-
-        oi = tree.nodes.new("ShaderNodeObjectInfo")
-        oi.location = (300, -200)
-
-        # check if view layer is 0 -> object index mode
-        vl_is_object_index: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")  # type: ignore
-        vl_is_object_index.operation = "COMPARE"
-        vl_is_object_index.inputs[2].default_value = 0.1  # type: ignore
-        vl_is_object_index.inputs[1].default_value = 0  # type: ignore
-        vl_is_object_index.location = (600, 100)
-        tree.links.new(vl.outputs[0], vl_is_object_index.inputs[0])  # connect to view layer
-
-        # check if view layer== object_index -> 1 if object_index==self.index else 0
-        vl_is_current_object: bpy.types.ShaderNodeMath = tree.nodes.new("ShaderNodeMath")  # type: ignore
-        vl_is_current_object.operation = "COMPARE"
-        vl_is_current_object.inputs[2].default_value = 0.1  # type: ignore
-        vl_is_current_object.location = (600, -200)
-        # connect to view layer
-        tree.links.new(vl.outputs[0], vl_is_current_object.inputs[0])
-        # connect to own object index
-        tree.links.new(oi.outputs["Object Index"], vl_is_current_object.inputs[1])
-
-        transparent = tree.nodes.new("ShaderNodeBsdfTransparent")
-        transparent.location = (600, -100)
-
-        # if not in RGB and not in object_index mode, 1 or transparent
-        choose_1_or_transparent = tree.nodes.new("ShaderNodeMixShader")
-        choose_1_or_transparent.location = (800, -200)
-        # if current object is chosen
-        tree.links.new(vl_is_current_object.outputs[0], choose_1_or_transparent.inputs[0])
-        # if true: emit 1 (from the if statement)
-        tree.links.new(vl_is_current_object.outputs[0], choose_1_or_transparent.inputs[2])
-        # else: emit transparent
-        tree.links.new(transparent.outputs[0], choose_1_or_transparent.inputs[1])
-
-        # if not in RGB mode, choose transparent, 1, or object index
-        choose_index_or_else = tree.nodes.new("ShaderNodeMixShader")
-        choose_index_or_else.location = (1000, 0)
-        # if object index mode
-        tree.links.new(vl_is_object_index.outputs[0], choose_index_or_else.inputs[0])
-        # if true: emit object index
-        tree.links.new(oi.outputs["Object Index"], choose_index_or_else.inputs[2])
-        # else: emit 1 or transparent
-        tree.links.new(choose_1_or_transparent.outputs[0], choose_index_or_else.inputs[1])
-
-        # connect to material output
-        tree.links.new(choose_index_or_else.outputs[0], mat_output.inputs["Surface"])  # type: ignore

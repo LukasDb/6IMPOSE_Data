@@ -1,0 +1,105 @@
+# dropjects_lvis — LVIS counterpart of dropjects_omni.
+
+# Object source (vs omni3d):
+# - 24,773 curated Objaverse-LVIS assets, 3-40 cm tall, ~1,100 LVIS categories
+#   (omni3d: 5,902 models / 216 categories)
+# - source: file -> <root>/objects.json maps "<lvis_category>_<NNNN>" to
+#   "models/<uid>/model.obj", so OBJ_CLASSES read e.g. "mug_0007" and the
+#   category is recoverable by stripping the _NNNN suffix
+# - metric scale is baked into each mesh by convert_glbs.py from the objathor
+#   annotations; 6IMPOSE_META carries the per-asset mass. Do NOT set scale_range.
+#
+# See dropjects_objaverse.md for the pipeline
+
+Generator:
+  type: Dropjects
+  params:
+    n_workers: 16
+    n_parallel_on_gpu: 1  # Number of parallel processes per GPU
+    gpus: [0, 1,2, 3]  # List of GPUs to use
+    n_objects_per_scene: 50
+    n_images_per_scene: 50
+    drop_spread: 0.4  # Spread of objects when dropped (distance from origin in XY)
+    friction: 0.9  # Friction of objects
+    restitution: 0.1 # Restitution of objects
+    use_stereo: true  # Use stereo camera
+    cam_hfov: 70.0  # Camera horizontal field of view
+    cam_baseline: 0.063  # Camera baseline
+    img_w: 2560  # Image width
+    img_h: 1440  # Image height
+    floor_textures_dir: /media/storage/shared/datasets/backgrounds/  # Path to directory with textures for the floor
+
+Writer:
+  type: TFRecordWriter
+  params:
+
+    output_dir: /media/storage/shared/datasets/dropjects/dropjects_lvis  # Path to the output directory
+    # false -> resumable: get_pending_indices keeps complete shards and regenerates
+    # short/corrupt ones. Matters here because the run starts while the V-HACD cache
+    # is still warming, so an early restart is plausible and shouldn't discard work.
+    overwrite: false  # If True, overwrite existing files
+    start_index: 000000  # Start index of the generated data
+    end_index:   099999  # End index of the generated data (including)
+
+Randomizers:
+  appearance:
+    type: AppearanceRandomizer
+    params:
+      trigger: BEFORE_RENDER
+      metallic_range: 0.25  # uniform half-range around the default metallic value
+      roughness_range: 0.25  # uniform half-range around the default roughness value
+      hue_range: 0.01  # uniform half-range around the default hue value
+      saturation_range: 0.1  # uniform half-range around the default saturation value
+      value_range: 0.1  # uniform half-range around the default value value
+
+  light:
+    type: LightRandomizer
+    params:
+      trigger: BEFORE_RENDER
+      no_of_lights_range:  # Range of number of lights (inclusive)
+      - 1
+      - 3
+      energy_range:  # Range of energy of lights
+      - 200.0
+      - 600.0
+      color_range:  # Range of color of lights
+      - 0.8
+      - 1.0
+      distance_range:  # Range of distance of lights to the origin
+      - 3.0
+      - 8.0
+      size_range:  # Range of size of the area lights
+      - 0.8
+      - 2.0
+
+  background:
+    type: BackgroundRandomizer
+    params:
+      trigger: BEFORE_RENDER
+      backgrounds_dir: /media/storage/shared/datasets/backgrounds  # Path to the background directory
+
+  camera_placement:
+    type: CameraSceneRandomizer
+    params:
+      trigger: BEFORE_RENDER
+      origin:  # point the camera towards
+      - 0.0
+      - 0.0
+      - 0.0
+      pitch_range:  # Elevation of the camera to the origin (Z+ is up == 90°)
+      - 20.0
+      - 90.0
+      fill_range:  # Fraction of the image the largest object should fill
+      - 0.1
+      - 0.7
+      roll_jitter: 90.0  # Maximum jitter applied to camera roll angle when looking at the origin
+      pitch_jitter: 5.0  # Maximum jitter applied to camera pitch angle when looking at the origin
+      yaw_jitter: 5.0  # Maximum jitter applied to camera yaw angle when looking at the origin
+      min_cam2obj_distance: 0.1  # Minimum distance between camera and objects
+
+  distractors:
+    type: ModelLoader
+    params:
+      trigger: NONE
+      root: /media/storage/shared/datasets/objaverse_lvis_models
+      source: file  # ModelSource.FILE -- enum *value* is lowercase, unlike OMNI3D

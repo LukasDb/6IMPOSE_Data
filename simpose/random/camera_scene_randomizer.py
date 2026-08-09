@@ -47,20 +47,14 @@ class CameraSceneRandomizer(Randomizer):
 
         max_object_diameter = max(obj_diameters)
 
-        # find distance to closest object
-
-        # object_fov = np.arctan2(max_object_diameter, dist2cam) # how much fov in the image
-        # tan(object_fov) = max_object_diameter / dist2cam
-        # fill ratio = object_fov/2 / cam_fov
-
-        # object_fov = fill_ratio * cam_fov * 2
-        # dist2cam = max_object_diameter / tan(object_fov)
-        # dist2cam = max_object_diameter / tan(fill_ratio * cam_fov * 2)
-
+        # the largest object should subtend fill * hfov of the image:
+        # object_fov = fill * cam_fov
+        # tan(object_fov / 2) = (max_object_diameter / 2) / dist2cam
+        # dist2cam = (max_object_diameter / 2) / tan(fill * cam_fov / 2)
         fov = cam.hfov
         distance_range = (
-            max_object_diameter / np.tan(p.fill_range[0] * fov * 2),
-            max_object_diameter / np.tan(p.fill_range[1] * fov * 2),
+            max_object_diameter / 2 / np.tan(p.fill_range[0] * fov / 2),
+            max_object_diameter / 2 / np.tan(p.fill_range[1] * fov / 2),
         )
 
         assert (p.pitch_range[1] - p.pitch_range[0]) >= 5, "Pitch range is too small"
@@ -72,19 +66,19 @@ class CameraSceneRandomizer(Randomizer):
                 distance_range[1], distance_range[0]
             )  # small fill range -> large distance
             rot = R.random()
-            loc = rot.apply(cam_view) * radius + np.array(p.origin)
-            d = np.linalg.norm(loc[:2])
-            pitch = np.arctan2(loc[2], d) * 180 / np.pi
-            if p.pitch_range[0] < pitch < p.pitch_range[1]:
-                dists2objects = [
-                    np.linalg.norm(np.array(loc) - np.array(obj_loc)) - obj_dia / 2
-                    for obj_loc, obj_dia in zip(obj_locations, obj_diameters)
-                ]
+            candidate = rot.apply(cam_view) * radius + np.array(p.origin)
+            d = np.linalg.norm(candidate[:2])
+            pitch = np.arctan2(candidate[2], d) * 180 / np.pi
+            if not (p.pitch_range[0] < pitch < p.pitch_range[1]):
+                continue
 
-                if all(np.array(dists2objects) > p.min_cam2obj_distance):
-                    break
-                else:
-                    loc = None
+            dists2objects = [
+                np.linalg.norm(np.array(candidate) - np.array(obj_loc)) - obj_dia / 2
+                for obj_loc, obj_dia in zip(obj_locations, obj_diameters)
+            ]
+            if all(np.array(dists2objects) > p.min_cam2obj_distance):
+                loc = candidate
+                break
 
         if loc is None:
             raise RuntimeError("Could not find a valid camera location.")

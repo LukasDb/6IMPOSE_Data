@@ -33,9 +33,9 @@ class CameraFrustumRandomizer(Randomizer):
         aspect_ratio = scene.resolution[0] / scene.resolution[1]
         cam = scene.get_cameras()[0]
         cam_data = cam.data
+        # half-angles; the vertical one must be scaled in tan space, not linearly
         hfov = cam_data.angle_x / 2.0
-        vfov = cam_data.angle_x / 2.0 / aspect_ratio
-        # min_fov = min(hfov, vfov)
+        vfov = np.arctan(np.tan(cam_data.angle_x / 2.0) / aspect_ratio)
 
         r_range = self._r_range
         yp_limit = self._yp_limit
@@ -52,7 +52,7 @@ class CameraFrustumRandomizer(Randomizer):
             y = np.sin(pitch) * r
             z = np.cos(pitch) * np.cos(yaw) * r
 
-            pos = np.array([x, y, z]) @ cam_rot.as_matrix() + np.array(cam_origin)
+            pos = cam_rot.apply(np.array([x, y, z])) + np.array(cam_origin)
             subject.set_location(pos)
             subject.set_rotation(R.random())
 

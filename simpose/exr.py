@@ -9,6 +9,10 @@ class EXR:
         self.filepath = filepath
 
     def read(self, channel_name: str) -> np.ndarray:
+        return self.read_channels([channel_name])[channel_name]
+
+    def read_channels(self, channel_names: "list[str]") -> dict[str, np.ndarray]:
+        """read multiple channels with a single file open"""
         if not self.filepath.exists():
             raise FileNotFoundError(f"File {self.filepath} does not exist")
 
@@ -18,26 +22,28 @@ class EXR:
             channels = header["channels"]
             height, width = header["dataWindow"].max.y + 1, header["dataWindow"].max.x + 1
 
-            exr_channel = channels[channel_name]
-            pixel_type = exr_channel.type
-            np_dtype: type[np.floating | np.integer]
-            if pixel_type == Imath.PixelType(Imath.PixelType.FLOAT):
-                np_dtype = np.float32
-            elif pixel_type == Imath.PixelType(Imath.PixelType.UINT):
-                np_dtype = np.uint32
-            elif pixel_type == Imath.PixelType(Imath.PixelType.HALF):
-                np_dtype = np.float16
-            else:
-                raise ValueError(f"Unsupported EXR pixel type: {pixel_type}")
+            imgs: dict[str, np.ndarray] = {}
+            for channel_name in channel_names:
+                exr_channel = channels[channel_name]
+                pixel_type = exr_channel.type
+                np_dtype: type[np.floating | np.integer]
+                if pixel_type == Imath.PixelType(Imath.PixelType.FLOAT):
+                    np_dtype = np.float32
+                elif pixel_type == Imath.PixelType(Imath.PixelType.UINT):
+                    np_dtype = np.uint32
+                elif pixel_type == Imath.PixelType(Imath.PixelType.HALF):
+                    np_dtype = np.float16
+                else:
+                    raise ValueError(f"Unsupported EXR pixel type: {pixel_type}")
 
-            img = np.frombuffer(
-                exr_file.channel(
-                    channel_name,
-                    pixel_type,
-                ),
-                dtype=np_dtype,
-            ).reshape((height, width))
-            return img
+                imgs[channel_name] = np.frombuffer(
+                    exr_file.channel(
+                        channel_name,
+                        pixel_type,
+                    ),
+                    dtype=np_dtype,
+                ).reshape((height, width))
+            return imgs
         finally:
             exr_file.close()
 

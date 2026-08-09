@@ -1,15 +1,12 @@
 import simpose as sp
-import itertools as it
 from abc import ABC, abstractmethod
 import multiprocessing as mp
-import multiprocessing.queues as mpq
 import numpy as np
 from pydantic import validate_call
 import functools
 import time
 from tqdm import tqdm
 import queue
-from typing import Any
 
 
 class GeneratorParams(ABC, sp.base_config.BaseConfig):
@@ -56,10 +53,21 @@ class Generator(ABC):
 
     def start(self) -> None:
         mp.set_start_method("spawn", force=True)
+
+        # fail fast: construct the randomizers once in the parent, so bad paths /
+        # empty model dirs abort with a clear error instead of crash-looping workers
+        for rand_name, rand_config in self.randomizer_configs.items():
+            try:
+                Generator.get_randomizer(rand_config)
+            except Exception as e:
+                raise RuntimeError(f"Invalid config for randomizer '{rand_name}': {e}") from e
+
         writer = self.Writer(self.writer_params(), comm=mp.Queue())
+        # validate the writer state (e.g. overwrite refusal) BEFORE dump_config
+        # overwrites the existing dataset's config.yaml
+        pending_indices = writer.get_pending_indices()
         writer.dump_config(self.config)
 
-        pending_indices = writer.get_pending_indices()
         n_datapoints = len(pending_indices)
         if n_datapoints == 0:
             sp.logger.info("No images to render.")
@@ -83,64 +91,88 @@ class Generator(ABC):
         n_workers: int,
         n_datapoints: int,
     ) -> None:
+        MAX_SHARD_ATTEMPTS = 3
+
         num_rendered_accumulator: mp.Queue[int] = mp.Queue()
         success_accumulator: mp.Queue[int] = mp.Queue()
-        job_queue: queue.Queue[
-            tuple[
-                np.ndarray,
-                sp.writers.WriterConfig,
-                type[sp.writers.Writer],
-                GeneratorParams,  # generator config
-                Any,  # randomizer configs
-                mpq.Queue,
-            ]
-        ] = queue.Queue()
+        job_queue: queue.Queue[tuple[np.ndarray, sp.writers.WriterConfig]] = queue.Queue()
         current_jobs: dict[mp.Process, np.ndarray] = {}
-        active_gpus = it.cycle(params.gpus or [0])
+        current_comms: dict[mp.Process, tuple[sp.MainSemaphore, sp.Comm]] = {}
+        current_gpu: dict[mp.Process, int] = {}
+        failed_attempts: dict[tuple[int, int], int] = {}
+        gpu_list = params.gpus or [0]
+        # live (launched, not-yet-reaped) worker count per GPU: used to pick the
+        # least-loaded GPU at *launch* time instead of baking a GPU into a job at
+        # *schedule* time. Schedule-time round-robin bakes an assignment over the
+        # whole backlog up front; since jobs are dequeued FIFO as workers die (in
+        # scene-render-time order, not GPU order), the job that back-fills a GPU
+        # that just freed up is essentially a random pick from that round-robin
+        # sequence - it can easily land on an already-busy GPU while the one that
+        # just freed gets nothing new queued for it, and sits idle for the rest
+        # of the run once its own backlog of pre-baked jobs runs out.
+        gpu_worker_count = {gpu: 0 for gpu in gpu_list}
         semaphores = {
-            gpu: sp.MainSemaphore(value=params.n_parallel_on_gpu, timeout=100.0)
-            for gpu in params.gpus or [0]
+            gpu: sp.MainSemaphore(value=params.n_parallel_on_gpu, timeout=600.0)
+            for gpu in gpu_list
         }
 
         def schedule_job(index_list: np.ndarray) -> None:
-            active_gpu = next(active_gpus)
-
-            # configure for this job
             writer_config = self.writer_params()
             writer_config.start_index = min(index_list)
             writer_config.end_index = max(index_list)
-            writer_config._active_gpu = active_gpu
             writer_config._q_rendered = num_rendered_accumulator
 
-            job_queue.put(
-                (
+            job_queue.put((index_list, writer_config))
+
+        def launch_worker() -> bool:
+            try:
+                index_list, writer_config = job_queue.get(block=False)
+            except queue.Empty:
+                return False
+            # assign the GPU now, to whichever one currently has the fewest live
+            # workers - naturally routes new work to a GPU that just freed up
+            active_gpu = min(gpu_list, key=lambda g: gpu_worker_count[g])
+            writer_config._active_gpu = active_gpu
+            gpu_worker_count[active_gpu] += 1
+
+            # create the semaphore comm only when the worker actually launches:
+            # one queue (2 fds) per live worker instead of per scheduled shard
+            semaphore = semaphores[active_gpu]
+            comm = semaphore.get_comm()
+            proc = mp.Process(
+                target=self.process,
+                args=(
                     index_list,
                     writer_config,
                     self.Writer,
                     self.generator_params,
                     self.randomizer_configs,
-                    semaphores[active_gpu].get_comm(),
+                    comm,
                     success_accumulator,
-                )
+                ),
+                daemon=True,
             )
-
-        def launch_worker() -> bool:
-            try:
-                new_job = job_queue.get(block=False)
-            except queue.Empty:
-                return False
-            proc = mp.Process(target=self.process, args=new_job, daemon=True)
             proc.start()
-            current_jobs[proc] = new_job[0]
-            sp.logger.info(f"Launched new worker: {proc.name}")
+            current_jobs[proc] = index_list
+            current_comms[proc] = (semaphore, comm)
+            current_gpu[proc] = active_gpu
+            sp.logger.info(f"Launched new worker: {proc.name} on GPU {active_gpu}")
             return True
 
-        # initialize job queue with all jobs
-        shards = np.array_split(
-            pending_indices, max(1, n_datapoints // self.generator_params.worker_shards)
+        # initialize job queue with all jobs; split at index gaps first, so every
+        # shard is a contiguous range (resume derives a shard's expected record
+        # count from the {start}_{end} filename). fixed-size chunks, never longer
+        # than worker_shards: a shard must not span more than one scene, because
+        # object ids are only consistent within a scene
+        ws = self.generator_params.worker_shards
+        contiguous_runs = np.split(
+            pending_indices, np.where(np.diff(pending_indices) != 1)[0] + 1
         )
-        for index_list in shards:
-            schedule_job(index_list)
+        for run in contiguous_runs:
+            for chunk_start in range(0, len(run), ws):
+                index_list = run[chunk_start : chunk_start + ws]
+                if len(index_list) > 0:
+                    schedule_job(index_list)
 
         # create and start workers, wait for started
         for _ in range(n_workers):
@@ -153,7 +185,7 @@ class Generator(ABC):
         bar = tqdm(total=n_datapoints, disable=False, smoothing=0, dynamic_ncols=True)
         while not finished:
             # operate semaphores, reschedule job on timeout
-            time.sleep(0.2)
+            time.sleep(0.05)
             for s in semaphores.values():
                 s.run()
 
@@ -171,28 +203,66 @@ class Generator(ABC):
                         proc.kill()
                     except Exception:
                         pass
-                    
-            time.sleep(0.2)
+
+            time.sleep(0.05)
 
             # check dead workers
-            for proc in list([x for x in current_jobs.keys() if not x.is_alive()]):
-                # for s in [x for x in semaphores.values() if x.is_acquired(proc.name)]:
+            dead_procs = list([x for x in current_jobs.keys() if not x.is_alive()])
+            if len(dead_procs) > 0:
+                # a worker's success message can arrive after its process death is
+                # visible; give the queue a grace period before treating it as crashed
+                time.sleep(0.5)
+                while True:
+                    try:
+                        successful_workers.append(success_accumulator.get(block=False))
+                    except queue.Empty:
+                        break
+
+            for proc in dead_procs:
                 if proc.pid not in successful_workers:
-                    # release semaphore
-                    sp.logger.error(f"{proc.name} died. Releasing {s} and rescheduling.")
+                    sp.logger.error(f"{proc.name} died. Releasing its semaphore and rescheduling.")
                     try:
                         proc.kill()
                     except Exception:
                         pass
 
-                    try:
-                        s.release_for(proc.name)
-                    except Exception:
-                        pass
-                    # reschedule job (since worker did not release -> likely crashed)
-                    schedule_job(current_jobs[proc])
+                    # release the semaphore this worker actually held
+                    for sem in semaphores.values():
+                        if sem.is_acquired(proc.name):
+                            sem.release_for(proc.name)
+
+                    # reschedule job (since worker did not release -> likely crashed),
+                    # but give up after repeated failures instead of looping forever
+                    index_list = current_jobs[proc]
+                    shard_key = (int(min(index_list)), int(max(index_list)))
+                    failed_attempts[shard_key] = failed_attempts.get(shard_key, 0) + 1
+                    if failed_attempts[shard_key] >= MAX_SHARD_ATTEMPTS:
+                        for p_ in current_jobs:
+                            try:
+                                p_.kill()
+                            except Exception:
+                                pass
+                        bar.close()
+                        raise RuntimeError(
+                            f"Shard {shard_key[0]}..{shard_key[1]} failed "
+                            f"{MAX_SHARD_ATTEMPTS} times; aborting the run. Check the "
+                            "worker error output above for the underlying failure."
+                        )
+                    schedule_job(index_list)
                 else:
                     successful_workers.remove(proc.pid)
+
+                # drop the dead worker's semaphore comm so it is not polled anymore
+                # and its fds are freed
+                semaphore_comm = current_comms.pop(proc, None)
+                if semaphore_comm is not None:
+                    semaphore_comm[0].remove_comm(semaphore_comm[1])
+
+                # free up its GPU slot before picking the next worker's GPU, so
+                # the replacement is routed back to the GPU that just freed up
+                gpu = current_gpu.pop(proc, None)
+                if gpu is not None:
+                    gpu_worker_count[gpu] -= 1
 
                 # remove from current jobs
                 current_jobs.pop(proc)
@@ -241,6 +311,10 @@ class Generator(ABC):
         import os
 
         os.environ["CUDA_VISIBLE_DEVICES"] = str(writer_config._active_gpu)
+        # CUDA_VISIBLE_DEVICES does not constrain EGL device enumeration, so the
+        # EGL rasterizer would otherwise put every worker's label passes on
+        # physical GPU 0 regardless of this worker's assigned GPU
+        os.environ["SIMPOSE_EGL_DEVICE"] = str(writer_config._active_gpu)
 
         np.random.seed(mp.current_process().pid)
         for handler in sp.logger.handlers:

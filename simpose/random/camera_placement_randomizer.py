@@ -44,10 +44,11 @@ class CameraPlacementRandomizer(Randomizer):
         loc = None
         for _ in range(10000):
             rot = R.random()
-            loc = rot.apply(cam_view) * radius + np.array(p.origin)
-            d = np.linalg.norm(loc[:2])
-            pitch = np.arctan2(loc[2], d) * 180 / np.pi
+            candidate = rot.apply(cam_view) * radius + np.array(p.origin)
+            d = np.linalg.norm(candidate[:2])
+            pitch = np.arctan2(candidate[2], d) * 180 / np.pi
             if p.pitch_range[0] < pitch < p.pitch_range[1]:
+                loc = candidate
                 break
 
         if loc is None:

@@ -7,7 +7,7 @@ from .randomizer import Randomizer, RandomizerConfig, register_operator
 
 
 class LightRandomizerConfig(RandomizerConfig):
-    no_of_lights_range: Tuple[int, int] = (2, 4)
+    no_of_lights_range: Tuple[int, int] = (2, 3)  # inclusive
     energy_range: Tuple[float, float] = (300, 800)
     color_range: Tuple[float, float] = (0.8, 1.0)
     distance_range: Tuple[float, float] = (3.0, 10.0)
@@ -42,7 +42,8 @@ class LightRandomizer(Randomizer):
             light.remove()
         self._lights.clear()
 
-        n_lights = np.random.randint(*self._no_of_lights_range)
+        # inclusive upper bound, like all other *_range config values
+        n_lights = np.random.randint(self._no_of_lights_range[0], self._no_of_lights_range[1] + 1)
 
         for i in range(n_lights):
             energy = np.random.uniform(*self._energy_range)

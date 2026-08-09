@@ -215,6 +215,7 @@ class _BOPBase(TFRecordDataset):
                     px_count_visib = np.count_nonzero(obj_mask_visib > 0)
                     px_count_all = np.count_nonzero(obj_mask > 0)
                     px_count_valid = np.count_nonzero((obj_mask_visib > 0) & (depth > 0))
+                    visib_fract = 0.0
                     if px_count_all != 0:
                         visib_fract = px_count_visib / px_count_all
 

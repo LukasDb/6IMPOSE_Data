@@ -22,8 +22,9 @@ coloredlogs.install(
 
 from simpose.render_product import RenderProduct, ObjectAnnotation
 from simpose.exr import EXR
-from simpose.remote_semaphore import RemoteSemaphore, MainSemaphore
+from simpose.remote_semaphore import RemoteSemaphore, MainSemaphore, Comm
 from simpose.redirect_stdout import redirect_stdout
+from simpose.egl_rasterizer import EGLRasterizer, get_rasterizer
 import simpose.observers as observers
 import simpose.entities as entities
 from simpose.scene import Scene
