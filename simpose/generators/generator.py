@@ -14,6 +14,8 @@ class GeneratorParams(ABC, sp.base_config.BaseConfig):
     n_parallel_on_gpu: int
     gpus: None | list[int] = None
     worker_shards: int = 100
+    worker_stall_timeout: float = 1200.0
+    worker_progress_timeout: float = 7200.0
 
     @classmethod
     def get_description(cls) -> dict[str, str]:
@@ -24,6 +26,14 @@ class GeneratorParams(ABC, sp.base_config.BaseConfig):
                 "n_parallel_on_gpu": "Number of parallel processes per GPU",
                 "gpus": "List of GPUs to use",
                 "worker_shards": "Number of shards to split the work into",
+                "worker_stall_timeout": (
+                    "Seconds without a worker heartbeat before it is dumped, killed and"
+                    " its shard rescheduled (0 disables)"
+                ),
+                "worker_progress_timeout": (
+                    "Seconds without a written datapoint before a worker is dumped,"
+                    " killed and its shard rescheduled (0 disables)"
+                ),
             }
         )
         return description
@@ -93,8 +103,23 @@ class Generator(ABC):
     ) -> None:
         MAX_SHARD_ATTEMPTS = 3
 
-        num_rendered_accumulator: mp.Queue[int] = mp.Queue()
+        num_rendered_accumulator: mp.Queue[tuple[str, int]] = mp.Queue()
         success_accumulator: mp.Queue[int] = mp.Queue()
+        heartbeat_accumulator: mp.Queue[str] = mp.Queue()
+        # Two independent liveness signals per worker, because the GPU semaphore's
+        # own timeout only covers a worker while it waits for or holds the
+        # semaphore: scene setup, model loading, geometry upload and writing all
+        # happen outside it, and a worker wedged there was invisible to this loop
+        # forever (observed: 16 workers idle for 7 h, nothing timed out).
+        #   heartbeat: is it still running python at all? goes silent when a C
+        #              extension deadlocks with the GIL held, which is what a hung
+        #              driver call looks like from here.
+        #   progress:  is it still turning out datapoints? catches the worker that
+        #              stays responsive but no longer gets anywhere.
+        last_heartbeat: dict[mp.Process, float] = {}
+        last_progress: dict[mp.Process, float] = {}
+        stall_timeout = params.worker_stall_timeout
+        progress_timeout = params.worker_progress_timeout
         job_queue: queue.Queue[tuple[np.ndarray, sp.writers.WriterConfig]] = queue.Queue()
         current_jobs: dict[mp.Process, np.ndarray] = {}
         current_comms: dict[mp.Process, tuple[sp.MainSemaphore, sp.Comm]] = {}
@@ -149,10 +174,12 @@ class Generator(ABC):
                     self.randomizer_configs,
                     comm,
                     success_accumulator,
+                    heartbeat_accumulator,
                 ),
                 daemon=True,
             )
             proc.start()
+            last_heartbeat[proc] = last_progress[proc] = time.time()
             current_jobs[proc] = index_list
             current_comms[proc] = (semaphore, comm)
             current_gpu[proc] = active_gpu
@@ -195,6 +222,16 @@ class Generator(ABC):
                 except queue.Empty:
                     break
 
+            # note who is still alive in python
+            while True:
+                try:
+                    beating = heartbeat_accumulator.get(block=False)
+                except queue.Empty:
+                    break
+                for proc in current_jobs:
+                    if proc.name == beating:
+                        last_heartbeat[proc] = time.time()
+
             # check alive workers
             for proc in list([x for x in current_jobs.keys() if x.is_alive()]):
                 if proc.pid in successful_workers:
@@ -203,6 +240,32 @@ class Generator(ABC):
                         proc.kill()
                     except Exception:
                         pass
+                    continue
+
+                # a wedged worker is killed, which routes it into the dead-worker
+                # branch below: semaphore released, shard rescheduled. Its stacks are
+                # dumped first, since killing it destroys the only evidence of where
+                # it hung (and it may well be unattachable by py-spy/gdb under the
+                # default kernel.yama.ptrace_scope=1)
+                now = time.time()
+                silent_for = now - last_heartbeat.get(proc, now)
+                idle_for = now - last_progress.get(proc, now)
+                if stall_timeout > 0 and silent_for >= stall_timeout:
+                    reason = f"stopped running python {silent_for:.0f}s ago"
+                elif progress_timeout > 0 and idle_for >= progress_timeout:
+                    reason = f"has not written a datapoint in {idle_for:.0f}s"
+                else:
+                    continue
+
+                dump = sp.diagnostics.request_stack_dump(proc.pid)
+                sp.logger.error(
+                    f"{proc.name} {reason}. Stacks written to {dump}; "
+                    "killing it and restarting its shard."
+                )
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
 
             time.sleep(0.05)
 
@@ -266,6 +329,8 @@ class Generator(ABC):
 
                 # remove from current jobs
                 current_jobs.pop(proc)
+                last_heartbeat.pop(proc, None)
+                last_progress.pop(proc, None)
 
                 # in any case try to launch a new worker for each dead worker
                 launch_worker()
@@ -286,9 +351,13 @@ class Generator(ABC):
             # empty accumulator and update progress
             while True:
                 try:
-                    bar.update(num_rendered_accumulator.get(block=False))
+                    rendered_by, n_rendered = num_rendered_accumulator.get(block=False)
                 except queue.Empty:
                     break
+                bar.update(n_rendered)
+                for proc in current_jobs:
+                    if proc.name == rendered_by:
+                        last_progress[proc] = time.time()
             bar.set_postfix_str(
                 f"| queued: {job_queue.qsize()} jobs | current: {[x.name for x in current_jobs.keys()]}"
             )
@@ -306,6 +375,7 @@ class Generator(ABC):
         randomizer_configs: dict[str, dict[str, str | dict]],
         comm: mp.Queue,
         success_accumulator: mp.Queue,
+        heartbeat: "mp.Queue | None" = None,
     ) -> None:
         import silence_tensorflow.auto
         import os
@@ -315,6 +385,16 @@ class Generator(ABC):
         # EGL rasterizer would otherwise put every worker's label passes on
         # physical GPU 0 regardless of this worker's assigned GPU
         os.environ["SIMPOSE_EGL_DEVICE"] = str(writer_config._active_gpu)
+
+        # started before anything heavy, so a hang in scene setup / model loading
+        # is covered too, not just the rendering. A thread rather than a per-frame
+        # tick because whole scenes pass between two frames being written; and it
+        # goes quiet exactly when it should -- a C extension deadlocking with the
+        # GIL held stops this thread as dead as the main one
+        if heartbeat is not None:
+            cls._start_heartbeat(
+                heartbeat, cls.heartbeat_interval(generator_config.worker_stall_timeout)
+            )
 
         np.random.seed(mp.current_process().pid)
         for handler in sp.logger.handlers:
@@ -335,6 +415,31 @@ class Generator(ABC):
         sp.logger.error(f"exited writer, now exiting proc {mp.current_process().name}")
         success_accumulator.put(mp.current_process().pid)
         exit(0)
+
+    MAX_HEARTBEAT_INTERVAL = 15.0
+
+    @classmethod
+    def heartbeat_interval(cls, stall_timeout: float) -> float:
+        """several beats per timeout window, so no single late beat can trip the
+        watchdog on a healthy worker"""
+        return max(1.0, min(cls.MAX_HEARTBEAT_INTERVAL, stall_timeout / 4.0))
+
+    @classmethod
+    def _start_heartbeat(cls, heartbeat: mp.Queue, interval: float) -> None:
+        """tell the parent this worker is still executing python, until it isn't"""
+        import threading
+
+        name = mp.current_process().name
+
+        def beat() -> None:
+            while True:
+                try:
+                    heartbeat.put(name)
+                except Exception:
+                    return  # parent gone / queue closed -- the run is over anyway
+                time.sleep(interval)
+
+        threading.Thread(target=beat, daemon=True, name="sp-heartbeat").start()
 
     @staticmethod
     @abstractmethod

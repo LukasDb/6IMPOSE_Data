@@ -20,6 +20,12 @@ coloredlogs.install(
     reconfigure=False,
 )
 
+from simpose import diagnostics
+
+# every process (parent and workers) can be asked for its thread stacks with
+# `kill -USR1 <pid>`, even when it is deadlocked with the GIL held
+diagnostics.install_stack_dumper()
+
 from simpose.render_product import RenderProduct, ObjectAnnotation
 from simpose.exr import EXR
 from simpose.remote_semaphore import RemoteSemaphore, MainSemaphore, Comm

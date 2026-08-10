@@ -145,6 +145,11 @@ class MainSemaphore:
             proc = [p for p in mp.active_children() if p.name == name]
             sp.logger.error(f"Semaphore timed out for {name}. Terminating process.")
             if len(proc) == 1:
+                # dump before killing: the timeout means it hung inside (or waiting
+                # for) the GPU section, and the stacks are the only record of where
+                dump = sp.diagnostics.request_stack_dump(proc[0].pid)
+                if dump is not None:
+                    sp.logger.error(f"Stacks of {name} written to {dump}")
                 # kill if found (otherwise it's already dead)
                 proc[0].kill()
 

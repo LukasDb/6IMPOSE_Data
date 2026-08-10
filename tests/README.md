@@ -16,6 +16,7 @@ Requires the generation environment (`tensorflow`, `bpy`, `pybullet`, `OpenEXR`)
 | `test_resume_roundtrip.py` | partial run → `get_pending_indices` → resumed run → exactly one record per index; truncated and short shards detected and regenerated; `overwrite: true` bypass |
 | `test_config_roundtrip.py` | `generate_template_config()` → YAML → pydantic validation for every generator in `__generators__`, plus the checked-in `dropjects.yml` |
 | `test_blender_roundtrips.py` | camera K → Blender shifts/lens → K (off-center principal point); Blender pose → PyBullet → Blender (COM offset algebra); quaternion `[x,y,z,w]` convention; camera fill-ratio geometry; atomic V-HACD cache |
+| `test_stall_watchdog.py` | worker wedge → parent watchdogs → stack dump + shard retry: a GIL-holding wedge (heartbeat watchdog), a responsive worker that never writes a datapoint (progress watchdog), and a merely slow worker that must survive both. No Blender, but ~3 min: it waits out real timeouts |
 | `test_egl_labels.py` | scene geometry → EGL rasterizer → mask/annotations: silhouette vs analytic projection, occlusion ordering in the instance mask, the floor plane occluding as background, object-id compaction for the uint8 mask, `scale` honoured on the first render, `render_batch` per-frame callback + engine/view-layer state |
 
 Notes:

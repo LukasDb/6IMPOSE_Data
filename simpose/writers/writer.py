@@ -60,6 +60,9 @@ class Writer(ABC):
             sp.RemoteSemaphore(comm) if comm is not None else None
         )
         self.q_rendered: mp.Queue | None = params._q_rendered
+        # tagged with the worker's name so the parent can tell *which* worker is
+        # still turning out datapoints, not just that someone is
+        self._proc_name = mp.current_process().name
 
     def __enter__(self) -> "Writer":
         return self
@@ -93,7 +96,7 @@ class Writer(ABC):
             try:
                 self._write_data(dataset_index, scene=scene, render_product=render_product)
                 if self.q_rendered is not None:
-                    self.q_rendered.put(1)
+                    self.q_rendered.put((self._proc_name, 1))
             except Exception as e:
                 # clean up possibly corrupted data
                 sp.logger.critical(f"Error while generating data no. {dataset_index}")
